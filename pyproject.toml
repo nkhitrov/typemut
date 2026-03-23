@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "typemut"
+version = "0.1.0"
+description = "Mutation testing for type annotations"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "parso>=0.8",
+    "rich>=13.0",
+    "click>=8.0",
+]
+
+[project.scripts]
+typemut = "typemut.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/typemut"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "mypy>=1.0",
+]

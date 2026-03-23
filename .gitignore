@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.idea/
+.pytest_cache/
+.mypy_cache/
+*.sqlite
+typemut-report.html
+dist/
+build/
