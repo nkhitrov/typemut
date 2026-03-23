@@ -38,5 +38,9 @@ def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]
         from typemut.operators.container import SwapContainerType
 
         operators.append(SwapContainerType())
+    if config.tuple_ellipsis:
+        from typemut.operators.tuple_ellipsis import TupleEllipsis
+
+        operators.append(TupleEllipsis())
 
     return operators
