@@ -19,6 +19,7 @@ class AnnotationContext(Enum):
     VARIABLE = "variable"
     PARAMETER = "parameter"
     RETURN = "return"
+    TYPEVAR = "typevar"
 
 
 @dataclass
@@ -87,6 +88,119 @@ def _is_any(node: BaseNode | Leaf) -> bool:
     return False
 
 
+def _has_typing_typevar_import(tree: Module) -> tuple[bool, bool]:
+    """Check if TypeVar is imported from typing.
+
+    Returns (bare_import, qualified_import) where:
+    - bare_import: `from typing import TypeVar` (use as TypeVar(...))
+    - qualified_import: `import typing` (use as typing.TypeVar(...))
+    """
+    bare = False
+    qualified = False
+    for child in tree.children:
+        if isinstance(child, BaseNode):
+            if child.type == "import_from":
+                # from typing import TypeVar  /  from typing import ..., TypeVar, ...
+                code = child.get_code()
+                # Check the module is 'typing'
+                children_values = [
+                    c.value if isinstance(c, Leaf) else ""
+                    for c in child.children
+                ]
+                if "typing" in children_values:
+                    # Check imported names
+                    for c in child.children:
+                        if isinstance(c, Leaf) and c.value == "TypeVar":
+                            bare = True
+                        elif isinstance(c, BaseNode):
+                            # import_as_names node
+                            for sub in c.children:
+                                if isinstance(sub, Leaf) and sub.value == "TypeVar":
+                                    bare = True
+            elif child.type == "simple_stmt":
+                for sub in child.children:
+                    if isinstance(sub, BaseNode) and sub.type == "import_name":
+                        code = sub.get_code()
+                        if "import" in code and "typing" in code:
+                            qualified = True
+                    elif isinstance(sub, BaseNode) and sub.type == "import_from":
+                        children_values = [
+                            c.value if isinstance(c, Leaf) else ""
+                            for c in sub.children
+                        ]
+                        if "typing" in children_values:
+                            for c in sub.children:
+                                if isinstance(c, Leaf) and c.value == "TypeVar":
+                                    bare = True
+                                elif isinstance(c, BaseNode):
+                                    for s in c.children:
+                                        if isinstance(s, Leaf) and s.value == "TypeVar":
+                                            bare = True
+        elif isinstance(child, Leaf):
+            pass  # skip plain leaves at module level
+    return bare, qualified
+
+
+def _is_typevar_call(node: BaseNode, bare: bool, qualified: bool) -> BaseNode | None:
+    """Check if an expr_stmt contains a TypeVar(...) call and return the call node.
+
+    Handles both `T = TypeVar("T")` and `T = typing.TypeVar("T")`.
+    """
+    # expr_stmt: name '=' power/trailer/atom
+    children = node.children
+    if len(children) < 3:
+        return None
+    # Check for '=' operator
+    has_assign = False
+    for c in children:
+        if isinstance(c, Leaf) and c.value == "=":
+            has_assign = True
+            break
+    if not has_assign:
+        return None
+
+    # The RHS is everything after '='
+    rhs = children[-1] if len(children) >= 3 else None
+    if rhs is None:
+        return None
+
+    # Check for bare TypeVar(...) call — rhs is a power node: TypeVar trailer(...)
+    # or an atom + trailer
+    call_node = _extract_typevar_power(rhs, bare, qualified)
+    return call_node
+
+
+def _extract_typevar_power(
+    node: BaseNode | Leaf, bare: bool, qualified: bool
+) -> BaseNode | None:
+    """Extract TypeVar(...) call from RHS of assignment."""
+    if isinstance(node, BaseNode) and node.type in ("power", "atom_expr"):
+        children = node.children
+        # bare: TypeVar(...)  →  power: name('TypeVar') trailer('(' ... ')')
+        if bare and len(children) >= 2:
+            if (
+                isinstance(children[0], Leaf)
+                and children[0].value == "TypeVar"
+                and isinstance(children[1], BaseNode)
+                and children[1].type == "trailer"
+            ):
+                return node
+        # qualified: typing.TypeVar(...)  →  power: name('typing') trailer('.TypeVar') trailer('(' ... ')')
+        if qualified and len(children) >= 3:
+            if (
+                isinstance(children[0], Leaf)
+                and children[0].value == "typing"
+                and isinstance(children[1], BaseNode)
+                and children[1].type == "trailer"
+            ):
+                trailer_code = _node_code(children[1])
+                if trailer_code == ".TypeVar" and isinstance(children[2], BaseNode) and children[2].type == "trailer":
+                    return node
+    # It might also just be a simple call: TypeVar("T") parsed differently
+    # Handle atom case: just name + trailer at expr_stmt level
+    return None
+
+
 def discover_annotations(
     file: Path,
     source: str | None = None,
@@ -102,8 +216,31 @@ def discover_annotations(
     tree = parso.parse(source)
     annotations: list[AnnotationNode] = []
 
+    # Check for TypeVar imports
+    bare_typevar, qualified_typevar = _has_typing_typevar_import(tree)
+
     def visit(node: BaseNode | Leaf) -> None:
         if isinstance(node, BaseNode):
+            # TypeVar declaration: T = TypeVar("T", ...)
+            if node.type == "expr_stmt" and (bare_typevar or qualified_typevar):
+                call_node = _is_typevar_call(node, bare_typevar, qualified_typevar)
+                if call_node is not None:
+                    line = call_node.start_pos[0]
+                    if not _should_skip_line(
+                        _line_text(file_lines, line), skip_comments
+                    ):
+                        annotations.append(
+                            AnnotationNode(
+                                file=file,
+                                node=call_node,
+                                context=AnnotationContext.TYPEVAR,
+                                line=line,
+                                col=call_node.start_pos[1],
+                                code=_node_code(call_node),
+                            )
+                        )
+                    # Don't return; still recurse for nested annotations
+
             # Variable annotation: x: int
             if node.type == "annassign":
                 ann = _get_annotation_from_annassign(node)

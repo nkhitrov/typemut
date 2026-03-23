@@ -16,6 +16,7 @@ class OperatorsConfig:
     remove_optional: bool = True
     add_optional: bool = True
     swap_container_type: bool = True
+    typevar_variance: bool = True
 
 
 @dataclass
@@ -47,6 +48,7 @@ def load_config(path: Path) -> Config:
         remove_optional=ops_raw.get("remove-optional", True),
         add_optional=ops_raw.get("add-optional", True),
         swap_container_type=ops_raw.get("swap-container-type", True),
+        typevar_variance=ops_raw.get("typevar-variance", True),
     )
 
     return Config(

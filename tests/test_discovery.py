@@ -58,6 +58,23 @@ def test_skip_any_annotation():
     assert annotations[0].code.strip() == "int"
 
 
+def test_discover_typevar_with_typing_import():
+    """TypeVar declarations are discovered when TypeVar is imported from typing."""
+    source = 'from typing import TypeVar\nT = TypeVar("T")\n'
+    annotations = discover_annotations(Path("test.py"), source=source)
+    tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
+    assert len(tvars) == 1
+    assert "TypeVar" in tvars[0].code
+
+
+def test_discover_typevar_without_typing_import():
+    """TypeVar declarations are NOT discovered without a typing import."""
+    source = 'T = TypeVar("T")\n'
+    annotations = discover_annotations(Path("test.py"), source=source)
+    tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
+    assert len(tvars) == 0
+
+
 def test_fixture_simple_unions(fixtures_dir: Path):
     source = (fixtures_dir / "simple_unions.py").read_text()
     annotations = discover_annotations(
