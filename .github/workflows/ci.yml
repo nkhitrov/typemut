@@ -22,11 +22,11 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: uv sync --extra dev
+      - name: Install
+        run: make install
 
       - name: Run tests
-        run: uv run pytest tests/ -v
+        run: make test
 
       - name: Run mypy
-        run: uv run mypy src/typemut/
+        run: make lint

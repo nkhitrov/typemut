@@ -1,8 +1,7 @@
 .PHONY: install test lint clean run
 
 install:
-	uv venv
-	uv pip install -e ".[dev]"
+	uv sync --all-extras --all-groups
 
 test:
 	uv run pytest tests/ -v
