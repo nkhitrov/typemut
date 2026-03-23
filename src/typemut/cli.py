@@ -144,7 +144,14 @@ def exec_cmd(config_path: str, db_path: str | None, jobs: int) -> None:
     console.print("[green]Baseline clean.[/green]")
 
     console.print(f"Running [bold]{len(pending)}[/bold] mutations...")
-    run_all_mutants(db, pending, cfg.test_command, cfg.timeout)
+    if jobs > 1:
+        from typemut.parallel import run_all_mutants_parallel
+
+        run_all_mutants_parallel(
+            db, pending, cfg.test_command, cfg.timeout, jobs
+        )
+    else:
+        run_all_mutants(db, pending, cfg.test_command, cfg.timeout)
     db.close()
     console.print("[green]Done.[/green]")
 
@@ -190,7 +197,8 @@ def html(db_path: str, out_path: str | None, open_browser: bool) -> None:
 @main.command()
 @click.option("--config", "config_path", default="typemut.toml", help="Config file.")
 @click.option("--db", "db_path", default=None, help="Database file.")
-def run(config_path: str, db_path: str | None) -> None:
+@click.option("--jobs", default=1, help="Number of parallel jobs.")
+def run(config_path: str, db_path: str | None, jobs: int) -> None:
     """Run full pipeline: discover mutations, execute, and report."""
     from typemut.engine import check_baseline, run_all_mutants
     from typemut.operators import get_enabled_operators
@@ -259,7 +267,14 @@ def run(config_path: str, db_path: str | None) -> None:
     # Exec
     pending = db.get_pending()
     console.print(f"Running [bold]{len(pending)}[/bold] mutations...")
-    run_all_mutants(db, pending, cfg.test_command, cfg.timeout)
+    if jobs > 1:
+        from typemut.parallel import run_all_mutants_parallel
+
+        run_all_mutants_parallel(
+            db, pending, cfg.test_command, cfg.timeout, jobs
+        )
+    else:
+        run_all_mutants(db, pending, cfg.test_command, cfg.timeout)
 
     # Report
     console.print()
