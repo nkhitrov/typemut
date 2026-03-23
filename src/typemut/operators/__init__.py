@@ -38,5 +38,9 @@ def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]
         from typemut.operators.container import SwapContainerType
 
         operators.append(SwapContainerType())
+    if config.widen_container_type:
+        from typemut.operators.widen import WidenContainerType
+
+        operators.append(WidenContainerType())
 
     return operators
