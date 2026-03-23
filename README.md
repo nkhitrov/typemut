@@ -10,20 +10,9 @@ Standard mutation testing tools (cosmic-ray, mutmut) mutate runtime code and che
 ## Installation
 
 ```bash
-pip install -e .
+pip install typemut
 # or
-uv pip install -e .
-```
-
-Or add as a dependency via path:
-
-```toml
-# pyproject.toml of your project
-[project]
-dependencies = ["typemut"]
-
-[tool.uv.sources]
-typemut = { path = "../typemut", editable = true }
+uv add typemut
 ```
 
 ## Quick Start

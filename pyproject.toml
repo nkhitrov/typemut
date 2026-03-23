@@ -4,18 +4,43 @@ build-backend = "hatchling.build"
 
 [project]
 name = "typemut"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Mutation testing for type annotations"
+readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+authors = [
+    { name = "Niсл Khitrov", email = "khitrov34@gmail.com" },
+]
+keywords = ["mutation-testing", "type-annotations", "mypy", "pyright", "type-checking", "testing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
+]
 dependencies = [
     "parso>=0.8",
     "rich>=13.0",
     "click>=8.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/nkhitrov/typemut"
+Repository = "https://github.com/nkhitrov/typemut"
+Issues = "https://github.com/nkhitrov/typemut/issues"
+
 [project.scripts]
 typemut = "typemut.cli:main"
+
+[tool.hatch.version]
+path = "src/typemut/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/typemut"]
