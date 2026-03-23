@@ -64,10 +64,10 @@ def print_report(db: Database, console: Console) -> None:
 
     # Show survived mutants
     all_mutants = db.get_all()
-    survived = [m for m in all_mutants if m.status == "survived"]
-    if survived:
+    survived_mutants = [m for m in all_mutants if m.status == "survived"]
+    if survived_mutants:
         console.print("\n[bold red]Survived mutants:[/bold red]")
-        for m in survived:
+        for m in survived_mutants:
             console.print(
                 f"  {m.module_path}:{m.line}  {m.operator}  "
                 f"{m.original_annotation} → {m.mutated_annotation}"
