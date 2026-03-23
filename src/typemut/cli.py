@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import click
@@ -15,7 +16,26 @@ console = Console()
 
 
 def _load(config_path: str, db_path: str | None) -> tuple[Config, Database]:
-    cfg = load_config(Path(config_path))
+    path = Path(config_path)
+    if not path.exists():
+        console.print(
+            f"[red]Config file not found: {path}[/red]\n"
+            "Create a [bold]typemut.toml[/bold] with at least:\n\n"
+            "  [typemut]\n"
+            '  module-path = "src"\n'
+            '  test-command = "mypy src/"'
+        )
+        raise SystemExit(1)
+
+    try:
+        cfg = load_config(path)
+    except tomllib.TOMLDecodeError as exc:
+        console.print(
+            f"[red]Invalid TOML in {path}:[/red] {exc}\n"
+            "Please fix the syntax and try again."
+        )
+        raise SystemExit(1)
+
     db = Database(Path(db_path or cfg.db_path))
     return cfg, db
 
