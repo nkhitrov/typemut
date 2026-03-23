@@ -84,16 +84,27 @@ class TestPartitionMutants:
         assert sizes == [2, 3]
 
 
+def _git_init(path: Path) -> None:
+    """Initialise a throwaway git repo with dummy user config."""
+    subprocess.run(["git", "init"], cwd=path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=path, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=path, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "init"],
+        cwd=path, capture_output=True, check=True,
+    )
+
+
 class TestEnsureCleanGitStatus:
     def test_clean_repo(self, tmp_path: Path) -> None:
         """Should not raise in a clean git repo."""
-        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
-        subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "init"],
-            cwd=tmp_path,
-            capture_output=True,
-            check=True,
-        )
+        _git_init(tmp_path)
         # Run ensure_clean_git_status from the clean repo dir
         import os
 
@@ -106,13 +117,7 @@ class TestEnsureCleanGitStatus:
 
     def test_dirty_repo_uncommitted(self, tmp_path: Path) -> None:
         """Should raise when there are uncommitted changes."""
-        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
-        subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "init"],
-            cwd=tmp_path,
-            capture_output=True,
-            check=True,
-        )
+        _git_init(tmp_path)
         (tmp_path / "dirty.py").write_text("x = 1\n")
 
         import os
