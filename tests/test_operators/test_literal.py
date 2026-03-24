@@ -42,7 +42,6 @@ def test_no_swap_without_pool():
 
 
 def test_swap_literal_multiple_values():
-    """Literal with subscriptlist of multiple values (lines 82-87)."""
     source = 'from typing import Literal\nstatus: Literal["active", "closed"]\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     ann = [a for a in annotations if "Literal" in a.code]

@@ -94,7 +94,6 @@ def test_operator_ignores_non_typevar_context() -> None:
 
 
 def test_no_args_trailer() -> None:
-    """TypeVar node with no args trailer returns no mutations (line 27)."""
     # Parse a TypeVar and remove the trailer to simulate missing args
     source = 'from typing import TypeVar\nT = TypeVar("T")\n'
     tree = parso.parse(source)
@@ -115,7 +114,6 @@ def test_no_args_trailer() -> None:
 
 
 def test_find_args_trailer_no_paren() -> None:
-    """_find_args_trailer returns None when trailer doesn't start with '(' (line 130)."""
     # Parse a subscript to get a trailer that starts with '[' not '('
     tree = parso.parse("x: list[int]\n")
     trailer = None
@@ -136,7 +134,6 @@ def test_find_args_trailer_no_paren() -> None:
 
 
 def test_remove_kwarg_trailing_pattern() -> None:
-    """_remove_kwarg uses trailing comma pattern (lines 151-152)."""
     # Pattern where kwarg is first, followed by trailing comma
     # This triggers the second regex pattern (kwarg=True, )
     text = 'TypeVar(covariant=True, "T")'
@@ -146,21 +143,18 @@ def test_remove_kwarg_trailing_pattern() -> None:
 
 
 def test_add_kwarg_no_closing_paren() -> None:
-    """_add_kwarg with no closing paren returns text unchanged (line 165)."""
     text = 'TypeVar("T"'
     result = _add_kwarg(text, "covariant=True")
     assert result == text
 
 
 def test_add_kwarg_no_opening_paren() -> None:
-    """_add_kwarg with no opening paren returns text unchanged (line 169)."""
     text = 'TypeVar"T")'
     result = _add_kwarg(text, "covariant=True")
     assert result == text
 
 
 def test_add_kwarg_empty_parens() -> None:
-    """_add_kwarg with empty parens adds without comma (line 174)."""
     text = "TypeVar()"
     result = _add_kwarg(text, "covariant=True")
     assert result == "TypeVar(covariant=True)"

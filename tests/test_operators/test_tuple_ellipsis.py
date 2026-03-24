@@ -35,7 +35,6 @@ def test_no_tuple_ellipsis(source: str) -> None:
 
 
 def test_tuple_empty_trailer() -> None:
-    """Empty trailer inner content returns no mutations (line 62)."""
 
     # Parse a tuple annotation to get real nodes
     tree = parso.parse("x: tuple[int]\n")
@@ -63,7 +62,6 @@ def test_tuple_empty_trailer() -> None:
 
 
 def test_tuple_whitespace_only_content() -> None:
-    """Whitespace-only content in trailer returns no mutations (lines 81, 86)."""
 
     tree = parso.parse("x: tuple[int]\n")
     trailer = None
@@ -93,7 +91,6 @@ def test_tuple_whitespace_only_content() -> None:
 
 
 def test_tuple_leaf_empty_parens() -> None:
-    """tuple[()] Leaf with '()' value returns no mutations (line 100)."""
 
     tree = parso.parse("x: tuple[int]\n")
     trailer = None
@@ -122,5 +119,4 @@ def test_tuple_leaf_empty_parens() -> None:
 
 
 def test_tuple_empty_parens_source() -> None:
-    """tuple[()] returns no mutations via full discovery path."""
     assert_mutations("x: tuple[()]\n", TupleEllipsis, expected=[])

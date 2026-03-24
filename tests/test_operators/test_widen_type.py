@@ -24,7 +24,6 @@ def test_no_widen_for_unknown_class() -> None:
 
 
 def test_widen_type_in_complex_annotation() -> None:
-    """WidenType recurses into BaseNode children (lines 54-56)."""
     reg = Registry()
     reg.hierarchy = {"Animal": ["Cat"]}
     reg.class_to_base = {"Cat": "Animal"}

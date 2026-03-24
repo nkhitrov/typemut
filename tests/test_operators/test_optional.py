@@ -64,18 +64,15 @@ def test_add_optional_skips_parameters() -> None:
 
 
 def test_remove_optional_non_union() -> None:
-    """RemoveOptional on a plain type returns empty (line 24, 110)."""
     assert_mutations("x: int\n", RemoveOptional, expected=[])
 
 
 def test_remove_optional_non_expr_basenode() -> None:
-    """RemoveOptional on a BaseNode that's not expr/arith_expr (line 112)."""
     # list[int] is a power/atom_expr node, not expr/arith_expr
     assert_mutations("x: list[int]\n", RemoveOptional, expected=[])
 
 
 def test_remove_optional_all_none() -> None:
-    """Union of only None members returns empty (line 36)."""
     # This tests the edge case where all non-None members are removed
     # In practice, a union of only None is unusual but the code handles it
     source = "x: None | None\n"
@@ -90,7 +87,6 @@ def test_remove_optional_all_none() -> None:
 
 
 def test_add_optional_skips_self() -> None:
-    """AddOptional skips 'self' parameter (line 74)."""
     tree = parso.parse("self\n")
     # Get the 'self' name node
     node = tree.children[0].children[0]  # simple_stmt -> expr_stmt or name
@@ -103,7 +99,6 @@ def test_add_optional_skips_self() -> None:
 
 
 def test_add_optional_skips_none() -> None:
-    """AddOptional skips None type (line 84)."""
     tree = parso.parse("None\n")
     node = tree.children[0].children[0]
     if hasattr(node, 'children'):
@@ -117,7 +112,6 @@ def test_add_optional_skips_none() -> None:
 
 
 def test_extract_union_arith_expr() -> None:
-    """_extract_union_members handles arith_expr type (line 112)."""
     # Parse a union to get real nodes, then change node type to arith_expr
     tree = parso.parse("x: int | str\n")
     # Find the expr node
@@ -140,7 +134,6 @@ def test_extract_union_arith_expr() -> None:
 
 
 def test_extract_union_no_pipe() -> None:
-    """_extract_union_members with no pipe returns empty (line 117)."""
     # Parse something that looks like an expr but has no pipe
     tree = parso.parse("x + y\n")
     # Find expr node

@@ -33,7 +33,6 @@ def test_no_siblings_for_unknown():
 
 
 def test_base_import_lines(tmp_path: Path):
-    """Registry tracks import lines for base classes."""
     src = tmp_path / "models.py"
     src.write_text(
         "from pydantic import BaseModel\n"
@@ -47,7 +46,6 @@ def test_base_import_lines(tmp_path: Path):
 
 
 def test_base_import_lines_local_class(tmp_path: Path):
-    """No import line for base classes defined in the same file."""
     src = tmp_path / "models.py"
     src.write_text(
         "class Base:\n"

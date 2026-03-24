@@ -72,7 +72,6 @@ def test_skip_any_annotation():
 
 
 def test_discover_typevar_with_typing_import():
-    """TypeVar declarations are discovered when TypeVar is imported from typing."""
     source = 'from typing import TypeVar\nT = TypeVar("T")\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
@@ -81,7 +80,6 @@ def test_discover_typevar_with_typing_import():
 
 
 def test_discover_typevar_without_typing_import():
-    """TypeVar declarations are NOT discovered without a typing import."""
     source = 'T = TypeVar("T")\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
@@ -101,7 +99,6 @@ def test_fixture_simple_unions(fixtures_dir: Path):
 
 
 def test_annassign_too_few_children():
-    """annassign with less than 2 children returns None (line 45)."""
     tree = parso.parse("x: int\n")
     # Find annassign node
     annassign = None
@@ -124,7 +121,6 @@ def test_annassign_too_few_children():
 
 
 def test_tfpdef_too_few_children():
-    """tfpdef with less than 3 children returns None (line 56)."""
     tree = parso.parse("def f(x: int):\n    pass\n")
     # Find tfpdef node
     tfpdef = None
@@ -148,7 +144,6 @@ def test_tfpdef_too_few_children():
 
 
 def test_funcdef_no_return_annotation():
-    """funcdef without '->' returns None (line 69)."""
     source = "def f(x: int):\n    pass\n"
     annotations = discover_annotations(Path("test.py"), source=source)
     returns = [a for a in annotations if a.context == AnnotationContext.RETURN]
@@ -156,14 +151,12 @@ def test_funcdef_no_return_annotation():
 
 
 def test_line_text_out_of_range():
-    """_line_text with out-of-range line returns empty string (line 76)."""
     assert _line_text(["hello", "world"], 0) == ""
     assert _line_text(["hello", "world"], 3) == ""
     assert _line_text([], 1) == ""
 
 
 def test_typevar_import_from_typing_with_multiple_names():
-    """TypeVar imported alongside other names from typing (lines 104-119)."""
     source = 'from typing import List, TypeVar\nT = TypeVar("T")\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
@@ -171,7 +164,6 @@ def test_typevar_import_from_typing_with_multiple_names():
 
 
 def test_typevar_import_name_typing_qualified():
-    """import typing (qualified import, lines 123-125)."""
     source = 'import typing\nT = typing.TypeVar("T")\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
@@ -179,7 +171,6 @@ def test_typevar_import_name_typing_qualified():
 
 
 def test_typevar_import_from_in_simple_stmt():
-    """from typing import TypeVar inside simple_stmt (lines 136-138)."""
     # When parso wraps the import_from inside a simple_stmt
     source = 'from typing import Dict, TypeVar\nT = TypeVar("T")\n'
     annotations = discover_annotations(Path("test.py"), source=source)
@@ -188,7 +179,6 @@ def test_typevar_import_from_in_simple_stmt():
 
 
 def test_typevar_expr_stmt_no_assignment():
-    """expr_stmt without '=' is not a TypeVar call (line 160)."""
     source = 'from typing import TypeVar\nTypeVar("T")\nx: int\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     # The bare TypeVar("T") call is not an assignment, so no typevar annotation
@@ -198,7 +188,6 @@ def test_typevar_expr_stmt_no_assignment():
 
 
 def test_typevar_qualified_call():
-    """typing.TypeVar("T") qualified call is discovered (lines 189-201)."""
     source = 'import typing\nT = typing.TypeVar("T")\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
@@ -207,7 +196,6 @@ def test_typevar_qualified_call():
 
 
 def test_discover_files_with_exclusions(tmp_path: Path):
-    """discover_files respects exclusions and default None (lines 330, 336)."""
     # Create some Python files
     (tmp_path / "foo.py").write_text("x = 1\n")
     (tmp_path / "bar.py").write_text("y = 2\n")
@@ -226,7 +214,6 @@ def test_discover_files_with_exclusions(tmp_path: Path):
 
 
 def test_typevar_skip_comment():
-    """TypeVar on a line with skip comment is not discovered (line 229->245)."""
     source = 'from typing import TypeVar\nT = TypeVar("T")  # type: ignore\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
@@ -234,7 +221,6 @@ def test_typevar_skip_comment():
 
 
 def test_import_from_direct_child_of_tree():
-    """Cover import_from as direct module child (lines 104-119)."""
     # Parse and manipulate tree so import_from is a direct child
     tree = parso.parse('from typing import TypeVar\n')
     simple_stmt = tree.children[0]
@@ -246,7 +232,6 @@ def test_import_from_direct_child_of_tree():
 
 
 def test_import_from_direct_child_with_import_as_names():
-    """Cover import_from with import_as_names as direct module child (lines 115-119)."""
     tree = parso.parse('from typing import List, TypeVar\n')
     simple_stmt = tree.children[0]
     import_from = simple_stmt.children[0]
@@ -256,7 +241,6 @@ def test_import_from_direct_child_with_import_as_names():
 
 
 def test_import_from_direct_child_no_typevar():
-    """import_from direct child without TypeVar (exercises inner loop, line 104+)."""
     tree = parso.parse('from typing import List\n')
     simple_stmt = tree.children[0]
     import_from = simple_stmt.children[0]
@@ -266,7 +250,6 @@ def test_import_from_direct_child_no_typevar():
 
 
 def test_is_typevar_call_no_assignment():
-    """expr_stmt with >= 3 children but no '=' returns None (line 160)."""
     # Parse T = TypeVar("T") and replace '=' with something else
     tree = parso.parse('T = TypeVar("T")\n')
     expr_stmt = tree.children[0].children[0]
@@ -291,18 +274,10 @@ def test_is_typevar_call_no_assignment():
 
 
 def test_is_typevar_call_rhs_none_guard():
-    """_is_typevar_call line 165: cover the rhs-is-None defensive guard.
-
-    Line 163 has `children[-1] if len(children) >= 3 else None`. After
-    passing the len < 3 check on line 151, rhs is always children[-1].
-    We use a custom list subclass to make `len >= 3` True on line 151
-    but return a different length on line 163, triggering rhs = None.
-    """
     tree = parso.parse('T = TypeVar("T")\n')
     expr_stmt = tree.children[0].children[0]
 
     class ShrinkingList(list):
-        """A list that reports len < 3 on second call to len()."""
         def __init__(self, items):
             super().__init__(items)
             self._call_count = 0
@@ -321,7 +296,6 @@ def test_is_typevar_call_rhs_none_guard():
 
 
 def test_extract_typevar_power_non_typevar():
-    """_extract_typevar_power returns None for non-TypeVar calls (line 201)."""
     tree = parso.parse('x = SomeFunc("T")\n')
     # Get the RHS of the assignment
     expr_stmt = tree.children[0].children[0]

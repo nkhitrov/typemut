@@ -128,7 +128,6 @@ def test_find_last_import_none():
 
 
 def test_find_last_import_ignores_docstrings():
-    """'from' inside docstrings should not be treated as imports."""
     lines = [
         "import os\n",
         "\n",
@@ -142,7 +141,6 @@ def test_find_last_import_ignores_docstrings():
 
 
 def test_find_last_import_ignores_indented():
-    """Indented imports (inside functions/conditionals) should be ignored."""
     lines = [
         "import os\n",
         "\n",

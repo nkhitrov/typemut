@@ -91,7 +91,6 @@ class TestRunSingleMutant:
 
 
     def test_false_kill_detected(self, tmp_path: Path) -> None:
-        """Killed mutant with only false-kill error codes is marked error (line 85)."""
         src = tmp_path / "test.py"
         src.write_text("x: int = 5\n")
         mutant = MutantRow(
@@ -114,7 +113,6 @@ class TestRunSingleMutant:
         assert status == "error"
 
     def test_timeout_returns_killed(self, tmp_path: Path) -> None:
-        """Timeout during mutation run returns killed status (lines 87-89)."""
         src = tmp_path / "test.py"
         src.write_text("x: int = 5\n")
         mutant = MutantRow(
@@ -136,7 +134,6 @@ class TestRunSingleMutant:
         assert src.read_text() == "x: int = 5\n"
 
     def test_killed_with_stdout_output(self, tmp_path: Path) -> None:
-        """When stderr is empty, stdout is used as output (line 82-83)."""
         src = tmp_path / "test.py"
         src.write_text("x: int = 5\n")
         mutant = MutantRow(
@@ -160,7 +157,6 @@ class TestRunSingleMutant:
 
 
     def test_write_failure_returns_error(self, tmp_path: Path) -> None:
-        """OSError when writing mutated file returns error status."""
         src = tmp_path / "test.py"
         src.write_text("x: int = 5\n")
         mutant = MutantRow(
@@ -183,7 +179,6 @@ class TestRunSingleMutant:
 
 class TestRunAllMutants:
     def test_run_all_mutants(self, tmp_path: Path) -> None:
-        """run_all_mutants processes mutants and updates DB (lines 118-127)."""
         src = tmp_path / "test.py"
         src.write_text("x: int = 5\n")
 
@@ -229,7 +224,6 @@ class TestCheckBaseline:
         assert "timed out" in output.lower()
 
     def test_baseline_stdout_fallback(self) -> None:
-        """When stderr is empty, stdout is used (line 104)."""
         ok, output = check_baseline(
             'python -c "import sys; sys.stdout.write(\'ok\\n\')"',
             timeout=5,

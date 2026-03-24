@@ -21,7 +21,6 @@ def fixtures_dir() -> Path:
 
 @pytest.fixture
 def tmp_db(tmp_path: Path):
-    """Database fixture with automatic cleanup."""
     db = Database(tmp_path / "test.sqlite")
     yield db
     db.close()
@@ -37,7 +36,6 @@ def assert_mutations(
     index: int = 0,
     annotation_filter: str | None = None,
 ) -> list[Mutation]:
-    """Assert that an operator produces the expected mutations from source."""
     annotations = discover_annotations(Path("test.py"), source=source)
     if annotation_filter:
         annotations = [a for a in annotations if annotation_filter in a.code]

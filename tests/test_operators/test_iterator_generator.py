@@ -66,7 +66,6 @@ def test_no_swap(source: str) -> None:
 
 
 def test_async_iterable_subscripted() -> None:
-    """AsyncIterable[Y] -> AsyncIterator[Y] (lines 190-193)."""
     assert_mutations(
         "x: AsyncIterable[int]\n",
         SwapIteratorGenerator,
@@ -75,7 +74,6 @@ def test_async_iterable_subscripted() -> None:
 
 
 def test_empty_trailer_params() -> None:
-    """Empty trailer returns empty params list (line 74)."""
     # Parse a subscript expression to get a real trailer node, then empty it
     tree = parso.parse("x: Iterator[int]\n")
     # Find the trailer node

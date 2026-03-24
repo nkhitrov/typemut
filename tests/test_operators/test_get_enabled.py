@@ -30,7 +30,6 @@ def test_empty_config_all_enabled() -> None:
 
 
 def test_none_enabled() -> None:
-    """All operators disabled returns empty list."""
     config = OperatorsConfig(
         remove_union_member=False,
         swap_literal_value=False,
@@ -49,7 +48,6 @@ def test_none_enabled() -> None:
 
 
 def test_each_operator_individually() -> None:
-    """Each operator can be enabled individually, covering all branches."""
     operator_flags = [
         ("remove_union_member", "RemoveUnionMember"),
         ("swap_literal_value", "SwapLiteralValue"),

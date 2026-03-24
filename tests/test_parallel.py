@@ -83,7 +83,6 @@ class TestPartitionMutants:
 
 
 def _git_init(path: Path) -> None:
-    """Initialise a throwaway git repo with dummy user config."""
     subprocess.run(["git", "init"], cwd=path, capture_output=True, check=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],

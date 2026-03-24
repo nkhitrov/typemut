@@ -30,7 +30,6 @@ def test_no_strip_for_plain_type() -> None:
 
 
 def test_strip_annotated_with_complex_type_and_metadata() -> None:
-    """Annotated with a complex inner type and metadata."""
     source = 'from typing import Annotated\nx: Annotated[list[int], "metadata"]\n'
     mutations = assert_mutations(
         source,
@@ -42,10 +41,6 @@ def test_strip_annotated_with_complex_type_and_metadata() -> None:
 
 
 def test_strip_annotated_complex_type_no_metadata() -> None:
-    """Annotated with a complex inner type and no metadata (line 76-77).
-
-    The single subscript is a BaseNode (atom_expr), not a subscriptlist.
-    """
     source = "from typing import Annotated\nx: Annotated[list[int]]\n"
     mutations = assert_mutations(
         source,
@@ -57,7 +52,6 @@ def test_strip_annotated_complex_type_no_metadata() -> None:
 
 
 def test_strip_annotated_no_metadata() -> None:
-    """Annotated[X] with no metadata — single name subscript (line 74)."""
     source = "from typing import Annotated\nx: Annotated[str]\n"
     mutations = assert_mutations(
         source,
@@ -69,7 +63,6 @@ def test_strip_annotated_no_metadata() -> None:
 
 
 def test_non_annotated_recurse() -> None:
-    """Non-Annotated nodes recurse into children (lines 58-59)."""
     source = 'from typing import Annotated\nx: list[Annotated[str, "meta"]]\n'
     annotations = discover_annotations(Path("test.py"), source=source)
     op = StripAnnotated()
@@ -79,7 +72,6 @@ def test_non_annotated_recurse() -> None:
 
 
 def test_annotated_subscriptlist_skip_comma() -> None:
-    """subscriptlist processing skips commas (line 71)."""
     # Parse Annotated[int, "field"] and manipulate subscriptlist
     # to have comma as first child, exercising the comma skip
     tree = parso.parse('from typing import Annotated\nx: Annotated[int, "field"]\n')
@@ -119,7 +111,6 @@ def test_annotated_subscriptlist_skip_comma() -> None:
 
 
 def test_get_first_subscript_arg_returns_none() -> None:
-    """_get_first_subscript_arg returns None for empty trailer (line 78)."""
     # Parse to get a real trailer, then empty it
     tree = parso.parse('from typing import Annotated\nx: Annotated[str]\n')
     def find_annotated_trailer(node):
