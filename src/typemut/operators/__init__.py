@@ -50,5 +50,9 @@ def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]
         from typemut.operators.iterator_generator import SwapIteratorGenerator
 
         operators.append(SwapIteratorGenerator())
+    if config.typevar_variance:
+        from typemut.operators.variance import TypeVarVariance
+
+        operators.append(TypeVarVariance())
 
     return operators
