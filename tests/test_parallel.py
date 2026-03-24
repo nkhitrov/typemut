@@ -51,10 +51,10 @@ class TestPartitionMutants:
             _make_mutant(4, "b.py"),
         ]
         chunks = partition_mutants(mutants, 2)
-        for chunk in chunks:
-            if chunk:
-                modules = {m.module_path for m in chunk}
-                assert len(modules) == 1
+        non_empty = [c for c in chunks if c]
+        for chunk in non_empty:
+            modules = {m.module_path for m in chunk}
+            assert len(modules) == 1
 
     def test_more_workers_than_mutants(self) -> None:
         mutants = [_make_mutant(1, "a.py")]

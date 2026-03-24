@@ -19,3 +19,5 @@ typemut — mutation testing tool for Python type annotations.
 - All imports in test files must be at the top of the file, not inside test functions.
 - Tests must only cover public functions and classes. Do not test private functions (prefixed with `_`).
 - Do not use `mock.patch` or `monkeypatch` to stub internal functions. Cover code paths by choosing appropriate input values instead.
+- Do not use `if`, `match/case`, or other conditional logic in test bodies. Tests must have deterministic, straight-line assertions.
+- Do not use `parso` directly in tests. Test only through the library's public interface (source strings as input, mutation results as output).

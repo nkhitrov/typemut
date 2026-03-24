@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import parso
 import pytest
 
 from typemut.discovery import AnnotationContext, discover_annotations
@@ -70,24 +69,16 @@ def test_remove_optional_non_expr_basenode() -> None:
 
 
 def test_remove_optional_all_none() -> None:
-    source = "x: None | None\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-    if annotations:
-        op = RemoveOptional()
-        mutations = op.find_mutations(
-            annotations[0].node, AnnotationContext.VARIABLE, Registry()
-        )
-        assert len(mutations) == 0
+    assert_mutations("x: None | None\n", RemoveOptional, expected=[])
 
 
 def test_add_optional_skips_self() -> None:
-    tree = parso.parse("self\n")
-    node = tree.children[0].children[0]
-    if hasattr(node, 'children'):
-        node = node.children[0]
-    assert node.value == "self"
+    source = "class Foo:\n    def bar(self) -> None:\n        pass\n"
+    annotations = discover_annotations(Path("test.py"), source=source)
+    param_anns = [a for a in annotations if a.context == AnnotationContext.PARAMETER]
     op = AddOptional()
-    mutations = op.find_mutations(node, AnnotationContext.VARIABLE, Registry())
-    assert len(mutations) == 0
+    for ann in param_anns:
+        mutations = op.find_mutations(ann.node, AnnotationContext.PARAMETER, Registry())
+        assert len(mutations) == 0
 
 
