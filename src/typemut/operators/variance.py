@@ -119,14 +119,14 @@ def _find_args_trailer(node: BaseNode | Leaf) -> BaseNode | None:
     """Find the trailer node containing the call arguments: '(' ... ')'."""
     if isinstance(node, BaseNode):
         for child in node.children:
-            if isinstance(child, BaseNode) and child.type == "trailer":
-                # Check if it starts with '('
-                if (
-                    child.children
-                    and isinstance(child.children[0], Leaf)
-                    and child.children[0].value == "("
-                ):
-                    return child
+            if (
+                isinstance(child, BaseNode)
+                and child.type == "trailer"
+                and child.children
+                and isinstance(child.children[0], Leaf)
+                and child.children[0].value == "("
+            ):
+                return child
     return None
 
 

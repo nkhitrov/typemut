@@ -158,6 +158,28 @@ class TestRunSingleMutant:
         assert "some output" in (output or "")
 
 
+    def test_write_failure_returns_error(self, tmp_path: Path) -> None:
+        """OSError when writing mutated file returns error status."""
+        src = tmp_path / "test.py"
+        src.write_text("x: int = 5\n")
+        mutant = MutantRow(
+            id=1,
+            module_path="test.py",
+            operator="Test",
+            line=1,
+            col=3,
+            original_annotation="int",
+            mutated_annotation="str",
+            description="test",
+        )
+        with patch.object(Path, "write_text", side_effect=OSError("read-only")):
+            status, output, duration = run_single_mutant(
+                mutant, "true", timeout=5, project_root=tmp_path
+            )
+        assert status == "error"
+        assert "Failed to write mutation" in (output or "")
+
+
 class TestRunAllMutants:
     def test_run_all_mutants(self, tmp_path: Path) -> None:
         """run_all_mutants processes mutants and updates DB (lines 118-127)."""

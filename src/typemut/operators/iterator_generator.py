@@ -60,87 +60,48 @@ class SwapIteratorGenerator(TypeMutationOperator):
         return mutations
 
 
-def _extract_params(trailer: BaseNode) -> list[str]:
-    """Extract comma-separated type parameters from a trailer node like [X, Y, Z].
-
-    The trailer structure is: '[' subscriptlist ']' (for multiple params)
-    or: '[' single_expr ']' (for a single param).
-    The subscriptlist contains children separated by ',' operators.
-    """
-    # Find the content between [ and ]
-    inner_children = trailer.children[1:-1]  # skip '[' and ']'
-
-    if not inner_children:
-        return []
-
-    # If there's a subscriptlist, split by comma operators
-    content = inner_children[0]
-    if isinstance(content, BaseNode) and content.type == "subscriptlist":
-        params: list[str] = []
-        current_parts: list[str] = []
-        for child in content.children:
-            code = _node_code(child)
-            if child.type == "operator" and code.strip() == ",":
-                params.append("".join(current_parts).strip())
-                current_parts = []
-            else:
-                current_parts.append(code)
-        if current_parts:
-            params.append("".join(current_parts).strip())
-        return params
-
-    # Single parameter
-    return [_node_code(content).strip()]
-
-
 def _find_iterator_generator(
     node: BaseNode | Leaf,
     mutations: list[Mutation],
 ) -> None:
     """Find iterator/generator type names and generate swap mutations."""
-    if isinstance(node, Leaf):
-        if node.type == "name" and node.value in TARGET_NAMES:
-            parent = node.parent
-            has_trailer = False
-            trailer_code = ""
-            params: list[str] = []
+    if isinstance(node, Leaf) and node.type == "name" and node.value in TARGET_NAMES:
+        parent = node.parent
+        has_trailer = False
+        trailer_code = ""
+        params: list[str] = []
 
-            if parent is not None and isinstance(parent, BaseNode):
-                idx = parent.children.index(node)
-                if idx + 1 < len(parent.children):
-                    next_child = parent.children[idx + 1]
-                    if (
-                        isinstance(next_child, BaseNode)
-                        and next_child.type == "trailer"
-                    ):
-                        has_trailer = True
-                        trailer_code = _node_code(next_child)
-                        params = _extract_params(next_child)
+        if parent is not None and isinstance(parent, BaseNode):
+            idx = parent.children.index(node)
+            if idx + 1 < len(parent.children):
+                next_child = parent.children[idx + 1]
+                if isinstance(next_child, BaseNode) and next_child.type == "trailer":
+                    has_trailer = True
+                    trailer_code = _node_code(next_child)
+                    params = _extract_params(next_child)
 
-            name = node.value
-            line = node.start_pos[0]
-            col = node.start_pos[1]
+        name = node.value
+        line = node.start_pos[0]
+        col = node.start_pos[1]
 
-            if has_trailer:
-                original_full = _node_code(node) + trailer_code
-                _add_subscripted_mutations(
-                    name, params, original_full, line, col, mutations
+        if has_trailer:
+            original_full = _node_code(node) + trailer_code
+            _add_subscripted_mutations(name, params, original_full, line, col, mutations)
+        else:
+            # Bare form — simple name swaps
+            mutations.extend(
+                Mutation(
+                    file="",
+                    operator="SwapIteratorGenerator",
+                    line=line,
+                    col=col,
+                    original=name,
+                    mutated=target,
+                    description=f"Swap {name} → {target}",
                 )
-            else:
-                # Bare form — simple name swaps
-                for target in BARE_SWAPS.get(name, []):
-                    mutations.append(
-                        Mutation(
-                            file="",
-                            operator="SwapIteratorGenerator",
-                            line=line,
-                            col=col,
-                            original=name,
-                            mutated=target,
-                            description=f"Swap {name} → {target}",
-                        )
-                    )
-            return
+                for target in BARE_SWAPS.get(name, [])
+            )
+        return
 
     if isinstance(node, BaseNode):
         for child in node.children:
@@ -204,3 +165,36 @@ def _add_subscripted_mutations(
                 description=f"Swap {name} → {target_name}",
             )
         )
+
+
+def _extract_params(trailer: BaseNode) -> list[str]:
+    """Extract comma-separated type parameters from a trailer node like [X, Y, Z].
+
+    The trailer structure is: '[' subscriptlist ']' (for multiple params)
+    or: '[' single_expr ']' (for a single param).
+    The subscriptlist contains children separated by ',' operators.
+    """
+    # Find the content between [ and ]
+    inner_children = trailer.children[1:-1]  # skip '[' and ']'
+
+    if not inner_children:
+        return []
+
+    # If there's a subscriptlist, split by comma operators
+    content = inner_children[0]
+    if isinstance(content, BaseNode) and content.type == "subscriptlist":
+        params: list[str] = []
+        current_parts: list[str] = []
+        for child in content.children:
+            code = _node_code(child)
+            if child.type == "operator" and code.strip() == ",":
+                params.append("".join(current_parts).strip())
+                current_parts = []
+            else:
+                current_parts.append(code)
+        if current_parts:
+            params.append("".join(current_parts).strip())
+        return params
+
+    # Single parameter
+    return [_node_code(content).strip()]
