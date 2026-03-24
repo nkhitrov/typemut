@@ -128,6 +128,18 @@ toml = [
 ]
 
 [[package]]
+name = "coverage-threshold"
+version = "0.6.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "toml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7c/e9/4c71f8ed66d0bcfe0d0eba4abfa82b1394040404c4cf0ae52db6c99a865c/coverage_threshold-0.6.2.tar.gz", hash = "sha256:a56bfd6148a01177776f28fcabd754d1ee34ad5c112366c5e346ad1c12ad1fd8", size = 24562, upload-time = "2025-05-25T01:47:12.057Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/94/511548af8257b0d7da228aeecb6a177a614aaa68009f563ac032162b1b47/coverage_threshold-0.6.2-py3-none-any.whl", hash = "sha256:2610daf03a04c0bed7d64b9aff70616ef204c6ca989965f4fd296c351d897626", size = 12925, upload-time = "2025-05-25T01:47:10.79Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -367,6 +379,15 @@ wheels = [
 ]
 
 [[package]]
+name = "toml"
+version = "0.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/be/ba/1f744cdc819428fc6b5084ec34d9b30660f6f9daaf70eead706e3203ec3c/toml-0.10.2.tar.gz", hash = "sha256:b3bda1d108d5dd99f4a20d24d9c348e91c4db7ab1b749200bded2f839ccbe68f", size = 22253, upload-time = "2020-11-01T01:40:22.204Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl", hash = "sha256:806143ae5bfb6a3c6e736a764057db0e6a0e05e338b5630894a5f779cabb4f9b", size = 16588, upload-time = "2020-11-01T01:40:20.672Z" },
+]
+
+[[package]]
 name = "tomli"
 version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -431,6 +452,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "coverage-threshold" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -439,6 +461,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
+    { name = "coverage-threshold", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "parso", specifier = ">=0.8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },

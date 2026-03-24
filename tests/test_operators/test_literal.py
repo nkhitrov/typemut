@@ -39,3 +39,22 @@ def test_no_swap_without_pool():
     op = SwapLiteralValue()
     mutations = op.find_mutations(ann[0].node, AnnotationContext.VARIABLE, reg)
     assert len(mutations) == 0
+
+
+def test_swap_literal_multiple_values():
+    """Literal with subscriptlist of multiple values (lines 82-87)."""
+    source = 'from typing import Literal\nstatus: Literal["active", "closed"]\n'
+    annotations = discover_annotations(Path("test.py"), source=source)
+    ann = [a for a in annotations if "Literal" in a.code]
+    assert len(ann) == 1
+
+    reg = Registry()
+    reg.literal_pool = {'"active"', '"closed"', '"pending"'}
+
+    op = SwapLiteralValue()
+    mutations = op.find_mutations(ann[0].node, AnnotationContext.VARIABLE, reg)
+    # Each literal value can be swapped with each other value in pool
+    assert len(mutations) > 0
+    # Verify at least one swap happened
+    mutated_set = {m.mutated for m in mutations}
+    assert any('"pending"' in m for m in mutated_set)

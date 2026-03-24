@@ -62,3 +62,39 @@ def test_swap_iterator_generator(source: str, expected: list[str]) -> None:
 )
 def test_no_swap(source: str) -> None:
     assert_mutations(source, SwapIteratorGenerator, expected=[])
+
+
+def test_async_iterable_subscripted() -> None:
+    """AsyncIterable[Y] -> AsyncIterator[Y] (lines 190-193)."""
+    assert_mutations(
+        "x: AsyncIterable[int]\n",
+        SwapIteratorGenerator,
+        expected=["AsyncIterator[int]"],
+    )
+
+
+def test_empty_trailer_params() -> None:
+    """Empty trailer returns empty params list (line 74)."""
+    from typemut.operators.iterator_generator import _extract_params
+    import parso
+
+    # Parse a subscript expression to get a real trailer node, then empty it
+    tree = parso.parse("x: Iterator[int]\n")
+    # Find the trailer node
+    trailer = None
+    def find_trailer(node):
+        nonlocal trailer
+        if hasattr(node, 'type') and node.type == 'trailer':
+            trailer = node
+            return
+        if hasattr(node, 'children'):
+            for child in node.children:
+                find_trailer(child)
+    find_trailer(tree)
+    assert trailer is not None
+
+    # Remove inner content (keep only [ and ])
+    original = trailer.children
+    trailer.children = [original[0], original[-1]]
+    assert _extract_params(trailer) == []
+    trailer.children = original  # restore
