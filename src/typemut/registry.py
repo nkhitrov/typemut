@@ -32,6 +32,10 @@ class Registry:
             return []
         return [c for c in self.hierarchy.get(base, []) if c != class_name]
 
+    def get_base(self, class_name: str) -> str | None:
+        """Get the base class for a given class."""
+        return self.class_to_base.get(class_name)
+
     def get_file_literals(self, file_path: str) -> set[str]:
         """Get all literal values found in the given file."""
         return self.file_literal_pools.get(file_path, set())

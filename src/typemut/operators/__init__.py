@@ -18,10 +18,10 @@ def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]
         from typemut.operators.literal import SwapLiteralValue
 
         operators.append(SwapLiteralValue())
-    if config.swap_sibling_type:
-        from typemut.operators.sibling import SwapSiblingType
+    if config.widen_type:
+        from typemut.operators.widen_type import WidenType
 
-        operators.append(SwapSiblingType())
+        operators.append(WidenType())
     if config.strip_annotated:
         from typemut.operators.annotated import StripAnnotated
 
