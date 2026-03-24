@@ -1,4 +1,6 @@
-.PHONY: install test lint fmt clean run
+.PHONY: install test lint lint-all fmt clean run
+
+PYTHON_VERSIONS ?= 3.11 3.12 3.13
 
 install:
 	uv sync --all-extras --all-groups
@@ -11,6 +13,16 @@ lint:
 	uv run ruff format --check src/typemut/
 	uv run flake8 src/typemut/
 	uv run mypy src/typemut/
+
+lint-all:
+	@for pyv in $(PYTHON_VERSIONS); do \
+		echo "=== Python $$pyv ==="; \
+		uv run --python $$pyv --all-extras ruff check src/typemut/ && \
+		uv run --python $$pyv --all-extras ruff format --check src/typemut/ && \
+		uv run --python $$pyv --all-extras flake8 src/typemut/ && \
+		uv run --python $$pyv --all-extras mypy src/typemut/ && \
+		uv run --python $$pyv --all-extras pytest tests/ -v || exit 1; \
+	done
 
 fmt:
 	uv run ruff check --fix src/typemut/
