@@ -18,3 +18,4 @@ typemut — mutation testing tool for Python type annotations.
 - Do not push or create a PR if linters or tests fail.
 - All imports in test files must be at the top of the file, not inside test functions.
 - Tests must only cover public functions and classes. Do not test private functions (prefixed with `_`).
+- Do not use `mock.patch` or `monkeypatch` to stub internal functions. Cover code paths by choosing appropriate input values instead.

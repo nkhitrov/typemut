@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -155,26 +154,6 @@ class TestRunSingleMutant:
         assert status == "killed"
         assert "some output" in (output or "")
 
-
-    def test_write_failure_returns_error(self, tmp_path: Path) -> None:
-        src = tmp_path / "test.py"
-        src.write_text("x: int = 5\n")
-        mutant = MutantRow(
-            id=1,
-            module_path="test.py",
-            operator="Test",
-            line=1,
-            col=3,
-            original_annotation="int",
-            mutated_annotation="str",
-            description="test",
-        )
-        with patch.object(Path, "write_text", side_effect=OSError("read-only")):
-            status, output, duration = run_single_mutant(
-                mutant, "true", timeout=5, project_root=tmp_path
-            )
-        assert status == "error"
-        assert "Failed to write mutation" in (output or "")
 
 
 class TestRunAllMutants:

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
-
 import parso
 import pytest
 
@@ -93,13 +91,3 @@ def test_add_optional_skips_self() -> None:
     assert len(mutations) == 0
 
 
-def test_add_optional_skips_none() -> None:
-    tree = parso.parse("None\n")
-    node = tree.children[0].children[0]
-    if hasattr(node, 'children'):
-        node = node.children[0]
-    assert node.value == "None"
-    op = AddOptional()
-    with patch("typemut.operators.optional._contains_none", return_value=False):
-        mutations = op.find_mutations(node, AnnotationContext.RETURN, Registry())
-    assert len(mutations) == 0
