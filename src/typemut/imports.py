@@ -15,11 +15,26 @@ import re
 # ---------------------------------------------------------------------------
 
 # Python builtins — no import needed.
-BUILTIN_TYPES: frozenset[str] = frozenset({
-    "list", "tuple", "set", "frozenset", "dict",
-    "int", "str", "float", "bool", "bytes", "bytearray",
-    "complex", "object", "type", "None", "memoryview",
-})
+BUILTIN_TYPES: frozenset[str] = frozenset(
+    {
+        "list",
+        "tuple",
+        "set",
+        "frozenset",
+        "dict",
+        "int",
+        "str",
+        "float",
+        "bool",
+        "bytes",
+        "bytearray",
+        "complex",
+        "object",
+        "type",
+        "None",
+        "memoryview",
+    }
+)
 
 # Types available from collections.abc (preferred for Python 3.9+)
 # and also re-exported by typing for backwards compatibility.
@@ -42,10 +57,16 @@ IMPORT_SOURCES: dict[str, str] = {
 
 # Legacy typing-capitalized forms (List, Tuple, etc.).
 # If the original type uses these, the import is already in scope.
-TYPING_GENERIC_ALIASES: frozenset[str] = frozenset({
-    "List", "Tuple", "Set", "FrozenSet", "Dict",
-    "Sequence",  # also exists in typing
-})
+TYPING_GENERIC_ALIASES: frozenset[str] = frozenset(
+    {
+        "List",
+        "Tuple",
+        "Set",
+        "FrozenSet",
+        "Dict",
+        "Sequence",  # also exists in typing
+    }
+)
 
 
 def extract_type_name(annotation: str) -> str:
@@ -137,9 +158,7 @@ def detect_preferred_module(source: str, type_name: str) -> str:
     return default
 
 
-_IMPORT_LINE_RE = re.compile(
-    r"^(?:from\s+[\w.]+\s+import\s|import\s+[\w.])"
-)
+_IMPORT_LINE_RE = re.compile(r"^(?:from\s+[\w.]+\s+import\s|import\s+[\w.])")
 
 
 def find_last_import_line(lines: list[str]) -> int:
@@ -190,26 +209,20 @@ def find_last_import_line(lines: list[str]) -> int:
     return last_import
 
 
-def _find_existing_import_line(
-    lines: list[str], module: str
-) -> int | None:
+def _find_existing_import_line(lines: list[str], module: str) -> int | None:
     """Find a single-line ``from {module} import ...`` that can be extended.
 
     Returns the 0-based line index, or None if not found or if the import
     is multi-line (parenthesized).
     """
-    pattern = re.compile(
-        r"^from\s+" + re.escape(module) + r"\s+import\s+(?!\()"
-    )
+    pattern = re.compile(r"^from\s+" + re.escape(module) + r"\s+import\s+(?!\()")
     for i, line in enumerate(lines):
         if pattern.match(line.rstrip()):
             return i
     return None
 
 
-def add_import(
-    source: str, type_name: str, module: str
-) -> tuple[str, int | None]:
+def add_import(source: str, type_name: str, module: str) -> tuple[str, int | None]:
     """Add ``from {module} import {type_name}`` to *source*.
 
     Returns (new_source, inserted_line_number) where inserted_line_number is
@@ -226,7 +239,7 @@ def add_import(
         stripped = old_line.rstrip("\n\r")
         new_line = stripped + ", " + type_name
         # Preserve original line ending
-        ending = old_line[len(stripped):]
+        ending = old_line[len(stripped) :]
         lines[existing] = new_line + ending
         return "".join(lines), None
 

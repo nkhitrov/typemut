@@ -55,6 +55,12 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self._init_schema()
 
+    def __enter__(self) -> Database:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
     def _init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
         for sql in _MIGRATIONS:

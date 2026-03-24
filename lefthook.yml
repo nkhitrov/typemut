@@ -1,0 +1,17 @@
+pre-commit:
+  parallel: true
+  commands:
+    ruff-check:
+      glob: "*.py"
+      run: uv run ruff check --fix {staged_files}
+      stage_fixed: true
+    ruff-format:
+      glob: "*.py"
+      run: uv run ruff format {staged_files}
+      stage_fixed: true
+    flake8-wps:
+      glob: "*.py"
+      run: uv run flake8 {staged_files}
+    mypy:
+      glob: "*.py"
+      run: uv run mypy {staged_files}

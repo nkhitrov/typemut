@@ -98,49 +98,43 @@ def _find_iterator_generator(
     mutations: list[Mutation],
 ) -> None:
     """Find iterator/generator type names and generate swap mutations."""
-    if isinstance(node, Leaf):
-        if node.type == "name" and node.value in TARGET_NAMES:
-            parent = node.parent
-            has_trailer = False
-            trailer_code = ""
-            params: list[str] = []
+    if isinstance(node, Leaf) and node.type == "name" and node.value in TARGET_NAMES:
+        parent = node.parent
+        has_trailer = False
+        trailer_code = ""
+        params: list[str] = []
 
-            if parent is not None and isinstance(parent, BaseNode):
-                idx = parent.children.index(node)
-                if idx + 1 < len(parent.children):
-                    next_child = parent.children[idx + 1]
-                    if (
-                        isinstance(next_child, BaseNode)
-                        and next_child.type == "trailer"
-                    ):
-                        has_trailer = True
-                        trailer_code = _node_code(next_child)
-                        params = _extract_params(next_child)
+        if parent is not None and isinstance(parent, BaseNode):
+            idx = parent.children.index(node)
+            if idx + 1 < len(parent.children):
+                next_child = parent.children[idx + 1]
+                if isinstance(next_child, BaseNode) and next_child.type == "trailer":
+                    has_trailer = True
+                    trailer_code = _node_code(next_child)
+                    params = _extract_params(next_child)
 
-            name = node.value
-            line = node.start_pos[0]
-            col = node.start_pos[1]
+        name = node.value
+        line = node.start_pos[0]
+        col = node.start_pos[1]
 
-            if has_trailer:
-                original_full = _node_code(node) + trailer_code
-                _add_subscripted_mutations(
-                    name, params, original_full, line, col, mutations
+        if has_trailer:
+            original_full = _node_code(node) + trailer_code
+            _add_subscripted_mutations(name, params, original_full, line, col, mutations)
+        else:
+            # Bare form — simple name swaps
+            mutations.extend(
+                Mutation(
+                    file="",
+                    operator="SwapIteratorGenerator",
+                    line=line,
+                    col=col,
+                    original=name,
+                    mutated=target,
+                    description=f"Swap {name} → {target}",
                 )
-            else:
-                # Bare form — simple name swaps
-                for target in BARE_SWAPS.get(name, []):
-                    mutations.append(
-                        Mutation(
-                            file="",
-                            operator="SwapIteratorGenerator",
-                            line=line,
-                            col=col,
-                            original=name,
-                            mutated=target,
-                            description=f"Swap {name} → {target}",
-                        )
-                    )
-            return
+                for target in BARE_SWAPS.get(name, [])
+            )
+        return
 
     if isinstance(node, BaseNode):
         for child in node.children:

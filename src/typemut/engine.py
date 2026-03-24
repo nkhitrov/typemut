@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -15,11 +14,13 @@ from typemut.imports import resolve_import
 
 # mypy error codes that indicate the mutated code is broken (missing import,
 # syntax error, invalid type) rather than a genuine type-system kill.
-FALSE_KILL_CODES: frozenset[str] = frozenset({
-    "name-defined",  # Name "Sequence" is not defined
-    "syntax",        # Syntax error in mutated code
-    "valid-type",    # Not valid as a type
-})
+FALSE_KILL_CODES: frozenset[str] = frozenset(
+    {
+        "name-defined",  # Name "Sequence" is not defined
+        "syntax",  # Syntax error in mutated code
+        "valid-type",  # Not valid as a type
+    }
+)
 
 _ERROR_CODE_RE = re.compile(r"\[(\w[\w-]*)\]\s*$")
 
@@ -56,13 +57,21 @@ def run_single_mutant(
     orig = mutant.original_annotation
     end_col = col + len(orig)
     if line[col:end_col] != orig:
-        return "error", f"Could not apply mutation — expected '{orig}' at col {col}, found '{line[col:end_col]}'", 0.0
+        return (
+            "error",
+            f"Could not apply mutation — expected '{orig}' at col {col}, found '{line[col:end_col]}'",
+            0.0,
+        )
     new_line = line[:col] + mutant.mutated_annotation + line[end_col:]
 
     lines[line_idx] = new_line
     mutated_source = "".join(lines)
 
-    file_path.write_text(mutated_source)
+    try:
+        file_path.write_text(mutated_source)
+    except OSError as exc:
+        return "error", f"Failed to write mutation: {exc}", 0.0
+
     start = time.monotonic()
 
     try:
@@ -120,9 +129,7 @@ def run_all_mutants(
 
         for mutant in mutants:
             assert mutant.id is not None
-            status, output, duration = run_single_mutant(
-                mutant, test_command, timeout
-            )
+            status, output, duration = run_single_mutant(mutant, test_command, timeout)
             db.update_result(mutant.id, status, output, duration)
             progress.advance(task)
 

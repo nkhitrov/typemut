@@ -175,9 +175,7 @@ def _process_classdef(
             break
 
 
-def _extract_literals(
-    tree: BaseNode | Leaf, file_path: str, reg: Registry
-) -> None:
+def _extract_literals(tree: BaseNode | Leaf, file_path: str, reg: Registry) -> None:
     """Find Literal[...] values in the tree."""
     if isinstance(tree, Leaf):
         return
@@ -186,11 +184,7 @@ def _extract_literals(
         # Look for pattern: Name('Literal') trailer('[' subscript ']')
         children = tree.children
         for i, child in enumerate(children):
-            if (
-                isinstance(child, Leaf)
-                and child.value == "Literal"
-                and i + 1 < len(children)
-            ):
+            if isinstance(child, Leaf) and child.value == "Literal" and i + 1 < len(children):
                 trailer = children[i + 1]
                 if isinstance(trailer, BaseNode) and trailer.type == "trailer":
                     _collect_literal_values(trailer, file_path, reg)
@@ -199,22 +193,15 @@ def _extract_literals(
             _extract_literals(child, file_path, reg)
 
 
-def _collect_literal_values(
-    trailer: BaseNode, file_path: str, reg: Registry
-) -> None:
+def _collect_literal_values(trailer: BaseNode, file_path: str, reg: Registry) -> None:
     """Extract values from a Literal[...] trailer node."""
     for child in trailer.children:
-        if isinstance(child, Leaf):
-            if child.type == "string" or child.type == "number":
-                val = child.value
-                reg.literal_pool.add(val)
-                reg.file_literal_pools.setdefault(file_path, set()).add(val)
-        elif isinstance(child, BaseNode):
-            # Could be subscriptlist with multiple values
-            if child.type == "subscriptlist" or child.type == "subscript":
-                for sub in child.children:
-                    if isinstance(sub, Leaf) and sub.type in ("string", "number"):
-                        reg.literal_pool.add(sub.value)
-                        reg.file_literal_pools.setdefault(file_path, set()).add(
-                            sub.value
-                        )
+        if isinstance(child, Leaf) and child.type in ("string", "number"):
+            val = child.value
+            reg.literal_pool.add(val)
+            reg.file_literal_pools.setdefault(file_path, set()).add(val)
+        elif isinstance(child, BaseNode) and child.type in ("subscriptlist", "subscript"):
+            for sub in child.children:
+                if isinstance(sub, Leaf) and sub.type in ("string", "number"):
+                    reg.literal_pool.add(sub.value)
+                    reg.file_literal_pools.setdefault(file_path, set()).add(sub.value)

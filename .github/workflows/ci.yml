@@ -28,5 +28,5 @@ jobs:
       - name: Run tests
         run: make test
 
-      - name: Run mypy
+      - name: Run linters
         run: make lint

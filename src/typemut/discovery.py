@@ -63,9 +63,8 @@ def _get_return_annotation(funcdef: BaseNode) -> BaseNode | Leaf | None:
     """
     children = funcdef.children
     for i, child in enumerate(children):
-        if hasattr(child, "value") and child.value == "->":
-            if i + 1 < len(children):
-                return children[i + 1]
+        if hasattr(child, "value") and child.value == "->" and i + 1 < len(children):
+            return children[i + 1]
     return None
 
 
@@ -83,9 +82,7 @@ def _should_skip_line(line_text: str, skip_comments: list[str]) -> bool:
 
 def _is_any(node: BaseNode | Leaf) -> bool:
     """Check if an annotation node is just `Any`."""
-    if isinstance(node, Leaf) and node.value == "Any":
-        return True
-    return False
+    return isinstance(node, Leaf) and node.value == "Any"
 
 
 def _has_typing_typevar_import(tree: Module) -> tuple[bool, bool]:
@@ -101,12 +98,8 @@ def _has_typing_typevar_import(tree: Module) -> tuple[bool, bool]:
         if isinstance(child, BaseNode):
             if child.type == "import_from":
                 # from typing import TypeVar  /  from typing import ..., TypeVar, ...
-                code = child.get_code()
                 # Check the module is 'typing'
-                children_values = [
-                    c.value if isinstance(c, Leaf) else ""
-                    for c in child.children
-                ]
+                children_values = [c.value if isinstance(c, Leaf) else "" for c in child.children]
                 if "typing" in children_values:
                     # Check imported names
                     for c in child.children:
@@ -120,13 +113,12 @@ def _has_typing_typevar_import(tree: Module) -> tuple[bool, bool]:
             elif child.type == "simple_stmt":
                 for sub in child.children:
                     if isinstance(sub, BaseNode) and sub.type == "import_name":
-                        code = sub.get_code()
-                        if "import" in code and "typing" in code:
+                        sub_code = sub.get_code()
+                        if "import" in sub_code and "typing" in sub_code:
                             qualified = True
                     elif isinstance(sub, BaseNode) and sub.type == "import_from":
                         children_values = [
-                            c.value if isinstance(c, Leaf) else ""
-                            for c in sub.children
+                            c.value if isinstance(c, Leaf) else "" for c in sub.children
                         ]
                         if "typing" in children_values:
                             for c in sub.children:
@@ -170,32 +162,33 @@ def _is_typevar_call(node: BaseNode, bare: bool, qualified: bool) -> BaseNode | 
     return call_node
 
 
-def _extract_typevar_power(
-    node: BaseNode | Leaf, bare: bool, qualified: bool
-) -> BaseNode | None:
+def _extract_typevar_power(node: BaseNode | Leaf, bare: bool, qualified: bool) -> BaseNode | None:
     """Extract TypeVar(...) call from RHS of assignment."""
     if isinstance(node, BaseNode) and node.type in ("power", "atom_expr"):
         children = node.children
         # bare: TypeVar(...)  →  power: name('TypeVar') trailer('(' ... ')')
-        if bare and len(children) >= 2:
-            if (
-                isinstance(children[0], Leaf)
-                and children[0].value == "TypeVar"
-                and isinstance(children[1], BaseNode)
-                and children[1].type == "trailer"
-            ):
-                return node
+        if (
+            bare
+            and len(children) >= 2
+            and isinstance(children[0], Leaf)
+            and children[0].value == "TypeVar"
+            and isinstance(children[1], BaseNode)
+            and children[1].type == "trailer"
+        ):
+            return node
         # qualified: typing.TypeVar(...)  →  power: name('typing') trailer('.TypeVar') trailer('(' ... ')')
-        if qualified and len(children) >= 3:
-            if (
-                isinstance(children[0], Leaf)
-                and children[0].value == "typing"
-                and isinstance(children[1], BaseNode)
-                and children[1].type == "trailer"
-            ):
-                trailer_code = _node_code(children[1])
-                if trailer_code == ".TypeVar" and isinstance(children[2], BaseNode) and children[2].type == "trailer":
-                    return node
+        if (
+            qualified
+            and len(children) >= 3
+            and isinstance(children[0], Leaf)
+            and children[0].value == "typing"
+            and isinstance(children[1], BaseNode)
+            and children[1].type == "trailer"
+            and _node_code(children[1]) == ".TypeVar"
+            and isinstance(children[2], BaseNode)
+            and children[2].type == "trailer"
+        ):
+            return node
     # It might also just be a simple call: TypeVar("T") parsed differently
     # Handle atom case: just name + trailer at expr_stmt level
     return None
@@ -226,9 +219,7 @@ def discover_annotations(
                 call_node = _is_typevar_call(node, bare_typevar, qualified_typevar)
                 if call_node is not None:
                     line = call_node.start_pos[0]
-                    if not _should_skip_line(
-                        _line_text(file_lines, line), skip_comments
-                    ):
+                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
                         annotations.append(
                             AnnotationNode(
                                 file=file,
@@ -246,9 +237,7 @@ def discover_annotations(
                 ann = _get_annotation_from_annassign(node)
                 if ann is not None and not _is_any(ann):
                     line = ann.start_pos[0]
-                    if not _should_skip_line(
-                        _line_text(file_lines, line), skip_comments
-                    ):
+                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
                         annotations.append(
                             AnnotationNode(
                                 file=file,
@@ -265,9 +254,7 @@ def discover_annotations(
                 ann = _get_annotation_from_tfpdef(node)
                 if ann is not None and not _is_any(ann):
                     line = ann.start_pos[0]
-                    if not _should_skip_line(
-                        _line_text(file_lines, line), skip_comments
-                    ):
+                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
                         annotations.append(
                             AnnotationNode(
                                 file=file,
@@ -284,9 +271,7 @@ def discover_annotations(
                 ann = _get_return_annotation(node)
                 if ann is not None and not _is_any(ann):
                     line = ann.start_pos[0]
-                    if not _should_skip_line(
-                        _line_text(file_lines, line), skip_comments
-                    ):
+                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
                         annotations.append(
                             AnnotationNode(
                                 file=file,

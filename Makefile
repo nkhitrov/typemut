@@ -1,4 +1,4 @@
-.PHONY: install test lint clean run
+.PHONY: install test lint fmt clean run
 
 install:
 	uv sync --all-extras --all-groups
@@ -7,7 +7,14 @@ test:
 	uv run pytest tests/ -v
 
 lint:
+	uv run ruff check src/typemut/
+	uv run ruff format --check src/typemut/
+	uv run flake8 src/typemut/
 	uv run mypy src/typemut/
+
+fmt:
+	uv run ruff check --fix src/typemut/
+	uv run ruff format src/typemut/
 
 clean:
 	rm -f typemut.sqlite

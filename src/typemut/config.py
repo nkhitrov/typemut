@@ -28,9 +28,7 @@ class Config:
     test_command: str = "mypy src/"
     timeout: int = 30
     excluded_modules: list[str] = field(default_factory=list)
-    skip_comments: list[str] = field(
-        default_factory=lambda: ["type: ignore", "pragma: no mutate"]
-    )
+    skip_comments: list[str] = field(default_factory=lambda: ["type: ignore", "pragma: no mutate"])
     operators: OperatorsConfig = field(default_factory=OperatorsConfig)
     db_path: str = "typemut.sqlite"
 
@@ -62,9 +60,7 @@ def load_config(path: Path) -> Config:
         test_command=section.get("test-command", "mypy src/"),
         timeout=section.get("timeout", 30),
         excluded_modules=section.get("excluded-modules", []),
-        skip_comments=section.get(
-            "skip-comments", ["type: ignore", "pragma: no mutate"]
-        ),
+        skip_comments=section.get("skip-comments", ["type: ignore", "pragma: no mutate"]),
         operators=operators,
         db_path=section.get("db", "typemut.sqlite"),
     )

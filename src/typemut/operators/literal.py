@@ -30,7 +30,7 @@ class SwapLiteralValue(TypeMutationOperator):
         file_path = _get_file_path(node)
         pool = registry.get_file_literals(file_path) if file_path else registry.literal_pool
 
-        for lit_value, lit_node in literals:
+        for lit_value, _lit_node in literals:
             for other in pool:
                 if other != lit_value:
                     mutated = original.replace(lit_value, other, 1)
@@ -70,21 +70,19 @@ def _find_literal_subscripts(
 
     children = node.children
     for i, child in enumerate(children):
-        if isinstance(child, Leaf) and child.value == "Literal":
-            # Next sibling should be trailer: [subscript]
-            if i + 1 < len(children):
-                trailer = children[i + 1]
-                if isinstance(trailer, BaseNode) and trailer.type == "trailer":
-                    for tc in trailer.children:
-                        if isinstance(tc, Leaf) and tc.type in ("string", "number"):
-                            results.append((tc.value, tc))
-                        elif isinstance(tc, BaseNode) and tc.type == "subscriptlist":
-                            for sub in tc.children:
-                                if isinstance(sub, Leaf) and sub.type in (
-                                    "string",
-                                    "number",
-                                ):
-                                    results.append((sub.value, sub))
+        if isinstance(child, Leaf) and child.value == "Literal" and i + 1 < len(children):
+            trailer = children[i + 1]
+            if isinstance(trailer, BaseNode) and trailer.type == "trailer":
+                for tc in trailer.children:
+                    if isinstance(tc, Leaf) and tc.type in ("string", "number"):
+                        results.append((tc.value, tc))
+                    elif isinstance(tc, BaseNode) and tc.type == "subscriptlist":
+                        for sub in tc.children:
+                            if isinstance(sub, Leaf) and sub.type in (
+                                "string",
+                                "number",
+                            ):
+                                results.append((sub.value, sub))
 
     # Recurse into children
     for child in children:

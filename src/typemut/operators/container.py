@@ -44,34 +44,30 @@ def _find_containers(
     mutations: list[Mutation],
 ) -> None:
     """Find container type names followed by [...] and generate swaps."""
-    if isinstance(node, Leaf):
-        if node.value in SWAP_MAP and node.type == "name":
-            # Check if followed by a trailer (subscript)
-            parent = node.parent
-            if parent is not None and isinstance(parent, BaseNode):
-                idx = parent.children.index(node)
-                if idx + 1 < len(parent.children):
-                    next_child = parent.children[idx + 1]
-                    if (
-                        isinstance(next_child, BaseNode)
-                        and next_child.type == "trailer"
-                    ):
-                        # This is container[...] — generate swaps
-                        original_full = _node_code(node) + _node_code(next_child)
-                        for swap_to in SWAP_MAP[node.value]:
-                            mutated = swap_to + _node_code(next_child)
-                            mutations.append(
-                                Mutation(
-                                    file="",
-                                    operator="SwapContainerType",
-                                    line=node.start_pos[0],
-                                    col=node.start_pos[1],
-                                    original=original_full,
-                                    mutated=mutated,
-                                    description=f"Swap {node.value} → {swap_to}",
-                                )
+    if isinstance(node, Leaf) and node.value in SWAP_MAP and node.type == "name":
+        # Check if followed by a trailer (subscript)
+        parent = node.parent
+        if parent is not None and isinstance(parent, BaseNode):
+            idx = parent.children.index(node)
+            if idx + 1 < len(parent.children):
+                next_child = parent.children[idx + 1]
+                if isinstance(next_child, BaseNode) and next_child.type == "trailer":
+                    # This is container[...] — generate swaps
+                    original_full = _node_code(node) + _node_code(next_child)
+                    for swap_to in SWAP_MAP[node.value]:
+                        mutated = swap_to + _node_code(next_child)
+                        mutations.append(
+                            Mutation(
+                                file="",
+                                operator="SwapContainerType",
+                                line=node.start_pos[0],
+                                col=node.start_pos[1],
+                                original=original_full,
+                                mutated=mutated,
+                                description=f"Swap {node.value} → {swap_to}",
                             )
-                        return
+                        )
+                    return
 
     if isinstance(node, BaseNode):
         for child in node.children:

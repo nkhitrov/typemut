@@ -30,19 +30,15 @@ def _find_tuple_ellipsis(
     mutations: list[Mutation],
 ) -> None:
     """Find tuple[X] or tuple[X, ...] and generate ellipsis mutations."""
-    if isinstance(node, Leaf):
-        if node.value in TUPLE_NAMES and node.type == "name":
-            parent = node.parent
-            if parent is not None and isinstance(parent, BaseNode):
-                idx = parent.children.index(node)
-                if idx + 1 < len(parent.children):
-                    trailer = parent.children[idx + 1]
-                    if (
-                        isinstance(trailer, BaseNode)
-                        and trailer.type == "trailer"
-                    ):
-                        _process_trailer(node, trailer, mutations)
-                        return
+    if isinstance(node, Leaf) and node.value in TUPLE_NAMES and node.type == "name":
+        parent = node.parent
+        if parent is not None and isinstance(parent, BaseNode):
+            idx = parent.children.index(node)
+            if idx + 1 < len(parent.children):
+                trailer = parent.children[idx + 1]
+                if isinstance(trailer, BaseNode) and trailer.type == "trailer":
+                    _process_trailer(node, trailer, mutations)
+                    return
 
     if isinstance(node, BaseNode):
         for child in node.children:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,10 @@ from rich.progress import Progress
 
 from typemut.db import Database, MutantRow
 from typemut.engine import run_single_mutant
+
+logger = logging.getLogger(__name__)
+
+_DB_FLUSH_BATCH_SIZE = 50
 
 
 class DirtyWorkingTreeError(Exception):
@@ -31,9 +36,7 @@ def ensure_clean_git_status() -> None:
         text=True,
     )
     if result.returncode != 0:
-        raise DirtyWorkingTreeError(
-            f"Failed to check git status: {result.stderr.strip()}"
-        )
+        raise DirtyWorkingTreeError(f"Failed to check git status: {result.stderr.strip()}")
     if result.stdout.strip():
         raise DirtyWorkingTreeError(
             "Working tree has uncommitted changes. "
@@ -68,7 +71,7 @@ def _remove_worktrees(
                 capture_output=True,
             )
         except Exception:
-            pass
+            logger.warning("Failed to remove worktree %s", wt, exc_info=True)
         # Clean up the parent temp directory
         parent = wt.parent
         if parent.exists():
@@ -171,8 +174,7 @@ def run_all_mutants_parallel(
                 completed += 1
                 progress.advance(task)
 
-                # Flush to DB every 50 results
-                if len(batch) >= 50:
+                if len(batch) >= _DB_FLUSH_BATCH_SIZE:
                     db.update_results_batch(batch)
                     batch.clear()
 
