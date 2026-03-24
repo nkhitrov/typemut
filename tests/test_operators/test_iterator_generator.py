@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import parso
 import pytest
 
-from typemut.operators.iterator_generator import SwapIteratorGenerator
+from typemut.operators.iterator_generator import SwapIteratorGenerator, _extract_params
 
 from tests.conftest import assert_mutations
 
@@ -75,9 +76,6 @@ def test_async_iterable_subscripted() -> None:
 
 def test_empty_trailer_params() -> None:
     """Empty trailer returns empty params list (line 74)."""
-    from typemut.operators.iterator_generator import _extract_params
-    import parso
-
     # Parse a subscript expression to get a real trailer node, then empty it
     tree = parso.parse("x: Iterator[int]\n")
     # Find the trailer node

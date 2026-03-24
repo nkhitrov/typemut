@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from typemut.db import MutantRow
-from typemut.engine import check_baseline, run_single_mutant
+from typemut.db import Database, MutantRow
+from typemut.engine import check_baseline, run_all_mutants, run_single_mutant
 
 
 class TestRunSingleMutant:
@@ -183,9 +184,6 @@ class TestRunSingleMutant:
 class TestRunAllMutants:
     def test_run_all_mutants(self, tmp_path: Path) -> None:
         """run_all_mutants processes mutants and updates DB (lines 118-127)."""
-        from typemut.db import Database
-        from typemut.engine import run_all_mutants
-
         src = tmp_path / "test.py"
         src.write_text("x: int = 5\n")
 
@@ -203,7 +201,6 @@ class TestRunAllMutants:
         mid = db.insert_mutant(mutant)
         mutant.id = mid
 
-        import os
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:

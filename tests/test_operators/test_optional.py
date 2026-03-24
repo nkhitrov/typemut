@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
+import parso
 import pytest
+from parso.python.tree import PythonNode
 
 from typemut.discovery import AnnotationContext, discover_annotations
-from typemut.operators.optional import AddOptional, RemoveOptional
+from typemut.operators.optional import AddOptional, RemoveOptional, _extract_union_members
 from typemut.registry import Registry
 
 from tests.conftest import assert_mutations
@@ -75,7 +78,6 @@ def test_remove_optional_all_none() -> None:
     """Union of only None members returns empty (line 36)."""
     # This tests the edge case where all non-None members are removed
     # In practice, a union of only None is unusual but the code handles it
-    from typemut.operators.optional import _extract_union_members
     source = "x: None | None\n"
     # RemoveOptional: all members are None, so remaining is empty
     annotations = discover_annotations(Path("test.py"), source=source)
@@ -89,7 +91,6 @@ def test_remove_optional_all_none() -> None:
 
 def test_add_optional_skips_self() -> None:
     """AddOptional skips 'self' parameter (line 74)."""
-    import parso
     tree = parso.parse("self\n")
     # Get the 'self' name node
     node = tree.children[0].children[0]  # simple_stmt -> expr_stmt or name
@@ -103,8 +104,6 @@ def test_add_optional_skips_self() -> None:
 
 def test_add_optional_skips_none() -> None:
     """AddOptional skips None type (line 84)."""
-    from unittest.mock import patch
-    import parso
     tree = parso.parse("None\n")
     node = tree.children[0].children[0]
     if hasattr(node, 'children'):
@@ -119,10 +118,6 @@ def test_add_optional_skips_none() -> None:
 
 def test_extract_union_arith_expr() -> None:
     """_extract_union_members handles arith_expr type (line 112)."""
-    from typemut.operators.optional import _extract_union_members
-    import parso
-    from parso.python.tree import PythonNode
-
     # Parse a union to get real nodes, then change node type to arith_expr
     tree = parso.parse("x: int | str\n")
     # Find the expr node
@@ -146,10 +141,6 @@ def test_extract_union_arith_expr() -> None:
 
 def test_extract_union_no_pipe() -> None:
     """_extract_union_members with no pipe returns empty (line 117)."""
-    from typemut.operators.optional import _extract_union_members
-    from parso.python.tree import PythonNode
-    import parso
-
     # Parse something that looks like an expr but has no pipe
     tree = parso.parse("x + y\n")
     # Find expr node

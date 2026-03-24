@@ -4,7 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from typemut.discovery import AnnotationContext, discover_annotations
+import parso
+from parso.python.tree import PythonNode
+
+from typemut.discovery import (
+    AnnotationContext,
+    _extract_typevar_power,
+    _get_annotation_from_annassign,
+    _get_annotation_from_tfpdef,
+    _has_typing_typevar_import,
+    _is_typevar_call,
+    _line_text,
+    discover_annotations,
+    discover_files,
+)
 
 
 def test_discover_variable_annotation():
@@ -89,11 +102,6 @@ def test_fixture_simple_unions(fixtures_dir: Path):
 
 def test_annassign_too_few_children():
     """annassign with less than 2 children returns None (line 45)."""
-    from typemut.discovery import _get_annotation_from_annassign
-    from parso.python.tree import PythonNode
-
-    # Parse to get a real node, then manipulate its children
-    import parso
     tree = parso.parse("x: int\n")
     # Find annassign node
     annassign = None
@@ -117,9 +125,6 @@ def test_annassign_too_few_children():
 
 def test_tfpdef_too_few_children():
     """tfpdef with less than 3 children returns None (line 56)."""
-    from typemut.discovery import _get_annotation_from_tfpdef
-
-    import parso
     tree = parso.parse("def f(x: int):\n    pass\n")
     # Find tfpdef node
     tfpdef = None
@@ -152,8 +157,6 @@ def test_funcdef_no_return_annotation():
 
 def test_line_text_out_of_range():
     """_line_text with out-of-range line returns empty string (line 76)."""
-    from typemut.discovery import _line_text
-
     assert _line_text(["hello", "world"], 0) == ""
     assert _line_text(["hello", "world"], 3) == ""
     assert _line_text([], 1) == ""
@@ -205,8 +208,6 @@ def test_typevar_qualified_call():
 
 def test_discover_files_with_exclusions(tmp_path: Path):
     """discover_files respects exclusions and default None (lines 330, 336)."""
-    from typemut.discovery import discover_files
-
     # Create some Python files
     (tmp_path / "foo.py").write_text("x = 1\n")
     (tmp_path / "bar.py").write_text("y = 2\n")
@@ -234,9 +235,6 @@ def test_typevar_skip_comment():
 
 def test_import_from_direct_child_of_tree():
     """Cover import_from as direct module child (lines 104-119)."""
-    from typemut.discovery import _has_typing_typevar_import
-    import parso
-
     # Parse and manipulate tree so import_from is a direct child
     tree = parso.parse('from typing import TypeVar\n')
     simple_stmt = tree.children[0]
@@ -249,9 +247,6 @@ def test_import_from_direct_child_of_tree():
 
 def test_import_from_direct_child_with_import_as_names():
     """Cover import_from with import_as_names as direct module child (lines 115-119)."""
-    from typemut.discovery import _has_typing_typevar_import
-    import parso
-
     tree = parso.parse('from typing import List, TypeVar\n')
     simple_stmt = tree.children[0]
     import_from = simple_stmt.children[0]
@@ -262,9 +257,6 @@ def test_import_from_direct_child_with_import_as_names():
 
 def test_import_from_direct_child_no_typevar():
     """import_from direct child without TypeVar (exercises inner loop, line 104+)."""
-    from typemut.discovery import _has_typing_typevar_import
-    import parso
-
     tree = parso.parse('from typing import List\n')
     simple_stmt = tree.children[0]
     import_from = simple_stmt.children[0]
@@ -275,9 +267,6 @@ def test_import_from_direct_child_no_typevar():
 
 def test_is_typevar_call_no_assignment():
     """expr_stmt with >= 3 children but no '=' returns None (line 160)."""
-    from typemut.discovery import _is_typevar_call
-    import parso
-
     # Parse T = TypeVar("T") and replace '=' with something else
     tree = parso.parse('T = TypeVar("T")\n')
     expr_stmt = tree.children[0].children[0]
@@ -309,9 +298,6 @@ def test_is_typevar_call_rhs_none_guard():
     We use a custom list subclass to make `len >= 3` True on line 151
     but return a different length on line 163, triggering rhs = None.
     """
-    from typemut.discovery import _is_typevar_call
-    import parso
-
     tree = parso.parse('T = TypeVar("T")\n')
     expr_stmt = tree.children[0].children[0]
 
@@ -336,9 +322,6 @@ def test_is_typevar_call_rhs_none_guard():
 
 def test_extract_typevar_power_non_typevar():
     """_extract_typevar_power returns None for non-TypeVar calls (line 201)."""
-    from typemut.discovery import _extract_typevar_power
-    import parso
-
     tree = parso.parse('x = SomeFunc("T")\n')
     # Get the RHS of the assignment
     expr_stmt = tree.children[0].children[0]

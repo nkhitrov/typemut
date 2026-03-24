@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import parso
 import pytest
+from parso.python.tree import PythonNode
 
 from typemut.discovery import AnnotationContext, discover_annotations
-from typemut.operators.union import RemoveUnionMember
+from typemut.operators.union import RemoveUnionMember, _extract_union_members
 from typemut.registry import Registry
 
 
@@ -44,8 +46,6 @@ def test_no_mutation_for_simple_type() -> None:
 
 def test_extract_union_non_expr_basenode() -> None:
     """_extract_union_members returns empty for non-expr BaseNode (line 64)."""
-    from typemut.operators.union import _extract_union_members
-
     # list[int] is an atom_expr BaseNode, not expr/arith_expr
     annotations = discover_annotations(Path("test.py"), source="x: list[int]\n")
     op = RemoveUnionMember()
@@ -57,10 +57,6 @@ def test_extract_union_non_expr_basenode() -> None:
 
 def test_extract_union_no_pipe() -> None:
     """_extract_union_members returns empty if no pipe operator (line 70)."""
-    from typemut.operators.union import _extract_union_members
-    from parso.python.tree import PythonNode
-    import parso
-
     tree = parso.parse("x: int | str\n")
     expr = None
     def find_expr(node):

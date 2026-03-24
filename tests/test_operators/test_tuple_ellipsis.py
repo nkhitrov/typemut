@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import parso
 import pytest
 
-from typemut.operators.tuple_ellipsis import TupleEllipsis
+from typemut.operators.base import Mutation
+from typemut.operators.tuple_ellipsis import TupleEllipsis, _process_trailer
 
 from tests.conftest import assert_mutations
 
@@ -34,9 +36,6 @@ def test_no_tuple_ellipsis(source: str) -> None:
 
 def test_tuple_empty_trailer() -> None:
     """Empty trailer inner content returns no mutations (line 62)."""
-    from typemut.operators.tuple_ellipsis import _process_trailer
-    from typemut.operators.base import Mutation
-    import parso
 
     # Parse a tuple annotation to get real nodes
     tree = parso.parse("x: tuple[int]\n")
@@ -65,9 +64,6 @@ def test_tuple_empty_trailer() -> None:
 
 def test_tuple_whitespace_only_content() -> None:
     """Whitespace-only content in trailer returns no mutations (lines 81, 86)."""
-    from typemut.operators.tuple_ellipsis import _process_trailer
-    from typemut.operators.base import Mutation
-    import parso
 
     tree = parso.parse("x: tuple[int]\n")
     trailer = None
@@ -98,9 +94,6 @@ def test_tuple_whitespace_only_content() -> None:
 
 def test_tuple_leaf_empty_parens() -> None:
     """tuple[()] Leaf with '()' value returns no mutations (line 100)."""
-    from typemut.operators.tuple_ellipsis import _process_trailer
-    from typemut.operators.base import Mutation
-    import parso
 
     tree = parso.parse("x: tuple[int]\n")
     trailer = None

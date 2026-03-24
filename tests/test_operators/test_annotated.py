@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import parso
 import pytest
 
-from typemut.operators.annotated import StripAnnotated
+from typemut.discovery import AnnotationContext, discover_annotations
+from typemut.operators.annotated import StripAnnotated, _get_first_subscript_arg
+from typemut.registry import Registry
 
 from tests.conftest import assert_mutations
 
@@ -66,10 +71,6 @@ def test_strip_annotated_no_metadata() -> None:
 def test_non_annotated_recurse() -> None:
     """Non-Annotated nodes recurse into children (lines 58-59)."""
     source = 'from typing import Annotated\nx: list[Annotated[str, "meta"]]\n'
-    from pathlib import Path
-    from typemut.discovery import discover_annotations, AnnotationContext
-    from typemut.registry import Registry
-
     annotations = discover_annotations(Path("test.py"), source=source)
     op = StripAnnotated()
     mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
@@ -79,9 +80,6 @@ def test_non_annotated_recurse() -> None:
 
 def test_annotated_subscriptlist_skip_comma() -> None:
     """subscriptlist processing skips commas (line 71)."""
-    from typemut.operators.annotated import _get_first_subscript_arg
-    import parso
-
     # Parse Annotated[int, "field"] and manipulate subscriptlist
     # to have comma as first child, exercising the comma skip
     tree = parso.parse('from typing import Annotated\nx: Annotated[int, "field"]\n')
@@ -122,9 +120,6 @@ def test_annotated_subscriptlist_skip_comma() -> None:
 
 def test_get_first_subscript_arg_returns_none() -> None:
     """_get_first_subscript_arg returns None for empty trailer (line 78)."""
-    from typemut.operators.annotated import _get_first_subscript_arg
-    import parso
-
     # Parse to get a real trailer, then empty it
     tree = parso.parse('from typing import Annotated\nx: Annotated[str]\n')
     def find_annotated_trailer(node):
