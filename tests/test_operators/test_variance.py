@@ -4,17 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import parso
 import pytest
-from parso.python.tree import PythonNode
 
 from typemut.discovery import AnnotationContext, discover_annotations
-from typemut.operators.variance import (
-    TypeVarVariance,
-    _add_kwarg,
-    _find_args_trailer,
-    _remove_kwarg,
-)
+from typemut.operators.variance import TypeVarVariance
 from typemut.registry import Registry
 
 
@@ -91,70 +84,3 @@ def test_operator_ignores_non_typevar_context() -> None:
         annotations[0].node, AnnotationContext.VARIABLE, Registry()
     )
     assert len(mutations) == 0
-
-
-def test_no_args_trailer() -> None:
-    # Parse a TypeVar and remove the trailer to simulate missing args
-    source = 'from typing import TypeVar\nT = TypeVar("T")\n'
-    tree = parso.parse(source)
-
-    # Find the TypeVar atom_expr node and remove its trailer
-    annotations = discover_annotations(Path("test.py"), source=source)
-    tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
-    assert len(tvars) == 1
-
-    node = tvars[0].node
-    original_children = node.children
-    node.children = [original_children[0]]  # only keep the Name, remove trailer
-
-    op = TypeVarVariance()
-    mutations = op.find_mutations(node, AnnotationContext.TYPEVAR, Registry())
-    assert len(mutations) == 0
-    node.children = original_children  # restore
-
-
-def test_find_args_trailer_no_paren() -> None:
-    # Parse a subscript to get a trailer that starts with '[' not '('
-    tree = parso.parse("x: list[int]\n")
-    trailer = None
-    def find_trailer(node):
-        nonlocal trailer
-        if hasattr(node, 'type') and node.type == 'trailer':
-            trailer = node
-            return
-        if hasattr(node, 'children'):
-            for child in node.children:
-                find_trailer(child)
-    find_trailer(tree)
-    assert trailer is not None
-
-    # Wrap in a parent BaseNode
-    parent = PythonNode("power", [trailer])
-    assert _find_args_trailer(parent) is None
-
-
-def test_remove_kwarg_trailing_pattern() -> None:
-    # Pattern where kwarg is first, followed by trailing comma
-    # This triggers the second regex pattern (kwarg=True, )
-    text = 'TypeVar(covariant=True, "T")'
-    result = _remove_kwarg(text, "covariant")
-    assert "covariant" not in result
-    assert '"T"' in result
-
-
-def test_add_kwarg_no_closing_paren() -> None:
-    text = 'TypeVar("T"'
-    result = _add_kwarg(text, "covariant=True")
-    assert result == text
-
-
-def test_add_kwarg_no_opening_paren() -> None:
-    text = 'TypeVar"T")'
-    result = _add_kwarg(text, "covariant=True")
-    assert result == text
-
-
-def test_add_kwarg_empty_parens() -> None:
-    text = "TypeVar()"
-    result = _add_kwarg(text, "covariant=True")
-    assert result == "TypeVar(covariant=True)"

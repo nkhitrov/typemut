@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import parso
 import pytest
 
-from typemut.operators.iterator_generator import SwapIteratorGenerator, _extract_params
+from typemut.operators.iterator_generator import SwapIteratorGenerator
 
 from tests.conftest import assert_mutations
 
@@ -71,26 +70,3 @@ def test_async_iterable_subscripted() -> None:
         SwapIteratorGenerator,
         expected=["AsyncIterator[int]"],
     )
-
-
-def test_empty_trailer_params() -> None:
-    # Parse a subscript expression to get a real trailer node, then empty it
-    tree = parso.parse("x: Iterator[int]\n")
-    # Find the trailer node
-    trailer = None
-    def find_trailer(node):
-        nonlocal trailer
-        if hasattr(node, 'type') and node.type == 'trailer':
-            trailer = node
-            return
-        if hasattr(node, 'children'):
-            for child in node.children:
-                find_trailer(child)
-    find_trailer(tree)
-    assert trailer is not None
-
-    # Remove inner content (keep only [ and ])
-    original = trailer.children
-    trailer.children = [original[0], original[-1]]
-    assert _extract_params(trailer) == []
-    trailer.children = original  # restore

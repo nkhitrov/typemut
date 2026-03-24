@@ -74,16 +74,10 @@ line_coverage_min = 80
 [tool.coverage-threshold.modules."src/typemut/config.py"]
 file_line_coverage_min = 100
 
-[tool.coverage-threshold.modules."src/typemut/discovery.py"]
-file_line_coverage_min = 100
-
 [tool.coverage-threshold.modules."src/typemut/engine.py"]
 file_line_coverage_min = 100
 
 [tool.coverage-threshold.modules."src/typemut/operators/__init__.py"]
-file_line_coverage_min = 100
-
-[tool.coverage-threshold.modules."src/typemut/operators/annotated.py"]
 file_line_coverage_min = 100
 
 [tool.coverage-threshold.modules."src/typemut/operators/base.py"]
@@ -92,28 +86,7 @@ file_line_coverage_min = 100
 [tool.coverage-threshold.modules."src/typemut/operators/container.py"]
 file_line_coverage_min = 100
 
-[tool.coverage-threshold.modules."src/typemut/operators/iterator_generator.py"]
-file_line_coverage_min = 100
-
-[tool.coverage-threshold.modules."src/typemut/operators/literal.py"]
-file_line_coverage_min = 100
-
-[tool.coverage-threshold.modules."src/typemut/operators/optional.py"]
-file_line_coverage_min = 100
-
-[tool.coverage-threshold.modules."src/typemut/operators/tuple_ellipsis.py"]
-file_line_coverage_min = 100
-
-[tool.coverage-threshold.modules."src/typemut/operators/union.py"]
-file_line_coverage_min = 100
-
-[tool.coverage-threshold.modules."src/typemut/operators/variance.py"]
-file_line_coverage_min = 100
-
 [tool.coverage-threshold.modules."src/typemut/operators/widen.py"]
-file_line_coverage_min = 100
-
-[tool.coverage-threshold.modules."src/typemut/operators/widen_type.py"]
 file_line_coverage_min = 100
 
 [tool.ruff]

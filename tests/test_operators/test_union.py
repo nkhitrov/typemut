@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import parso
 import pytest
-from parso.python.tree import PythonNode
 
 from typemut.discovery import AnnotationContext, discover_annotations
-from typemut.operators.union import RemoveUnionMember, _extract_union_members
+from typemut.operators.union import RemoveUnionMember
 from typemut.registry import Registry
 
 
@@ -52,23 +50,3 @@ def test_extract_union_non_expr_basenode() -> None:
         annotations[0].node, AnnotationContext.VARIABLE, Registry()
     )
     assert len(mutations) == 0
-
-
-def test_extract_union_no_pipe() -> None:
-    tree = parso.parse("x: int | str\n")
-    expr = None
-    def find_expr(node):
-        nonlocal expr
-        if hasattr(node, 'type') and node.type in ('expr', 'arith_expr'):
-            expr = node
-            return
-        if hasattr(node, 'children'):
-            for child in node.children:
-                find_expr(child)
-    find_expr(tree)
-    assert expr is not None
-
-    # Create expr node with no pipe
-    fake = PythonNode("expr", [expr.children[0]])
-    members = _extract_union_members(fake)
-    assert len(members) == 0

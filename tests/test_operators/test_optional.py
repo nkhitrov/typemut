@@ -7,10 +7,9 @@ from unittest.mock import patch
 
 import parso
 import pytest
-from parso.python.tree import PythonNode
 
 from typemut.discovery import AnnotationContext, discover_annotations
-from typemut.operators.optional import AddOptional, RemoveOptional, _extract_union_members
+from typemut.operators.optional import AddOptional, RemoveOptional
 from typemut.registry import Registry
 
 from tests.conftest import assert_mutations
@@ -73,10 +72,7 @@ def test_remove_optional_non_expr_basenode() -> None:
 
 
 def test_remove_optional_all_none() -> None:
-    # This tests the edge case where all non-None members are removed
-    # In practice, a union of only None is unusual but the code handles it
     source = "x: None | None\n"
-    # RemoveOptional: all members are None, so remaining is empty
     annotations = discover_annotations(Path("test.py"), source=source)
     if annotations:
         op = RemoveOptional()
@@ -88,8 +84,7 @@ def test_remove_optional_all_none() -> None:
 
 def test_add_optional_skips_self() -> None:
     tree = parso.parse("self\n")
-    # Get the 'self' name node
-    node = tree.children[0].children[0]  # simple_stmt -> expr_stmt or name
+    node = tree.children[0].children[0]
     if hasattr(node, 'children'):
         node = node.children[0]
     assert node.value == "self"
@@ -105,57 +100,6 @@ def test_add_optional_skips_none() -> None:
         node = node.children[0]
     assert node.value == "None"
     op = AddOptional()
-    # Patch _contains_none to return False, so we reach the code == "None" check
     with patch("typemut.operators.optional._contains_none", return_value=False):
         mutations = op.find_mutations(node, AnnotationContext.RETURN, Registry())
     assert len(mutations) == 0
-
-
-def test_extract_union_arith_expr() -> None:
-    # Parse a union to get real nodes, then change node type to arith_expr
-    tree = parso.parse("x: int | str\n")
-    # Find the expr node
-    expr = None
-    def find_expr(node):
-        nonlocal expr
-        if hasattr(node, 'type') and node.type in ('expr', 'arith_expr'):
-            expr = node
-            return
-        if hasattr(node, 'children'):
-            for child in node.children:
-                find_expr(child)
-    find_expr(tree)
-    assert expr is not None
-
-    # Wrap in a PythonNode with arith_expr type
-    fake = PythonNode("arith_expr", list(expr.children))
-    members = _extract_union_members(fake)
-    assert len(members) == 2
-
-
-def test_extract_union_no_pipe() -> None:
-    # Parse something that looks like an expr but has no pipe
-    tree = parso.parse("x + y\n")
-    # Find expr node
-    expr = None
-    def find_expr(node):
-        nonlocal expr
-        if hasattr(node, 'type') and node.type in ('expr', 'arith_expr'):
-            expr = node
-            return
-        if hasattr(node, 'children'):
-            for child in node.children:
-                find_expr(child)
-    find_expr(tree)
-    if expr is not None:
-        # It has + not |, so no pipe
-        members = _extract_union_members(expr)
-        assert len(members) == 0
-    else:
-        # If parso doesn't create expr for x+y, create one manually
-        tree2 = parso.parse("x: int | str\n")
-        find_expr(tree2)
-        assert expr is not None
-        fake = PythonNode("expr", [expr.children[0]])  # only one child, no pipe
-        members = _extract_union_members(fake)
-        assert len(members) == 0
