@@ -63,7 +63,7 @@ class Registry:
         return reg
 
 
-def _extract_imports(tree: BaseNode | Leaf) -> dict[str, str]:
+def _extract_imports(tree: BaseNode) -> dict[str, str]:
     """Extract all ``from X import Y`` mappings from the module-level AST.
 
     Returns {name: "from module import name"} for each imported name.
