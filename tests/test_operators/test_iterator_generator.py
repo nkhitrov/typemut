@@ -2,109 +2,71 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import pytest
 
-from typemut.discovery import AnnotationContext, discover_annotations
 from typemut.operators.iterator_generator import SwapIteratorGenerator
-from typemut.registry import Registry
+
+from tests.conftest import assert_mutations
 
 
-def test_iterator_to_generator_and_iterable():
-    source = "x: Iterator[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 2
-    mutated_texts = {m.mutated for m in mutations}
-    assert "Generator[int, None, None]" in mutated_texts
-    assert "Iterable[int]" in mutated_texts
-
-
-def test_generator_to_iterator():
-    source = "x: Generator[int, None, None]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Iterator[int]"
-
-
-def test_async_iterator_to_async_generator_and_iterable():
-    source = "x: AsyncIterator[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 2
-    mutated_texts = {m.mutated for m in mutations}
-    assert "AsyncGenerator[int, None]" in mutated_texts
-    assert "AsyncIterable[int]" in mutated_texts
-
-
-def test_async_generator_to_async_iterator():
-    source = "x: AsyncGenerator[int, None]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "AsyncIterator[int]"
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param(
+            "x: Iterator[int]\n",
+            ["Generator[int, None, None]", "Iterable[int]"],
+            id="Iterator->Generator+Iterable",
+        ),
+        pytest.param(
+            "x: Generator[int, None, None]\n",
+            ["Iterator[int]"],
+            id="Generator->Iterator",
+        ),
+        pytest.param(
+            "x: AsyncIterator[int]\n",
+            ["AsyncGenerator[int, None]", "AsyncIterable[int]"],
+            id="AsyncIterator->AsyncGenerator+AsyncIterable",
+        ),
+        pytest.param(
+            "x: AsyncGenerator[int, None]\n",
+            ["AsyncIterator[int]"],
+            id="AsyncGenerator->AsyncIterator",
+        ),
+        pytest.param(
+            "x: Iterable[int]\n",
+            ["Iterator[int]"],
+            id="Iterable->Iterator",
+        ),
+        pytest.param(
+            "x: Iterator\n",
+            ["Generator", "Iterable"],
+            id="bare-Iterator->Generator+Iterable",
+        ),
+        pytest.param(
+            "x: Generator\n",
+            ["Iterator"],
+            id="bare-Generator->Iterator",
+        ),
+    ],
+)
+def test_swap_iterator_generator(source: str, expected: list[str]) -> None:
+    assert_mutations(source, SwapIteratorGenerator, expected=expected)
 
 
-def test_iterable_to_iterator():
-    source = "x: Iterable[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Iterator[int]"
-
-
-def test_bare_iterator():
-    source = "x: Iterator\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 2
-    mutated_texts = {m.mutated for m in mutations}
-    assert "Generator" in mutated_texts
-    assert "Iterable" in mutated_texts
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("x: list[int]\n", id="list-no-swap"),
+        pytest.param("x: dict[str, int]\n", id="dict-no-swap"),
+    ],
+)
+def test_no_swap(source: str) -> None:
+    assert_mutations(source, SwapIteratorGenerator, expected=[])
 
 
-def test_bare_generator():
-    source = "x: Generator\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Iterator"
-
-
-def test_no_swap_for_list():
-    source = "x: list[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-    assert len(mutations) == 0
-
-
-def test_no_swap_for_dict():
-    source = "x: dict[str, int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapIteratorGenerator()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-    assert len(mutations) == 0
+def test_async_iterable_subscripted() -> None:
+    assert_mutations(
+        "x: AsyncIterable[int]\n",
+        SwapIteratorGenerator,
+        expected=["AsyncIterator[int]"],
+    )

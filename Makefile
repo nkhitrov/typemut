@@ -6,7 +6,7 @@ install:
 	uv sync --all-extras --all-groups
 
 test:
-	uv run pytest tests/ -v
+	uv run pytest tests/ -v --cov=typemut --cov=tests --cov-report=term-missing
 
 lint:
 	uv run ruff check src/typemut/

@@ -41,7 +41,6 @@ def test_return_value_is_real_kill():
 
 
 def test_mixed_false_and_real_is_real_kill():
-    """If there are both false-kill errors and real errors, it's a real kill."""
     output = (
         'models.py:45: error: Name "Sequence" is not defined  [name-defined]\n'
         'models.py:30: error: "Sequence[int]" has no attribute "append"  [attr-defined]\n'
@@ -50,7 +49,6 @@ def test_mixed_false_and_real_is_real_kill():
 
 
 def test_only_false_kill_codes():
-    """Multiple false-kill codes but no real ones → false kill."""
     output = (
         'models.py:45: error: Name "Sequence" is not defined  [name-defined]\n'
         'models.py:46: error: Name "Sequence" is not valid as a type  [valid-type]\n'
