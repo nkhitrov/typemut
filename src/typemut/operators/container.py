@@ -8,7 +8,11 @@ from typemut.discovery import AnnotationContext, _node_code
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.registry import Registry
 
-# Swap groups: each container swaps with compatible alternatives
+# Swap groups: each container swaps with compatible alternatives.
+#
+# All types here are either Python builtins (list, tuple, set, frozenset) or
+# legacy typing generics (List, Tuple, Set, FrozenSet). Since both source and
+# target types are in the same category, no additional imports are needed.
 SWAP_MAP: dict[str, list[str]] = {
     "list": ["tuple"],
     "tuple": ["list"],

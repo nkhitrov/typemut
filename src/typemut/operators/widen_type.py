@@ -9,6 +9,13 @@ from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.registry import Registry
 
 
+# This operator targets user-defined classes from the project's class
+# hierarchy (via Registry), not standard library types. The parent class
+# may not be imported in the file where the mutation is applied.
+# The required import line is resolved from the Registry's base_import_lines
+# (extracted from the file that defines the child class).
+
+
 class WidenType(TypeMutationOperator):
     name = "WidenType"
 
@@ -41,6 +48,7 @@ def _find_widenable_names(
                     original=node.value,
                     mutated=base,
                     description=f"Widen {node.value} → {base}",
+                    required_import=registry.get_base_import_line(base),
                 )
             )
     elif isinstance(node, BaseNode):

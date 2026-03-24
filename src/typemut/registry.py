@@ -19,6 +19,10 @@ class Registry:
     # {class_name: base_class}
     class_to_base: dict[str, str] = field(default_factory=dict)
 
+    # {type_name: "from module import type_name"} — import lines for base classes
+    # Populated by scanning imports in files that define child classes.
+    base_import_lines: dict[str, str] = field(default_factory=dict)
+
     # Set of all Literal string/int values found
     literal_pool: set[str] = field(default_factory=set)
 
@@ -36,6 +40,10 @@ class Registry:
         """Get the base class for a given class."""
         return self.class_to_base.get(class_name)
 
+    def get_base_import_line(self, base_name: str) -> str | None:
+        """Get the import line needed to bring *base_name* into scope."""
+        return self.base_import_lines.get(base_name)
+
     def get_file_literals(self, file_path: str) -> set[str]:
         """Get all literal values found in the given file."""
         return self.file_literal_pools.get(file_path, set())
@@ -49,21 +57,88 @@ class Registry:
             except (OSError, UnicodeDecodeError):
                 continue
             tree = parso.parse(source)
-            _extract_hierarchy(tree, reg)
+            file_imports = _extract_imports(tree)
+            _extract_hierarchy(tree, reg, file_imports)
             _extract_literals(tree, str(f), reg)
         return reg
 
 
-def _extract_hierarchy(tree: BaseNode | Leaf, reg: Registry) -> None:
+def _extract_imports(tree: BaseNode) -> dict[str, str]:
+    """Extract all ``from X import Y`` mappings from the module-level AST.
+
+    Returns {name: "from module import name"} for each imported name.
+    """
+    imports: dict[str, str] = {}
+
+    def _visit_import_from(node: BaseNode) -> None:
+        """Process ``from module import name1, name2, ...``."""
+        # Children: 'from' module 'import' names...
+        module_parts: list[str] = []
+        found_import = False
+        for child in node.children:
+            if isinstance(child, Leaf):
+                if child.value == "from":
+                    continue
+                elif child.value == "import":
+                    found_import = True
+                    continue
+                elif not found_import:
+                    # Part of the module path (including dots)
+                    module_parts.append(child.value)
+                else:
+                    # Imported name
+                    if child.type == "name":
+                        module = "".join(module_parts)
+                        imports[child.value] = f"from {module} import {child.value}"
+            elif isinstance(child, BaseNode):
+                if not found_import:
+                    # Dotted module name
+                    for sub in child.children:
+                        if isinstance(sub, Leaf):
+                            module_parts.append(sub.value)
+                else:
+                    # import_as_names or similar
+                    module = "".join(module_parts)
+                    for sub in child.children:
+                        if isinstance(sub, Leaf) and sub.type == "name":
+                            imports[sub.value] = f"from {module} import {sub.value}"
+                        elif isinstance(sub, BaseNode) and sub.type == "import_as_name":
+                            # from X import Y as Z — use the original name Y
+                            for s in sub.children:
+                                if isinstance(s, Leaf) and s.type == "name":
+                                    imports[s.value] = f"from {module} import {s.value}"
+                                    break
+
+    for child in tree.children:
+        if isinstance(child, BaseNode):
+            if child.type == "import_from":
+                _visit_import_from(child)
+            elif child.type == "simple_stmt":
+                for sub in child.children:
+                    if isinstance(sub, BaseNode) and sub.type == "import_from":
+                        _visit_import_from(sub)
+
+    return imports
+
+
+def _extract_hierarchy(
+    tree: BaseNode | Leaf,
+    reg: Registry,
+    file_imports: dict[str, str],
+) -> None:
     """Walk the tree and extract class inheritance info."""
     if isinstance(tree, BaseNode):
         if tree.type == "classdef":
-            _process_classdef(tree, reg)
+            _process_classdef(tree, reg, file_imports)
         for child in tree.children:
-            _extract_hierarchy(child, reg)
+            _extract_hierarchy(child, reg, file_imports)
 
 
-def _process_classdef(node: BaseNode, reg: Registry) -> None:
+def _process_classdef(
+    node: BaseNode,
+    reg: Registry,
+    file_imports: dict[str, str],
+) -> None:
     """Extract class Name(Base) pattern from a classdef node."""
     children = node.children
     # classdef: 'class' NAME ['(' arglist ')'] ':'
@@ -85,6 +160,8 @@ def _process_classdef(node: BaseNode, reg: Registry) -> None:
                     base_name = bases_node.value
                     reg.hierarchy.setdefault(base_name, []).append(class_name)
                     reg.class_to_base[class_name] = base_name
+                    if base_name in file_imports:
+                        reg.base_import_lines.setdefault(base_name, file_imports[base_name])
                 elif isinstance(bases_node, BaseNode) and bases_node.type == "arglist":
                     # Multiple bases — use the first one
                     for c in bases_node.children:
@@ -92,6 +169,8 @@ def _process_classdef(node: BaseNode, reg: Registry) -> None:
                             base_name = c.value
                             reg.hierarchy.setdefault(base_name, []).append(class_name)
                             reg.class_to_base[class_name] = base_name
+                            if base_name in file_imports:
+                                reg.base_import_lines.setdefault(base_name, file_imports[base_name])
                             break
             break
 

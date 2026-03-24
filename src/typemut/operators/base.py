@@ -23,6 +23,9 @@ class Mutation:
     original: str
     mutated: str
     description: str
+    # Full import line needed for the mutated type, e.g. "from abc import ABC".
+    # None when no import is needed (builtins or already in scope).
+    required_import: str | None = None
 
 
 class TypeMutationOperator(ABC):
