@@ -132,6 +132,19 @@ class Database:
             summary[module][row["status"]] = row["cnt"]
         return summary
 
+    def update_results_batch(
+        self,
+        results: list[tuple[int, str, str | None, float]],
+    ) -> None:
+        """Batch-update mutation results."""
+        self.conn.executemany(
+            """UPDATE mutants
+               SET status = ?, output = ?, duration_seconds = ?
+               WHERE id = ?""",
+            [(status, output, dur, mid) for mid, status, output, dur in results],
+        )
+        self.conn.commit()
+
     def clear(self) -> None:
         self.conn.execute("DELETE FROM mutants")
         self.conn.commit()

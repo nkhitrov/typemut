@@ -38,6 +38,10 @@ def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]
         from typemut.operators.container import SwapContainerType
 
         operators.append(SwapContainerType())
+    if config.tuple_ellipsis:
+        from typemut.operators.tuple_ellipsis import TupleEllipsis
+
+        operators.append(TupleEllipsis())
     if config.widen_container_type:
         from typemut.operators.widen import WidenContainerType
 

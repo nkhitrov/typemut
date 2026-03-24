@@ -16,9 +16,11 @@ def run_single_mutant(
     mutant: MutantRow,
     test_command: str,
     timeout: int,
+    project_root: Path | None = None,
 ) -> tuple[str, str | None, float]:
     """Run a single mutation, return (status, output, duration)."""
-    file_path = Path(mutant.module_path)
+    base = project_root or Path()
+    file_path = base / mutant.module_path
     original_source = file_path.read_text()
 
     # Find and replace the annotation at the correct position
@@ -49,6 +51,7 @@ def run_single_mutant(
             shell=True,
             timeout=timeout,
             capture_output=True,
+            cwd=str(project_root) if project_root else None,
         )
         duration = time.monotonic() - start
         # exit 0 = no type errors = mutant SURVIVED (bad)
