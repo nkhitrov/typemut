@@ -52,4 +52,11 @@ testpaths = ["tests"]
 dev = [
     "pytest>=7.0",
     "mypy>=1.0",
+    "pytest-cov>=4.0",
 ]
+
+[tool.coverage.run]
+source = ["typemut", "tests"]
+
+[tool.coverage.report]
+show_missing = true

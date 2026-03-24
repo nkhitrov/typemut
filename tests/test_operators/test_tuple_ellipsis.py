@@ -2,61 +2,31 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import pytest
 
-from typemut.discovery import AnnotationContext, discover_annotations
 from typemut.operators.tuple_ellipsis import TupleEllipsis
-from typemut.registry import Registry
+
+from tests.conftest import assert_mutations
 
 
-def test_add_ellipsis():
-    source = "x: tuple[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = TupleEllipsis()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "tuple[int, ...]"
-
-
-def test_remove_ellipsis():
-    source = "x: tuple[int, ...]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = TupleEllipsis()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "tuple[int]"
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param("x: tuple[int]\n", ["tuple[int, ...]"], id="add-ellipsis"),
+        pytest.param("x: tuple[int, ...]\n", ["tuple[int]"], id="remove-ellipsis"),
+        pytest.param("x: Tuple[int]\n", ["Tuple[int, ...]"], id="Tuple-compat"),
+    ],
+)
+def test_tuple_ellipsis(source: str, expected: list[str]) -> None:
+    assert_mutations(source, TupleEllipsis, expected=expected)
 
 
-def test_skip_fixed_multi_element():
-    source = "x: tuple[int, str]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = TupleEllipsis()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 0
-
-
-def test_typing_tuple_compat():
-    source = "x: Tuple[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = TupleEllipsis()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Tuple[int, ...]"
-
-
-def test_skip_empty_tuple():
-    source = "x: tuple[()]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = TupleEllipsis()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 0
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("x: tuple[int, str]\n", id="fixed-multi-element"),
+        pytest.param("x: tuple[()]\n", id="empty-tuple"),
+    ],
+)
+def test_no_tuple_ellipsis(source: str) -> None:
+    assert_mutations(source, TupleEllipsis, expected=[])

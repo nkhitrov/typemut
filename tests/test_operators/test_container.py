@@ -2,48 +2,30 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import pytest
 
-from typemut.discovery import AnnotationContext, discover_annotations
 from typemut.operators.container import SwapContainerType
-from typemut.registry import Registry
+
+from tests.conftest import assert_mutations
 
 
-def test_swap_list_to_tuple():
-    source = "x: list[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert "tuple[int]" in mutations[0].mutated
-
-
-def test_swap_set_to_frozenset():
-    source = "x: set[str]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert "frozenset[str]" in mutations[0].mutated
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param("x: list[int]\n", ["tuple[int]"], id="list->tuple"),
+        pytest.param("x: set[str]\n", ["frozenset[str]"], id="set->frozenset"),
+    ],
+)
+def test_swap_container(source: str, expected: list[str]) -> None:
+    assert_mutations(source, SwapContainerType, expected=expected)
 
 
-def test_no_swap_for_dict():
-    source = "x: dict[str, int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-    assert len(mutations) == 0
-
-
-def test_no_swap_for_plain_type():
-    source = "x: int\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = SwapContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-    assert len(mutations) == 0
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("x: dict[str, int]\n", id="dict-no-swap"),
+        pytest.param("x: int\n", id="plain-type-no-swap"),
+    ],
+)
+def test_no_swap(source: str) -> None:
+    assert_mutations(source, SwapContainerType, expected=[])

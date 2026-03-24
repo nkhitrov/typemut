@@ -2,105 +2,35 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import pytest
 
-from typemut.discovery import AnnotationContext, discover_annotations
 from typemut.operators.widen import WidenContainerType
-from typemut.registry import Registry
+
+from tests.conftest import assert_mutations
 
 
-def test_widen_list_to_sequence():
-    source = "x: list[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Sequence[int]"
-
-
-def test_widen_set_to_abstractset():
-    source = "x: set[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "AbstractSet[int]"
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param("x: list[int]\n", ["Sequence[int]"], id="list->Sequence"),
+        pytest.param("x: set[int]\n", ["AbstractSet[int]"], id="set->AbstractSet"),
+        pytest.param("x: dict[str, int]\n", ["Mapping[str, int]"], id="dict->Mapping"),
+        pytest.param("x: Sequence[int]\n", ["Collection[int]"], id="Sequence->Collection"),
+        pytest.param("x: Collection[int]\n", ["Iterable[int]"], id="Collection->Iterable"),
+        pytest.param("x: tuple[int, str]\n", ["Sequence[int, str]"], id="tuple->Sequence"),
+        pytest.param("x: list\n", ["Sequence"], id="bare-list->Sequence"),
+    ],
+)
+def test_widen_container(source: str, expected: list[str]) -> None:
+    assert_mutations(source, WidenContainerType, expected=expected)
 
 
-def test_widen_dict_to_mapping():
-    source = "x: dict[str, int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Mapping[str, int]"
-
-
-def test_widen_sequence_to_collection():
-    source = "x: Sequence[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Collection[int]"
-
-
-def test_widen_collection_to_iterable():
-    source = "x: Collection[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Iterable[int]"
-
-
-def test_no_widen_for_iterable():
-    source = "x: Iterable[int]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 0
-
-
-def test_widen_tuple_to_sequence():
-    source = "x: tuple[int, str]\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Sequence[int, str]"
-
-
-def test_widen_bare_list():
-    source = "x: list\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "Sequence"
-
-
-def test_no_widen_for_plain_type():
-    source = "x: int\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
-
-    op = WidenContainerType()
-    mutations = op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
-
-    assert len(mutations) == 0
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("x: Iterable[int]\n", id="Iterable-no-widen"),
+        pytest.param("x: int\n", id="plain-type-no-widen"),
+    ],
+)
+def test_no_widen(source: str) -> None:
+    assert_mutations(source, WidenContainerType, expected=[])

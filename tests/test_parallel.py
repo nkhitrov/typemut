@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -11,6 +10,7 @@ import pytest
 from typemut.db import MutantRow
 from typemut.parallel import (
     DirtyWorkingTreeError,
+    _create_worktree,
     ensure_clean_git_status,
     partition_mutants,
 )
@@ -51,7 +51,6 @@ class TestPartitionMutants:
             _make_mutant(4, "b.py"),
         ]
         chunks = partition_mutants(mutants, 2)
-        # Each chunk should contain mutations from the same file
         for chunk in chunks:
             if chunk:
                 modules = {m.module_path for m in chunk}
@@ -71,7 +70,6 @@ class TestPartitionMutants:
         assert all(len(c) == 0 for c in chunks)
 
     def test_load_balancing(self) -> None:
-        """Large file group goes to one worker, smaller groups fill others."""
         mutants = [
             _make_mutant(1, "big.py"),
             _make_mutant(2, "big.py"),
@@ -102,30 +100,27 @@ def _git_init(path: Path) -> None:
 
 
 class TestEnsureCleanGitStatus:
-    def test_clean_repo(self, tmp_path: Path) -> None:
-        """Should not raise in a clean git repo."""
+    def test_clean_repo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _git_init(tmp_path)
-        # Run ensure_clean_git_status from the clean repo dir
-        import os
+        monkeypatch.chdir(tmp_path)
+        ensure_clean_git_status()
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            ensure_clean_git_status()  # should not raise
-        finally:
-            os.chdir(old_cwd)
-
-    def test_dirty_repo_uncommitted(self, tmp_path: Path) -> None:
-        """Should raise when there are uncommitted changes."""
+    def test_dirty_repo_uncommitted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _git_init(tmp_path)
         (tmp_path / "dirty.py").write_text("x = 1\n")
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(DirtyWorkingTreeError, match="uncommitted"):
+            ensure_clean_git_status()
 
-        import os
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            with pytest.raises(DirtyWorkingTreeError, match="uncommitted"):
-                ensure_clean_git_status()
-        finally:
-            os.chdir(old_cwd)
+class TestCreateWorktree:
+    def test_worktree_created(self, tmp_path: Path) -> None:
+        _git_init(tmp_path)
+        wt_path = _create_worktree(tmp_path, 0)
+        assert wt_path.exists()
+        assert wt_path.is_dir()
+        # Clean up
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(wt_path)],
+            cwd=str(tmp_path), capture_output=True,
+        )
