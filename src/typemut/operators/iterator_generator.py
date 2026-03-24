@@ -22,6 +22,10 @@ from typemut.registry import Registry
 #   Iterable[Y] -> Iterator[Y]
 #   AsyncIterable[Y] -> AsyncIterator[Y]
 
+# All types in this operator are from collections.abc / typing.
+# The source type is already imported in the target file, but the
+# replacement type may not be — import injection is handled by
+# imports.py at mutation application time.
 TARGET_NAMES = {
     "Iterator",
     "Generator",

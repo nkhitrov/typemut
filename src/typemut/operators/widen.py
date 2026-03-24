@@ -8,7 +8,14 @@ from typemut.discovery import AnnotationContext, _node_code
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.registry import Registry
 
-# Widening map: one step up the MRO toward more abstract types
+# Widening map: one step up the MRO toward more abstract types.
+#
+# Keys:   builtins (list, tuple, set, frozenset, dict) or legacy typing
+#         generics (List, Tuple, Set, FrozenSet, Dict).
+# Values: abstract types from collections.abc / typing (Sequence, AbstractSet,
+#         Mapping, Collection, Iterable). These may NOT be imported in the
+#         target file — import injection is handled by imports.py at mutation
+#         application time.
 WIDEN_MAP: dict[str, str] = {
     "list": "Sequence",
     "List": "Sequence",

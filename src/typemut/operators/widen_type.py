@@ -9,6 +9,14 @@ from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.registry import Registry
 
 
+# This operator targets user-defined classes from the project's class
+# hierarchy (via Registry), not standard library types. The parent class
+# may not be imported in the file where the mutation is applied. Import
+# injection is NOT performed for these mutations — if the parent is not
+# imported, the false-kill detection in engine.py will classify the
+# result as "error" instead of "killed".
+
+
 class WidenType(TypeMutationOperator):
     name = "WidenType"
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 import subprocess
 import time
@@ -10,6 +11,22 @@ from pathlib import Path
 from rich.progress import Progress
 
 from typemut.db import Database, MutantRow
+from typemut.imports import (
+    add_import,
+    detect_preferred_module,
+    extract_type_name,
+    needs_import,
+)
+
+# mypy error codes that indicate the mutated code is broken (missing import,
+# syntax error, invalid type) rather than a genuine type-system kill.
+FALSE_KILL_CODES: frozenset[str] = frozenset({
+    "name-defined",  # Name "Sequence" is not defined
+    "syntax",        # Syntax error in mutated code
+    "valid-type",    # Not valid as a type
+})
+
+_ERROR_CODE_RE = re.compile(r"\[(\w[\w-]*)\]\s*$")
 
 
 def run_single_mutant(
@@ -23,9 +40,20 @@ def run_single_mutant(
     file_path = base / mutant.module_path
     original_source = file_path.read_text()
 
+    # --- Import injection: add import for the mutated type if needed --------
+    source_for_mutation = original_source
+    line_offset = 0  # extra lines inserted before the mutation target
+
+    type_name = extract_type_name(mutant.mutated_annotation)
+    if needs_import(original_source, type_name):
+        module = detect_preferred_module(original_source, type_name)
+        source_for_mutation, inserted_at = add_import(original_source, type_name, module)
+        if inserted_at is not None and inserted_at < mutant.line - 1:
+            line_offset = 1
+
     # Find and replace the annotation at the correct position
-    lines = original_source.splitlines(keepends=True)
-    line_idx = mutant.line - 1
+    lines = source_for_mutation.splitlines(keepends=True)
+    line_idx = mutant.line - 1 + line_offset
 
     if line_idx >= len(lines):
         return "error", "Line number out of range", 0.0
@@ -61,6 +89,8 @@ def run_single_mutant(
         output = result.stderr.decode(errors="replace")
         if not output:
             output = result.stdout.decode(errors="replace")
+        if status == "killed" and output and _is_false_kill(output):
+            status = "error"
         return status, output, duration
     except subprocess.TimeoutExpired:
         duration = time.monotonic() - start
@@ -103,3 +133,25 @@ def run_all_mutants(
             )
             db.update_result(mutant.id, status, output, duration)
             progress.advance(task)
+
+
+def _is_false_kill(output: str) -> bool:
+    """Check if type-checker output indicates a false kill.
+
+    A false kill happens when the mutated code is broken (e.g. missing import,
+    syntax error) rather than genuinely caught by the type system.
+
+    Returns True if ALL error codes found in the output belong to
+    FALSE_KILL_CODES — meaning there are no real type errors, only
+    infrastructure failures.
+    """
+    found_codes: set[str] = set()
+    for line in output.splitlines():
+        m = _ERROR_CODE_RE.search(line)
+        if m:
+            found_codes.add(m.group(1))
+
+    if not found_codes:
+        return False
+
+    return found_codes.issubset(FALSE_KILL_CODES)
