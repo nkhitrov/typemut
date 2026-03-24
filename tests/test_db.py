@@ -62,9 +62,9 @@ def test_summary():
         db = Database(Path(f.name))
 
     db.insert_many([
-        MutantRow(None, "a.py", "Op1", 1, 3, "int", "str", "desc", "killed"),
-        MutantRow(None, "a.py", "Op2", 2, 3, "str", "int", "desc", "survived"),
-        MutantRow(None, "b.py", "Op1", 1, 3, "int", "str", "desc", "killed"),
+        MutantRow(None, "a.py", "Op1", 1, 3, "int", "str", "desc", status="killed"),
+        MutantRow(None, "a.py", "Op2", 2, 3, "str", "int", "desc", status="survived"),
+        MutantRow(None, "b.py", "Op1", 1, 3, "int", "str", "desc", status="killed"),
     ])
 
     summary = db.get_summary()

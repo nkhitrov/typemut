@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS mutants (
     original_annotation TEXT NOT NULL,
     mutated_annotation TEXT NOT NULL,
     description TEXT NOT NULL,
+    required_import TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     output TEXT,
     duration_seconds REAL
@@ -24,6 +25,11 @@ CREATE TABLE IF NOT EXISTS mutants (
 CREATE INDEX IF NOT EXISTS idx_status ON mutants(status);
 CREATE INDEX IF NOT EXISTS idx_module ON mutants(module_path);
 """
+
+_MIGRATIONS = [
+    # Add required_import column if missing (for DBs created before this version)
+    "ALTER TABLE mutants ADD COLUMN required_import TEXT",
+]
 
 
 @dataclass
@@ -36,6 +42,7 @@ class MutantRow:
     original_annotation: str
     mutated_annotation: str
     description: str
+    required_import: str | None = None
     status: str = "pending"
     output: str | None = None
     duration_seconds: float | None = None
@@ -50,13 +57,19 @@ class Database:
 
     def _init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
+        for sql in _MIGRATIONS:
+            try:
+                self.conn.execute(sql)
+                self.conn.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     def insert_mutant(self, mutant: MutantRow) -> int:
         cursor = self.conn.execute(
             """INSERT INTO mutants
                (module_path, operator, line, col, original_annotation,
-                mutated_annotation, description, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                mutated_annotation, description, required_import, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 mutant.module_path,
                 mutant.operator,
@@ -65,6 +78,7 @@ class Database:
                 mutant.original_annotation,
                 mutant.mutated_annotation,
                 mutant.description,
+                mutant.required_import,
                 mutant.status,
             ),
         )
@@ -75,8 +89,8 @@ class Database:
         self.conn.executemany(
             """INSERT INTO mutants
                (module_path, operator, line, col, original_annotation,
-                mutated_annotation, description, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                mutated_annotation, description, required_import, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     m.module_path,
@@ -86,6 +100,7 @@ class Database:
                     m.original_annotation,
                     m.mutated_annotation,
                     m.description,
+                    m.required_import,
                     m.status,
                 )
                 for m in mutants
@@ -163,6 +178,7 @@ class Database:
             original_annotation=row["original_annotation"],
             mutated_annotation=row["mutated_annotation"],
             description=row["description"],
+            required_import=row["required_import"],
             status=row["status"],
             output=row["output"],
             duration_seconds=row["duration_seconds"],

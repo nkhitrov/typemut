@@ -104,6 +104,7 @@ def init(config_path: str, db_path: str | None) -> None:
                             original_annotation=mutation.original,
                             mutated_annotation=mutation.mutated,
                             description=mutation.description,
+                            required_import=mutation.required_import,
                         )
                     )
 
@@ -240,6 +241,7 @@ def run(config_path: str, db_path: str | None, jobs: int) -> None:
                             original_annotation=mutation.original,
                             mutated_annotation=mutation.mutated,
                             description=mutation.description,
+                            required_import=mutation.required_import,
                         )
                     )
 

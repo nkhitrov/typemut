@@ -11,12 +11,7 @@ from pathlib import Path
 from rich.progress import Progress
 
 from typemut.db import Database, MutantRow
-from typemut.imports import (
-    add_import,
-    detect_preferred_module,
-    extract_type_name,
-    needs_import,
-)
+from typemut.imports import resolve_import
 
 # mypy error codes that indicate the mutated code is broken (missing import,
 # syntax error, invalid type) rather than a genuine type-system kill.
@@ -41,15 +36,12 @@ def run_single_mutant(
     original_source = file_path.read_text()
 
     # --- Import injection: add import for the mutated type if needed --------
-    source_for_mutation = original_source
-    line_offset = 0  # extra lines inserted before the mutation target
-
-    type_name = extract_type_name(mutant.mutated_annotation)
-    if needs_import(original_source, type_name):
-        module = detect_preferred_module(original_source, type_name)
-        source_for_mutation, inserted_at = add_import(original_source, type_name, module)
-        if inserted_at is not None and inserted_at < mutant.line - 1:
-            line_offset = 1
+    source_for_mutation, inserted_at = resolve_import(
+        original_source,
+        mutant.mutated_annotation,
+        mutant.required_import,
+    )
+    line_offset = 1 if inserted_at is not None and inserted_at < mutant.line - 1 else 0
 
     # Find and replace the annotation at the correct position
     lines = source_for_mutation.splitlines(keepends=True)

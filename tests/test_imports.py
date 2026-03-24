@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typemut.imports import (
     add_import,
+    add_import_line,
     detect_preferred_module,
     extract_type_name,
     find_last_import_line,
     needs_import,
+    resolve_import,
 )
 
 
@@ -125,6 +127,32 @@ def test_find_last_import_none():
     assert find_last_import_line(lines) == -1
 
 
+def test_find_last_import_ignores_docstrings():
+    """'from' inside docstrings should not be treated as imports."""
+    lines = [
+        "import os\n",
+        "\n",
+        'def foo():\n',
+        '    """\n',
+        '    Get result from result dict.\n',
+        '    """\n',
+        '    pass\n',
+    ]
+    assert find_last_import_line(lines) == 0
+
+
+def test_find_last_import_ignores_indented():
+    """Indented imports (inside functions/conditionals) should be ignored."""
+    lines = [
+        "import os\n",
+        "\n",
+        "def foo():\n",
+        "    from bar import baz\n",
+        "    pass\n",
+    ]
+    assert find_last_import_line(lines) == 0
+
+
 # --- add_import ---
 
 
@@ -165,4 +193,52 @@ def test_add_import_typing():
     source = "from typing import List\n\nx: List[int]\n"
     new_source, inserted_at = add_import(source, "Sequence", "typing")
     assert "from typing import List, Sequence\n" in new_source
+    assert inserted_at is None
+
+
+# --- add_import_line ---
+
+
+def test_add_import_line_parses_and_merges():
+    source = "from pydantic import Field\n\nx: int\n"
+    new_source, inserted_at = add_import_line(source, "from pydantic import BaseModel")
+    assert "from pydantic import Field, BaseModel\n" in new_source
+    assert inserted_at is None
+
+
+def test_add_import_line_new_module():
+    source = "import os\n\nx: int\n"
+    new_source, inserted_at = add_import_line(source, "from abc import ABC")
+    assert "from abc import ABC\n" in new_source
+    assert inserted_at == 1
+
+
+# --- resolve_import ---
+
+
+def test_resolve_with_required_import():
+    source = "import os\n\nx: MyClass\n"
+    new_source, inserted_at = resolve_import(source, "BaseModel", "from pydantic import BaseModel")
+    assert "from pydantic import BaseModel\n" in new_source
+    assert inserted_at == 1
+
+
+def test_resolve_required_import_already_present():
+    source = "from pydantic import BaseModel\n\nx: MyClass\n"
+    new_source, inserted_at = resolve_import(source, "BaseModel", "from pydantic import BaseModel")
+    assert new_source == source
+    assert inserted_at is None
+
+
+def test_resolve_falls_back_to_import_sources():
+    source = "import os\n\nx: list\n"
+    new_source, inserted_at = resolve_import(source, "Sequence[int]", None)
+    assert "import Sequence" in new_source
+    assert inserted_at is not None
+
+
+def test_resolve_no_import_needed():
+    source = "import os\n\nx: list\n"
+    new_source, inserted_at = resolve_import(source, "list", None)
+    assert new_source == source
     assert inserted_at is None

@@ -30,3 +30,32 @@ def test_literal_pool(fixtures_dir: Path):
 def test_no_siblings_for_unknown():
     reg = Registry()
     assert reg.get_siblings("Unknown") == []
+
+
+def test_base_import_lines(tmp_path: Path):
+    """Registry tracks import lines for base classes."""
+    src = tmp_path / "models.py"
+    src.write_text(
+        "from pydantic import BaseModel\n"
+        "\n"
+        "class User(BaseModel):\n"
+        "    name: str\n"
+    )
+    reg = Registry.from_files([src])
+    assert reg.get_base("User") == "BaseModel"
+    assert reg.get_base_import_line("BaseModel") == "from pydantic import BaseModel"
+
+
+def test_base_import_lines_local_class(tmp_path: Path):
+    """No import line for base classes defined in the same file."""
+    src = tmp_path / "models.py"
+    src.write_text(
+        "class Base:\n"
+        "    pass\n"
+        "\n"
+        "class Child(Base):\n"
+        "    pass\n"
+    )
+    reg = Registry.from_files([src])
+    assert reg.get_base("Child") == "Base"
+    assert reg.get_base_import_line("Base") is None

@@ -137,16 +137,43 @@ def detect_preferred_module(source: str, type_name: str) -> str:
     return default
 
 
+_IMPORT_LINE_RE = re.compile(
+    r"^(?:from\s+[\w.]+\s+import\s|import\s+[\w.])"
+)
+
+
 def find_last_import_line(lines: list[str]) -> int:
     """Return the 0-based index of the last import statement line.
 
-    Handles multi-line parenthesized imports. Returns -1 if no imports found.
+    Only matches real import statements (not ``from`` in docstrings or
+    comments). Handles multi-line parenthesized imports. Returns -1 if
+    no imports found.
     """
     last_import = -1
     in_paren_import = False
+    in_docstring = False
+    docstring_quote = ""
 
     for i, line in enumerate(lines):
         stripped = line.strip()
+
+        # Track triple-quoted strings (docstrings)
+        if not in_docstring:
+            for q in ('"""', "'''"):
+                if q in stripped:
+                    count = stripped.count(q)
+                    if count == 1:
+                        in_docstring = True
+                        docstring_quote = q
+                        break
+                    # count >= 2 means open+close on same line — not in docstring
+        else:
+            if docstring_quote in stripped:
+                in_docstring = False
+            continue
+
+        if in_docstring:
+            continue
 
         if in_paren_import:
             last_import = i
@@ -154,7 +181,8 @@ def find_last_import_line(lines: list[str]) -> int:
                 in_paren_import = False
             continue
 
-        if stripped.startswith("import ") or stripped.startswith("from "):
+        # Only match lines at column 0 (module-level imports)
+        if line and not line[0].isspace() and _IMPORT_LINE_RE.match(stripped):
             last_import = i
             if "(" in stripped and ")" not in stripped:
                 in_paren_import = True
@@ -220,3 +248,66 @@ def add_import(
     import_line = f"from {module} import {type_name}{eol}"
     lines.insert(insert_at, import_line)
     return "".join(lines), insert_at
+
+
+def add_import_line(source: str, import_line: str) -> tuple[str, int | None]:
+    """Add a raw import line (e.g. ``from pydantic import BaseModel``) to source.
+
+    Parses *import_line* to extract module and name, then delegates to
+    :func:`add_import` for smart merging with existing imports.
+
+    Returns (new_source, inserted_line_number) — same semantics as add_import.
+    """
+    m = re.match(r"from\s+(\S+)\s+import\s+(\w+)", import_line.strip())
+    if m:
+        module, name = m.group(1), m.group(2)
+        return add_import(source, name, module)
+
+    # Fallback: insert as-is after last import
+    lines = source.splitlines(keepends=True)
+    last = find_last_import_line(lines)
+    insert_at = last + 1 if last >= 0 else 0
+    eol = "\n"
+    if lines:
+        for ln in lines:
+            if ln.endswith("\r\n"):
+                eol = "\r\n"
+                break
+            elif ln.endswith("\n"):
+                eol = "\n"
+                break
+    lines.insert(insert_at, import_line.rstrip() + eol)
+    return "".join(lines), insert_at
+
+
+def resolve_import(
+    source: str,
+    mutated_annotation: str,
+    required_import: str | None,
+) -> tuple[str, int | None]:
+    """Resolve and add the needed import for a mutation.
+
+    Uses *required_import* from the mutation if provided, otherwise falls back
+    to IMPORT_SOURCES for standard library types.
+
+    Returns (new_source, inserted_line) where inserted_line is the 0-based
+    line index of the new import, or None if no new line was added.
+    """
+    type_name = extract_type_name(mutated_annotation)
+
+    # If the mutation provides an explicit import line, use it
+    if required_import is not None:
+        # Extract the name from the import line to check if already imported
+        m = re.match(r"from\s+\S+\s+import\s+(\w+)", required_import.strip())
+        if m:
+            name = m.group(1)
+            if _is_imported(source, name):
+                return source, None
+        return add_import_line(source, required_import)
+
+    # Fallback to IMPORT_SOURCES for known standard library types
+    if needs_import(source, type_name):
+        module = detect_preferred_module(source, type_name)
+        return add_import(source, type_name, module)
+
+    return source, None
