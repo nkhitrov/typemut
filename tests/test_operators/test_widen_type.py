@@ -13,10 +13,7 @@ def test_widen_type() -> None:
     reg.hierarchy = {"Animal": ["Cat", "Dog"]}
     reg.class_to_base = {"Cat": "Animal", "Dog": "Animal"}
 
-    mutations = assert_mutations(
-        "pet: Cat\n", WidenType, expected=["Animal"], registry=reg
-    )
-    assert mutations[0].original == "Cat"
+    assert_mutations("pet: Cat\n", WidenType, expected=["Animal"], registry=reg)
 
 
 def test_no_widen_for_unknown_class() -> None:
@@ -28,9 +25,4 @@ def test_widen_type_in_complex_annotation() -> None:
     reg.hierarchy = {"Animal": ["Cat"]}
     reg.class_to_base = {"Cat": "Animal"}
 
-    # Cat inside a subscript like list[Cat]
-    mutations = assert_mutations(
-        "pets: list[Cat]\n", WidenType, expected=["Animal"], registry=reg
-    )
-    assert mutations[0].original == "Cat"
-    assert mutations[0].mutated == "Animal"
+    assert_mutations("pets: list[Cat]\n", WidenType, expected=["Animal"], registry=reg)

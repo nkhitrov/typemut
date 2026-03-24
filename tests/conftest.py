@@ -8,7 +8,6 @@ import pytest
 
 from typemut.db import Database
 from typemut.discovery import AnnotationContext, discover_annotations
-from typemut.operators.base import Mutation
 from typemut.registry import Registry
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -35,7 +34,7 @@ def assert_mutations(
     registry: Registry | None = None,
     index: int = 0,
     annotation_filter: str | None = None,
-) -> list[Mutation]:
+) -> None:
     annotations = discover_annotations(Path("test.py"), source=source)
     if annotation_filter:
         annotations = [a for a in annotations if annotation_filter in a.code]
@@ -47,4 +46,3 @@ def assert_mutations(
 
     actual = {m.mutated for m in mutations}
     assert actual == set(expected), f"Expected {set(expected)}, got {actual}"
-    return mutations

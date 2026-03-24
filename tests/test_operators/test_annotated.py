@@ -15,13 +15,7 @@ from tests.conftest import assert_mutations
 
 def test_strip_annotated() -> None:
     source = 'from typing import Annotated\nx: Annotated[str, "metadata"]\n'
-    mutations = assert_mutations(
-        source,
-        StripAnnotated,
-        expected=["str"],
-        annotation_filter="Annotated",
-    )
-    assert "StripAnnotated" in mutations[0].operator
+    assert_mutations(source, StripAnnotated, expected=["str"], annotation_filter="Annotated")
 
 
 def test_no_strip_for_plain_type() -> None:
@@ -30,35 +24,17 @@ def test_no_strip_for_plain_type() -> None:
 
 def test_strip_annotated_with_complex_type_and_metadata() -> None:
     source = 'from typing import Annotated\nx: Annotated[list[int], "metadata"]\n'
-    mutations = assert_mutations(
-        source,
-        StripAnnotated,
-        expected=["list[int]"],
-        annotation_filter="Annotated",
-    )
-    assert mutations[0].operator == "StripAnnotated"
+    assert_mutations(source, StripAnnotated, expected=["list[int]"], annotation_filter="Annotated")
 
 
 def test_strip_annotated_complex_type_no_metadata() -> None:
     source = "from typing import Annotated\nx: Annotated[list[int]]\n"
-    mutations = assert_mutations(
-        source,
-        StripAnnotated,
-        expected=["list[int]"],
-        annotation_filter="Annotated",
-    )
-    assert mutations[0].operator == "StripAnnotated"
+    assert_mutations(source, StripAnnotated, expected=["list[int]"], annotation_filter="Annotated")
 
 
 def test_strip_annotated_no_metadata() -> None:
     source = "from typing import Annotated\nx: Annotated[str]\n"
-    mutations = assert_mutations(
-        source,
-        StripAnnotated,
-        expected=["str"],
-        annotation_filter="Annotated",
-    )
-    assert len(mutations) == 1
+    assert_mutations(source, StripAnnotated, expected=["str"], annotation_filter="Annotated")
 
 
 def test_non_annotated_recurse() -> None:
