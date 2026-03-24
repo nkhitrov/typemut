@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from parso.python.tree import BaseNode, Leaf
 
+from typemut.discovery import AnnotationContext
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.registry import Registry
 
@@ -14,7 +15,7 @@ class WidenType(TypeMutationOperator):
     def find_mutations(
         self,
         node: BaseNode | Leaf,
-        context: "AnnotationContext",
+        context: AnnotationContext,
         registry: Registry,
     ) -> list[Mutation]:
         mutations: list[Mutation] = []
