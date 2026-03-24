@@ -11,7 +11,7 @@ from pathlib import Path
 class OperatorsConfig:
     remove_union_member: bool = True
     swap_literal_value: bool = True
-    swap_sibling_type: bool = True
+    widen_type: bool = True
     strip_annotated: bool = True
     remove_optional: bool = True
     add_optional: bool = True
@@ -46,7 +46,7 @@ def load_config(path: Path) -> Config:
     operators = OperatorsConfig(
         remove_union_member=ops_raw.get("remove-union-member", True),
         swap_literal_value=ops_raw.get("swap-literal-value", True),
-        swap_sibling_type=ops_raw.get("swap-sibling-type", True),
+        widen_type=ops_raw.get("widen-type", True),
         strip_annotated=ops_raw.get("strip-annotated", True),
         remove_optional=ops_raw.get("remove-optional", True),
         add_optional=ops_raw.get("add-optional", True),

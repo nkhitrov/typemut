@@ -28,7 +28,7 @@ timeout = 30
 [typemut.operators]
 remove-union-member = true
 swap-literal-value = true
-swap-sibling-type = true
+widen-type = true
 strip-annotated = true
 remove-optional = true
 add-optional = true
@@ -106,23 +106,23 @@ class Config:
 
 **Survived = consumers don't rely on non-None guarantee.** The field claims to always have a value, but no typed code would break if it could be `None`. This often reveals missing type coverage in code that reads the field.
 
-### SwapSiblingType
+### WidenType
 
-Replaces a class with its sibling (same base class).
+Replaces a concrete class with its parent (base) class to find places where a more abstract type could be used.
 
 ```python
-class LoanState: ...
-class ActiveLoan(LoanState): ...
-class ClosedLoan(LoanState): ...
+class Animal: ...
+class Cat(Animal): ...
+class Dog(Animal): ...
 
 # Original
-def process(loan: ActiveLoan) -> None: ...
+def feed(pet: Cat) -> None: ...
 
 # Mutant
-def process(loan: ClosedLoan) -> None: ...
+def feed(pet: Animal) -> None: ...
 ```
 
-**Survived = the type system doesn't distinguish between sibling states.** Common in state machine patterns where the base class is typed as `Any` or all siblings share the same interface.
+**Survived = the code doesn't rely on the concrete subclass.** The function could accept the broader base type, suggesting the annotation is more specific than necessary.
 
 ### SwapLiteralValue
 
@@ -191,7 +191,7 @@ db = "typemut.sqlite"                   # database file
 # all enabled by default, disable selectively
 remove-union-member = true
 swap-literal-value = true
-swap-sibling-type = true
+widen-type = true
 strip-annotated = true
 remove-optional = true
 add-optional = true
