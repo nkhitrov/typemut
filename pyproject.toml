@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [
-    { name = "Niсл Khitrov", email = "khitrov34@gmail.com" },
+    { name = "Niсk Khitrov", email = "khitrov34@gmail.com" },
 ]
 keywords = ["mutation-testing", "type-annotations", "mypy", "pyright", "type-checking", "testing"]
 classifiers = [
@@ -52,4 +52,64 @@ testpaths = ["tests"]
 dev = [
     "pytest>=7.0",
     "mypy>=1.0",
+    "ruff>=0.11",
+    "flake8>=7.0",
+    "wemake-python-styleguide>=1.0",
+    "flake8-newspaper-style>=0.4",
 ]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "F",      # pyflakes — unused imports, undefined names
+    "E", "W", # pycodestyle — style errors/warnings
+    "I",      # isort — import ordering
+    "N",      # pep8-naming
+    "UP",     # pyupgrade — modern Python syntax
+    "B",      # flake8-bugbear — common bugs
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific rules
+    "S",      # bandit — security (shell=True etc.)
+    "PTH",    # flake8-use-pathlib
+    "PERF",   # perflint — performance
+    "C4",     # flake8-comprehensions
+]
+ignore = [
+    "S101",   # assert — used for internal invariants
+    "S602",   # subprocess with shell=True — intentional for CLI tool
+    "S603",   # subprocess call checked
+    "S607",   # start process with partial path
+    "S110",   # try-except-pass — handled in cleanup code
+    "SIM105", # contextlib.suppress — will add logging instead
+    "PERF401", # list.extend vs append in loop — readability preference
+    "E501",   # line too long — handled by formatter, except comments/strings
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/typemut/reporting/html.py" = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "parso.*"
+ignore_missing_imports = true
+no_implicit_reexport = false
+
+[[tool.mypy.overrides]]
+module = [
+    "typemut.discovery",
+    "typemut.registry",
+    "typemut.operators.*",
+]
+disallow_untyped_calls = false
+warn_return_any = false

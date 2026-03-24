@@ -63,9 +63,7 @@ def _extract_union_members(node: BaseNode | Leaf) -> list[BaseNode | Leaf]:
     if node.type not in ("expr", "arith_expr"):
         return []
 
-    has_pipe = any(
-        isinstance(c, Leaf) and c.value == "|" for c in node.children
-    )
+    has_pipe = any(isinstance(c, Leaf) and c.value == "|" for c in node.children)
     if not has_pipe:
         return []
 

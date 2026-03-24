@@ -24,9 +24,7 @@ class RemoveOptional(TypeMutationOperator):
             return []
 
         none_indices = [
-            i
-            for i, m in enumerate(members)
-            if isinstance(m, Leaf) and m.value == "None"
+            i for i, m in enumerate(members) if isinstance(m, Leaf) and m.value == "None"
         ]
         if not none_indices:
             return []
@@ -110,9 +108,7 @@ def _extract_union_members(node: BaseNode | Leaf) -> list[BaseNode | Leaf]:
         return []
     if node.type not in ("expr", "arith_expr"):
         return []
-    has_pipe = any(
-        isinstance(c, Leaf) and c.value == "|" for c in node.children
-    )
+    has_pipe = any(isinstance(c, Leaf) and c.value == "|" for c in node.children)
     if not has_pipe:
         return []
     return [c for c in node.children if not (isinstance(c, Leaf) and c.value == "|")]

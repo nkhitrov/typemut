@@ -33,27 +33,26 @@ def _find_annotated(
 
     children = node.children
     for i, child in enumerate(children):
-        if isinstance(child, Leaf) and child.value == "Annotated":
-            if i + 1 < len(children):
-                trailer = children[i + 1]
-                if isinstance(trailer, BaseNode) and trailer.type == "trailer":
-                    first_arg = _get_first_subscript_arg(trailer)
-                    if first_arg is not None:
-                        # Build the full Annotated[...] code
-                        original = _node_code(child) + _node_code(trailer)
-                        mutated = _node_code(first_arg).strip()
-                        mutations.append(
-                            Mutation(
-                                file="",
-                                operator="StripAnnotated",
-                                line=child.start_pos[0],
-                                col=child.start_pos[1],
-                                original=original,
-                                mutated=mutated,
-                                description=f"Strip Annotated → {mutated}",
-                            )
+        if isinstance(child, Leaf) and child.value == "Annotated" and i + 1 < len(children):
+            trailer = children[i + 1]
+            if isinstance(trailer, BaseNode) and trailer.type == "trailer":
+                first_arg = _get_first_subscript_arg(trailer)
+                if first_arg is not None:
+                    # Build the full Annotated[...] code
+                    original = _node_code(child) + _node_code(trailer)
+                    mutated = _node_code(first_arg).strip()
+                    mutations.append(
+                        Mutation(
+                            file="",
+                            operator="StripAnnotated",
+                            line=child.start_pos[0],
+                            col=child.start_pos[1],
+                            original=original,
+                            mutated=mutated,
+                            description=f"Strip Annotated → {mutated}",
                         )
-                    return  # Don't recurse into the Annotated itself
+                    )
+                return  # Don't recurse into the Annotated itself
 
     for child in children:
         _find_annotated(child, mutations)

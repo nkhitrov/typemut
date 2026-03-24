@@ -8,7 +8,6 @@ from typemut.discovery import AnnotationContext
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.registry import Registry
 
-
 # This operator targets user-defined classes from the project's class
 # hierarchy (via Registry), not standard library types. The parent class
 # may not be imported in the file where the mutation is applied.
