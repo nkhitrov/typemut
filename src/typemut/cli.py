@@ -20,72 +20,6 @@ if TYPE_CHECKING:
 console = Console()
 
 
-def _load(config_path: str, db_path: str | None) -> tuple[Config, Database]:
-    path = Path(config_path)
-    if not path.exists():
-        console.print(
-            f"[red]Config file not found: {path}[/red]\n"
-            "Create a [bold]typemut.toml[/bold] with at least:\n\n"
-            "  [typemut]\n"
-            '  module-path = "src"\n'
-            '  test-command = "mypy src/"'
-        )
-        raise SystemExit(1)
-
-    try:
-        cfg = load_config(path)
-    except tomllib.TOMLDecodeError as exc:
-        console.print(
-            f"[red]Invalid TOML in {path}:[/red] {exc}\nPlease fix the syntax and try again."
-        )
-        raise SystemExit(1) from None
-
-    db = Database(Path(db_path or cfg.db_path))
-    return cfg, db
-
-
-def _discover_mutations(
-    files: list[Path],
-    cfg: Config,
-    operators: list[TypeMutationOperator],
-    registry: Registry,
-    db: Database,
-) -> int:
-    """Discover mutations across files and insert into database.
-
-    Returns the total number of mutations found.
-    """
-    db.clear()
-    total = 0
-
-    for py_file in files:
-        annotations = discover_annotations(py_file, skip_comments=cfg.skip_comments)
-        mutants: list[MutantRow] = []
-
-        for ann in annotations:
-            for op in operators:
-                for mutation in op.find_mutations(ann.node, ann.context, registry):
-                    mutants.append(
-                        MutantRow(
-                            id=None,
-                            module_path=str(py_file),
-                            operator=mutation.operator,
-                            line=mutation.line,
-                            col=mutation.col,
-                            original_annotation=mutation.original,
-                            mutated_annotation=mutation.mutated,
-                            description=mutation.description,
-                            required_import=mutation.required_import,
-                        )
-                    )
-
-        if mutants:
-            db.insert_many(mutants)
-            total += len(mutants)
-
-    return total
-
-
 @click.group()
 @click.option(
     "-C",
@@ -270,3 +204,69 @@ def run(config_path: str, db_path: str | None, jobs: int) -> None:
     console.print()
     print_report(db, console)
     db.close()
+
+
+def _load(config_path: str, db_path: str | None) -> tuple[Config, Database]:
+    path = Path(config_path)
+    if not path.exists():
+        console.print(
+            f"[red]Config file not found: {path}[/red]\n"
+            "Create a [bold]typemut.toml[/bold] with at least:\n\n"
+            "  [typemut]\n"
+            '  module-path = "src"\n'
+            '  test-command = "mypy src/"'
+        )
+        raise SystemExit(1)
+
+    try:
+        cfg = load_config(path)
+    except tomllib.TOMLDecodeError as exc:
+        console.print(
+            f"[red]Invalid TOML in {path}:[/red] {exc}\nPlease fix the syntax and try again."
+        )
+        raise SystemExit(1) from None
+
+    db = Database(Path(db_path or cfg.db_path))
+    return cfg, db
+
+
+def _discover_mutations(
+    files: list[Path],
+    cfg: Config,
+    operators: list[TypeMutationOperator],
+    registry: Registry,
+    db: Database,
+) -> int:
+    """Discover mutations across files and insert into database.
+
+    Returns the total number of mutations found.
+    """
+    db.clear()
+    total = 0
+
+    for py_file in files:
+        annotations = discover_annotations(py_file, skip_comments=cfg.skip_comments)
+        mutants: list[MutantRow] = []
+
+        for ann in annotations:
+            for op in operators:
+                for mutation in op.find_mutations(ann.node, ann.context, registry):
+                    mutants.append(
+                        MutantRow(
+                            id=None,
+                            module_path=str(py_file),
+                            operator=mutation.operator,
+                            line=mutation.line,
+                            col=mutation.col,
+                            original_annotation=mutation.original,
+                            mutated_annotation=mutation.mutated,
+                            description=mutation.description,
+                            required_import=mutation.required_import,
+                        )
+                    )
+
+        if mutants:
+            db.insert_many(mutants)
+            total += len(mutants)
+
+    return total

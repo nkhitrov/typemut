@@ -60,39 +60,6 @@ class SwapIteratorGenerator(TypeMutationOperator):
         return mutations
 
 
-def _extract_params(trailer: BaseNode) -> list[str]:
-    """Extract comma-separated type parameters from a trailer node like [X, Y, Z].
-
-    The trailer structure is: '[' subscriptlist ']' (for multiple params)
-    or: '[' single_expr ']' (for a single param).
-    The subscriptlist contains children separated by ',' operators.
-    """
-    # Find the content between [ and ]
-    inner_children = trailer.children[1:-1]  # skip '[' and ']'
-
-    if not inner_children:
-        return []
-
-    # If there's a subscriptlist, split by comma operators
-    content = inner_children[0]
-    if isinstance(content, BaseNode) and content.type == "subscriptlist":
-        params: list[str] = []
-        current_parts: list[str] = []
-        for child in content.children:
-            code = _node_code(child)
-            if child.type == "operator" and code.strip() == ",":
-                params.append("".join(current_parts).strip())
-                current_parts = []
-            else:
-                current_parts.append(code)
-        if current_parts:
-            params.append("".join(current_parts).strip())
-        return params
-
-    # Single parameter
-    return [_node_code(content).strip()]
-
-
 def _find_iterator_generator(
     node: BaseNode | Leaf,
     mutations: list[Mutation],
@@ -198,3 +165,36 @@ def _add_subscripted_mutations(
                 description=f"Swap {name} → {target_name}",
             )
         )
+
+
+def _extract_params(trailer: BaseNode) -> list[str]:
+    """Extract comma-separated type parameters from a trailer node like [X, Y, Z].
+
+    The trailer structure is: '[' subscriptlist ']' (for multiple params)
+    or: '[' single_expr ']' (for a single param).
+    The subscriptlist contains children separated by ',' operators.
+    """
+    # Find the content between [ and ]
+    inner_children = trailer.children[1:-1]  # skip '[' and ']'
+
+    if not inner_children:
+        return []
+
+    # If there's a subscriptlist, split by comma operators
+    content = inner_children[0]
+    if isinstance(content, BaseNode) and content.type == "subscriptlist":
+        params: list[str] = []
+        current_parts: list[str] = []
+        for child in content.children:
+            code = _node_code(child)
+            if child.type == "operator" and code.strip() == ",":
+                params.append("".join(current_parts).strip())
+                current_parts = []
+            else:
+                current_parts.append(code)
+        if current_parts:
+            params.append("".join(current_parts).strip())
+        return params
+
+    # Single parameter
+    return [_node_code(content).strip()]

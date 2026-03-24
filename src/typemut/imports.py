@@ -69,61 +69,111 @@ TYPING_GENERIC_ALIASES: frozenset[str] = frozenset(
 )
 
 
-def extract_type_name(annotation: str) -> str:
-    """Extract the root type name from an annotation string.
+_IMPORT_LINE_RE = re.compile(r"^(?:from\s+[\w.]+\s+import\s|import\s+[\w.])")
 
-    >>> extract_type_name("Sequence[int]")
-    'Sequence'
-    >>> extract_type_name("Generator[int, None, None]")
-    'Generator'
-    >>> extract_type_name("int")
-    'int'
+
+def resolve_import(
+    source: str,
+    mutated_annotation: str,
+    required_import: str | None,
+) -> tuple[str, int | None]:
+    """Resolve and add the needed import for a mutation.
+
+    Uses *required_import* from the mutation if provided, otherwise falls back
+    to IMPORT_SOURCES for standard library types.
+
+    Returns (new_source, inserted_line) where inserted_line is the 0-based
+    line index of the new import, or None if no new line was added.
     """
-    bracket = annotation.find("[")
-    if bracket == -1:
-        return annotation.strip()
-    return annotation[:bracket].strip()
+    type_name = extract_type_name(mutated_annotation)
+
+    # If the mutation provides an explicit import line, use it
+    if required_import is not None:
+        # Extract the name from the import line to check if already imported
+        m = re.match(r"from\s+\S+\s+import\s+(\w+)", required_import.strip())
+        if m:
+            name = m.group(1)
+            if _is_imported(source, name):
+                return source, None
+        return add_import_line(source, required_import)
+
+    # Fallback to IMPORT_SOURCES for known standard library types
+    if needs_import(source, type_name):
+        module = detect_preferred_module(source, type_name)
+        return add_import(source, type_name, module)
+
+    return source, None
 
 
-def _is_imported(source: str, type_name: str) -> bool:
-    """Check whether *type_name* is already imported in *source*.
+def add_import_line(source: str, import_line: str) -> tuple[str, int | None]:
+    """Add a raw import line (e.g. ``from pydantic import BaseModel``) to source.
 
-    Handles:
-    - ``from X import type_name``
-    - ``from X import (..., type_name, ...)``
-    - ``import X`` where X == module containing type_name (qualified usage)
+    Parses *import_line* to extract module and name, then delegates to
+    :func:`add_import` for smart merging with existing imports.
+
+    Returns (new_source, inserted_line_number) — same semantics as add_import.
     """
-    # Pattern: from <module> import <...type_name...>
-    # Handles both single-line and multi-line (parenthesized) imports.
-    pattern = re.compile(
-        r"^from\s+\S+\s+import\s+"
-        r"(?:"
-        r"[^)]*\b" + re.escape(type_name) + r"\b"  # single-line
-        r"|"
-        r"\([^)]*\b" + re.escape(type_name) + r"\b[^)]*\)"  # parenthesized
-        r")",
-        re.MULTILINE | re.DOTALL,
-    )
-    if pattern.search(source):
-        return True
+    m = re.match(r"from\s+(\S+)\s+import\s+(\w+)", import_line.strip())
+    if m:
+        module, name = m.group(1), m.group(2)
+        return add_import(source, name, module)
 
-    # Also check multi-line parenthesized imports that span lines:
-    # from module import (
-    #     Foo,
-    #     type_name,
-    # )
-    paren_pattern = re.compile(
-        r"^from\s+\S+\s+import\s+\(([^)]*)\)",
-        re.MULTILINE | re.DOTALL,
-    )
-    for m in paren_pattern.finditer(source):
-        names_block = m.group(1)
-        names = [n.strip().rstrip(",") for n in names_block.split(",")]
-        names = [n.strip() for n in names if n.strip()]
-        if type_name in names:
-            return True
+    # Fallback: insert as-is after last import
+    lines = source.splitlines(keepends=True)
+    last = find_last_import_line(lines)
+    insert_at = last + 1 if last >= 0 else 0
+    eol = "\n"
+    if lines:
+        for ln in lines:
+            if ln.endswith("\r\n"):
+                eol = "\r\n"
+                break
+            elif ln.endswith("\n"):
+                eol = "\n"
+                break
+    lines.insert(insert_at, import_line.rstrip() + eol)
+    return "".join(lines), insert_at
 
-    return False
+
+def add_import(source: str, type_name: str, module: str) -> tuple[str, int | None]:
+    """Add ``from {module} import {type_name}`` to *source*.
+
+    Returns (new_source, inserted_line_number) where inserted_line_number is
+    the 0-based line index of the NEW line, or None if the name was appended
+    to an existing import line (no new line inserted, no line shift).
+    """
+    lines = source.splitlines(keepends=True)
+
+    # Try to append to an existing `from {module} import ...` line
+    existing = _find_existing_import_line(lines, module)
+    if existing is not None:
+        old_line = lines[existing]
+        # Append before the newline
+        stripped = old_line.rstrip("\n\r")
+        new_line = stripped + ", " + type_name
+        # Preserve original line ending
+        ending = old_line[len(stripped) :]
+        lines[existing] = new_line + ending
+        return "".join(lines), None
+
+    # Insert a new import line after the last import
+    last = find_last_import_line(lines)
+    insert_at = last + 1 if last >= 0 else 0
+
+    # Determine line ending style
+    eol = "\n"
+    if lines:
+        for line in lines:
+            if line.endswith("\r\n"):
+                eol = "\r\n"
+                break
+            elif line.endswith("\n"):
+                eol = "\n"
+                break
+
+    import_line = f"from {module} import {type_name}{eol}"
+    lines.insert(insert_at, import_line)
+    return "".join(lines), insert_at
 
 
 def needs_import(source: str, type_name: str) -> bool:
@@ -156,9 +206,6 @@ def detect_preferred_module(source: str, type_name: str) -> str:
         return "collections.abc"
 
     return default
-
-
-_IMPORT_LINE_RE = re.compile(r"^(?:from\s+[\w.]+\s+import\s|import\s+[\w.])")
 
 
 def find_last_import_line(lines: list[str]) -> int:
@@ -222,105 +269,58 @@ def _find_existing_import_line(lines: list[str], module: str) -> int | None:
     return None
 
 
-def add_import(source: str, type_name: str, module: str) -> tuple[str, int | None]:
-    """Add ``from {module} import {type_name}`` to *source*.
+def _is_imported(source: str, type_name: str) -> bool:
+    """Check whether *type_name* is already imported in *source*.
 
-    Returns (new_source, inserted_line_number) where inserted_line_number is
-    the 0-based line index of the NEW line, or None if the name was appended
-    to an existing import line (no new line inserted, no line shift).
+    Handles:
+    - ``from X import type_name``
+    - ``from X import (..., type_name, ...)``
+    - ``import X`` where X == module containing type_name (qualified usage)
     """
-    lines = source.splitlines(keepends=True)
+    # Pattern: from <module> import <...type_name...>
+    # Handles both single-line and multi-line (parenthesized) imports.
+    pattern = re.compile(
+        r"^from\s+\S+\s+import\s+"
+        r"(?:"
+        r"[^)]*\b" + re.escape(type_name) + r"\b"  # single-line
+        r"|"
+        r"\([^)]*\b" + re.escape(type_name) + r"\b[^)]*\)"  # parenthesized
+        r")",
+        re.MULTILINE | re.DOTALL,
+    )
+    if pattern.search(source):
+        return True
 
-    # Try to append to an existing `from {module} import ...` line
-    existing = _find_existing_import_line(lines, module)
-    if existing is not None:
-        old_line = lines[existing]
-        # Append before the newline
-        stripped = old_line.rstrip("\n\r")
-        new_line = stripped + ", " + type_name
-        # Preserve original line ending
-        ending = old_line[len(stripped) :]
-        lines[existing] = new_line + ending
-        return "".join(lines), None
+    # Also check multi-line parenthesized imports that span lines:
+    # from module import (
+    #     Foo,
+    #     type_name,
+    # )
+    paren_pattern = re.compile(
+        r"^from\s+\S+\s+import\s+\(([^)]*)\)",
+        re.MULTILINE | re.DOTALL,
+    )
+    for m in paren_pattern.finditer(source):
+        names_block = m.group(1)
+        names = [n.strip().rstrip(",") for n in names_block.split(",")]
+        names = [n.strip() for n in names if n.strip()]
+        if type_name in names:
+            return True
 
-    # Insert a new import line after the last import
-    last = find_last_import_line(lines)
-    insert_at = last + 1 if last >= 0 else 0
-
-    # Determine line ending style
-    eol = "\n"
-    if lines:
-        for line in lines:
-            if line.endswith("\r\n"):
-                eol = "\r\n"
-                break
-            elif line.endswith("\n"):
-                eol = "\n"
-                break
-
-    import_line = f"from {module} import {type_name}{eol}"
-    lines.insert(insert_at, import_line)
-    return "".join(lines), insert_at
+    return False
 
 
-def add_import_line(source: str, import_line: str) -> tuple[str, int | None]:
-    """Add a raw import line (e.g. ``from pydantic import BaseModel``) to source.
+def extract_type_name(annotation: str) -> str:
+    """Extract the root type name from an annotation string.
 
-    Parses *import_line* to extract module and name, then delegates to
-    :func:`add_import` for smart merging with existing imports.
-
-    Returns (new_source, inserted_line_number) — same semantics as add_import.
+    >>> extract_type_name("Sequence[int]")
+    'Sequence'
+    >>> extract_type_name("Generator[int, None, None]")
+    'Generator'
+    >>> extract_type_name("int")
+    'int'
     """
-    m = re.match(r"from\s+(\S+)\s+import\s+(\w+)", import_line.strip())
-    if m:
-        module, name = m.group(1), m.group(2)
-        return add_import(source, name, module)
-
-    # Fallback: insert as-is after last import
-    lines = source.splitlines(keepends=True)
-    last = find_last_import_line(lines)
-    insert_at = last + 1 if last >= 0 else 0
-    eol = "\n"
-    if lines:
-        for ln in lines:
-            if ln.endswith("\r\n"):
-                eol = "\r\n"
-                break
-            elif ln.endswith("\n"):
-                eol = "\n"
-                break
-    lines.insert(insert_at, import_line.rstrip() + eol)
-    return "".join(lines), insert_at
-
-
-def resolve_import(
-    source: str,
-    mutated_annotation: str,
-    required_import: str | None,
-) -> tuple[str, int | None]:
-    """Resolve and add the needed import for a mutation.
-
-    Uses *required_import* from the mutation if provided, otherwise falls back
-    to IMPORT_SOURCES for standard library types.
-
-    Returns (new_source, inserted_line) where inserted_line is the 0-based
-    line index of the new import, or None if no new line was added.
-    """
-    type_name = extract_type_name(mutated_annotation)
-
-    # If the mutation provides an explicit import line, use it
-    if required_import is not None:
-        # Extract the name from the import line to check if already imported
-        m = re.match(r"from\s+\S+\s+import\s+(\w+)", required_import.strip())
-        if m:
-            name = m.group(1)
-            if _is_imported(source, name):
-                return source, None
-        return add_import_line(source, required_import)
-
-    # Fallback to IMPORT_SOURCES for known standard library types
-    if needs_import(source, type_name):
-        module = detect_preferred_module(source, type_name)
-        return add_import(source, type_name, module)
-
-    return source, None
+    bracket = annotation.find("[")
+    if bracket == -1:
+        return annotation.strip()
+    return annotation[:bracket].strip()

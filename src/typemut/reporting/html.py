@@ -34,167 +34,6 @@ HEADER_COLORS = {
 }
 
 
-def _score_class(score: float) -> str:
-    if score >= 80:
-        return "good"
-    if score >= 50:
-        return "mid"
-    return "bad"
-
-
-def _status_badge(status: str) -> str:
-    color = STATUS_COLORS.get(status, "#7f8c8d")
-    label = STATUS_LABELS.get(status, status)
-    return f'<span class="badge" style="background:{color}">{label}</span>'
-
-
-def _generate_diff(mutant: MutantRow, context_lines: int = 3) -> str | None:
-    """Generate a unified diff showing the mutation in context."""
-    try:
-        source = Path(mutant.module_path).read_text()
-    except (OSError, UnicodeDecodeError):
-        return None
-
-    lines = source.splitlines(keepends=True)
-    line_idx = mutant.line - 1
-
-    if line_idx < 0 or line_idx >= len(lines):
-        return None
-
-    original_line = lines[line_idx]
-    col = mutant.col
-    orig = mutant.original_annotation
-    end_col = col + len(orig)
-    if original_line[col:end_col] != orig:
-        return None
-    mutated_line = original_line[:col] + mutant.mutated_annotation + original_line[end_col:]
-
-    # Build context window
-    start = max(0, line_idx - context_lines)
-    end = min(len(lines), line_idx + context_lines + 1)
-
-    original_chunk = lines[start:end]
-    mutated_chunk = list(original_chunk)
-    mutated_chunk[line_idx - start] = mutated_line
-
-    diff = difflib.unified_diff(
-        original_chunk,
-        mutated_chunk,
-        fromfile=f"a/{mutant.module_path}",
-        tofile=f"b/{mutant.module_path}",
-        lineterm="",
-    )
-    return "\n".join(line.rstrip("\n") for line in diff)
-
-
-def _format_diff_html(diff_text: str) -> str:
-    """Colorize a unified diff as HTML."""
-    html_lines: list[str] = []
-    for line in diff_text.splitlines():
-        escaped = escape(line)
-        if line.startswith("---") or line.startswith("+++"):
-            html_lines.append(f'<span class="diff-header">{escaped}</span>')
-        elif line.startswith("@@"):
-            html_lines.append(f'<span class="diff-hunk">{escaped}</span>')
-        elif line.startswith("-"):
-            html_lines.append(f'<span class="diff-del">{escaped}</span>')
-        elif line.startswith("+"):
-            html_lines.append(f'<span class="diff-add">{escaped}</span>')
-        else:
-            html_lines.append(f"<span>{escaped}</span>")
-    return "\n".join(html_lines)
-
-
-def _build_module_rows(summary: dict[str, dict[str, int]]) -> str:
-    rows = ""
-    for module, statuses in sorted(summary.items()):
-        killed = statuses.get("killed", 0)
-        survived = statuses.get("survived", 0)
-        errors = statuses.get("error", 0)
-        skipped = statuses.get("skipped", 0)
-        total = sum(statuses.values())
-        testable = killed + survived
-        score = (killed / testable * 100) if testable > 0 else 0
-        sc = _score_class(score)
-        rows += (
-            f'<tr><td class="module-name">{escape(module)}</td>'
-            f"<td>{total}</td>"
-            f"<td>{killed}</td>"
-            f"<td>{survived}</td>"
-            f"<td>{errors}</td>"
-            f"<td>{skipped}</td>"
-            f'<td class="{sc}">{score:.1f}%</td></tr>\n'
-        )
-    return rows
-
-
-def _build_mutant_cards(mutants: list[MutantRow], statuses: set[str]) -> str:
-    """Build card-based HTML for mutants matching given statuses."""
-    cards: list[str] = []
-    for m in mutants:
-        if m.status not in statuses:
-            continue
-
-        header_bg = HEADER_COLORS.get(m.status, "#f5f5f5")
-        duration_str = f"{m.duration_seconds:.1f}s" if m.duration_seconds else ""
-        duration_html = (
-            f'<span class="mutant-duration">{duration_str}</span>' if duration_str else ""
-        )
-
-        # Diff section
-        diff_text = _generate_diff(m)
-        if diff_text:
-            diff_html = f'<pre class="diff">{_format_diff_html(diff_text)}</pre>'
-        else:
-            diff_html = (
-                f'<div class="fallback-diff">'
-                f'<div class="diff-del-block"><code>{escape(m.original_annotation)}</code></div>'
-                f'<div class="diff-add-block"><code>{escape(m.mutated_annotation)}</code></div>'
-                f"</div>"
-            )
-
-        # Output section
-        output_html = ""
-        if m.output:
-            output_html = (
-                f'<details class="card-output">'
-                f"<summary>Type checker output</summary>"
-                f"<pre>{escape(m.output)}</pre>"
-                f"</details>"
-            )
-
-        cards.append(
-            f'<div class="mutant-card">'
-            f'<div class="card-header" style="background:{header_bg}" onclick="toggleCard(this)">'
-            f'<span class="mutant-id">#{m.id}</span>'
-            f'<span class="mutant-operator">{escape(m.operator)}</span>'
-            f'<span class="mutant-location">{escape(m.module_path)}:{m.line}</span>'
-            f"{_status_badge(m.status)}"
-            f"{duration_html}"
-            f'<span class="chevron">&#x25B6;</span>'
-            f"</div>"
-            f'<div class="card-body">'
-            f'<div class="card-description">{escape(m.description)}</div>'
-            f"{diff_html}"
-            f"{output_html}"
-            f"</div>"
-            f"</div>\n"
-        )
-    return "".join(cards)
-
-
-def _detail_cards(cards_html: str, count: int) -> str:
-    if count == 0:
-        return "<p>None.</p>"
-    return (
-        '<div class="card-controls">'
-        '<button onclick="expandAll(this)">Expand All</button>'
-        '<button onclick="collapseAll(this)">Collapse All</button>'
-        "</div>\n"
-        f"{cards_html}"
-    )
-
-
 def generate_html(db: Database) -> str:
     """Generate a standalone HTML report with full mutant details."""
     summary = db.get_summary()
@@ -470,3 +309,164 @@ document.querySelectorAll('.section-content.open').forEach(function(el) {{
 </script>
 </body>
 </html>"""
+
+
+def _build_module_rows(summary: dict[str, dict[str, int]]) -> str:
+    rows = ""
+    for module, statuses in sorted(summary.items()):
+        killed = statuses.get("killed", 0)
+        survived = statuses.get("survived", 0)
+        errors = statuses.get("error", 0)
+        skipped = statuses.get("skipped", 0)
+        total = sum(statuses.values())
+        testable = killed + survived
+        score = (killed / testable * 100) if testable > 0 else 0
+        sc = _score_class(score)
+        rows += (
+            f'<tr><td class="module-name">{escape(module)}</td>'
+            f"<td>{total}</td>"
+            f"<td>{killed}</td>"
+            f"<td>{survived}</td>"
+            f"<td>{errors}</td>"
+            f"<td>{skipped}</td>"
+            f'<td class="{sc}">{score:.1f}%</td></tr>\n'
+        )
+    return rows
+
+
+def _build_mutant_cards(mutants: list[MutantRow], statuses: set[str]) -> str:
+    """Build card-based HTML for mutants matching given statuses."""
+    cards: list[str] = []
+    for m in mutants:
+        if m.status not in statuses:
+            continue
+
+        header_bg = HEADER_COLORS.get(m.status, "#f5f5f5")
+        duration_str = f"{m.duration_seconds:.1f}s" if m.duration_seconds else ""
+        duration_html = (
+            f'<span class="mutant-duration">{duration_str}</span>' if duration_str else ""
+        )
+
+        # Diff section
+        diff_text = _generate_diff(m)
+        if diff_text:
+            diff_html = f'<pre class="diff">{_format_diff_html(diff_text)}</pre>'
+        else:
+            diff_html = (
+                f'<div class="fallback-diff">'
+                f'<div class="diff-del-block"><code>{escape(m.original_annotation)}</code></div>'
+                f'<div class="diff-add-block"><code>{escape(m.mutated_annotation)}</code></div>'
+                f"</div>"
+            )
+
+        # Output section
+        output_html = ""
+        if m.output:
+            output_html = (
+                f'<details class="card-output">'
+                f"<summary>Type checker output</summary>"
+                f"<pre>{escape(m.output)}</pre>"
+                f"</details>"
+            )
+
+        cards.append(
+            f'<div class="mutant-card">'
+            f'<div class="card-header" style="background:{header_bg}" onclick="toggleCard(this)">'
+            f'<span class="mutant-id">#{m.id}</span>'
+            f'<span class="mutant-operator">{escape(m.operator)}</span>'
+            f'<span class="mutant-location">{escape(m.module_path)}:{m.line}</span>'
+            f"{_status_badge(m.status)}"
+            f"{duration_html}"
+            f'<span class="chevron">&#x25B6;</span>'
+            f"</div>"
+            f'<div class="card-body">'
+            f'<div class="card-description">{escape(m.description)}</div>'
+            f"{diff_html}"
+            f"{output_html}"
+            f"</div>"
+            f"</div>\n"
+        )
+    return "".join(cards)
+
+
+def _detail_cards(cards_html: str, count: int) -> str:
+    if count == 0:
+        return "<p>None.</p>"
+    return (
+        '<div class="card-controls">'
+        '<button onclick="expandAll(this)">Expand All</button>'
+        '<button onclick="collapseAll(this)">Collapse All</button>'
+        "</div>\n"
+        f"{cards_html}"
+    )
+
+
+def _score_class(score: float) -> str:
+    if score >= 80:
+        return "good"
+    if score >= 50:
+        return "mid"
+    return "bad"
+
+
+def _status_badge(status: str) -> str:
+    color = STATUS_COLORS.get(status, "#7f8c8d")
+    label = STATUS_LABELS.get(status, status)
+    return f'<span class="badge" style="background:{color}">{label}</span>'
+
+
+def _generate_diff(mutant: MutantRow, context_lines: int = 3) -> str | None:
+    """Generate a unified diff showing the mutation in context."""
+    try:
+        source = Path(mutant.module_path).read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    lines = source.splitlines(keepends=True)
+    line_idx = mutant.line - 1
+
+    if line_idx < 0 or line_idx >= len(lines):
+        return None
+
+    original_line = lines[line_idx]
+    col = mutant.col
+    orig = mutant.original_annotation
+    end_col = col + len(orig)
+    if original_line[col:end_col] != orig:
+        return None
+    mutated_line = original_line[:col] + mutant.mutated_annotation + original_line[end_col:]
+
+    # Build context window
+    start = max(0, line_idx - context_lines)
+    end = min(len(lines), line_idx + context_lines + 1)
+
+    original_chunk = lines[start:end]
+    mutated_chunk = list(original_chunk)
+    mutated_chunk[line_idx - start] = mutated_line
+
+    diff = difflib.unified_diff(
+        original_chunk,
+        mutated_chunk,
+        fromfile=f"a/{mutant.module_path}",
+        tofile=f"b/{mutant.module_path}",
+        lineterm="",
+    )
+    return "\n".join(line.rstrip("\n") for line in diff)
+
+
+def _format_diff_html(diff_text: str) -> str:
+    """Colorize a unified diff as HTML."""
+    html_lines: list[str] = []
+    for line in diff_text.splitlines():
+        escaped = escape(line)
+        if line.startswith("---") or line.startswith("+++"):
+            html_lines.append(f'<span class="diff-header">{escaped}</span>')
+        elif line.startswith("@@"):
+            html_lines.append(f'<span class="diff-hunk">{escaped}</span>')
+        elif line.startswith("-"):
+            html_lines.append(f'<span class="diff-del">{escaped}</span>')
+        elif line.startswith("+"):
+            html_lines.append(f'<span class="diff-add">{escaped}</span>')
+        else:
+            html_lines.append(f"<span>{escaped}</span>")
+    return "\n".join(html_lines)

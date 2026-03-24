@@ -32,57 +32,118 @@ class AnnotationNode:
     code: str
 
 
-def _get_annotation_from_annassign(node: BaseNode) -> BaseNode | Leaf | None:
-    """Extract annotation node from an annassign (e.g. `x: int = 5`).
+def discover_annotations(
+    file: Path,
+    source: str | None = None,
+    skip_comments: list[str] | None = None,
+) -> list[AnnotationNode]:
+    """Discover all type annotation nodes in a Python source file."""
+    if source is None:
+        source = file.read_text()
+    if skip_comments is None:
+        skip_comments = ["type: ignore", "pragma: no mutate"]
 
-    annassign structure: ':', annotation [, '=', value]
-    The annotation is the child after the ':' operator.
-    """
-    children = node.children
-    # children[0] is ':', children[1] is the annotation
-    if len(children) >= 2:
-        return children[1]
-    return None
+    file_lines = source.splitlines()
+    tree = parso.parse(source)
+    annotations: list[AnnotationNode] = []
+
+    # Check for TypeVar imports
+    bare_typevar, qualified_typevar = _has_typing_typevar_import(tree)
+
+    def visit(node: BaseNode | Leaf) -> None:
+        if isinstance(node, BaseNode):
+            # TypeVar declaration: T = TypeVar("T", ...)
+            if node.type == "expr_stmt" and (bare_typevar or qualified_typevar):
+                call_node = _is_typevar_call(node, bare_typevar, qualified_typevar)
+                if call_node is not None:
+                    line = call_node.start_pos[0]
+                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
+                        annotations.append(
+                            AnnotationNode(
+                                file=file,
+                                node=call_node,
+                                context=AnnotationContext.TYPEVAR,
+                                line=line,
+                                col=call_node.start_pos[1],
+                                code=_node_code(call_node),
+                            )
+                        )
+                    # Don't return; still recurse for nested annotations
+
+            # Variable annotation: x: int
+            if node.type == "annassign":
+                ann = _get_annotation_from_annassign(node)
+                if ann is not None and not _is_any(ann):
+                    line = ann.start_pos[0]
+                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
+                        annotations.append(
+                            AnnotationNode(
+                                file=file,
+                                node=ann,
+                                context=AnnotationContext.VARIABLE,
+                                line=line,
+                                col=ann.start_pos[1],
+                                code=ann.value if isinstance(ann, Leaf) else _node_code(ann),
+                            )
+                        )
+
+            # Parameter annotation: def f(x: int)
+            elif node.type == "tfpdef":
+                ann = _get_annotation_from_tfpdef(node)
+                if ann is not None and not _is_any(ann):
+                    line = ann.start_pos[0]
+                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
+                        annotations.append(
+                            AnnotationNode(
+                                file=file,
+                                node=ann,
+                                context=AnnotationContext.PARAMETER,
+                                line=line,
+                                col=ann.start_pos[1],
+                                code=ann.value if isinstance(ann, Leaf) else _node_code(ann),
+                            )
+                        )
+
+            # Return annotation: def f() -> int
+            elif node.type == "funcdef":
+                ann = _get_return_annotation(node)
+                if ann is not None and not _is_any(ann):
+                    line = ann.start_pos[0]
+                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
+                        annotations.append(
+                            AnnotationNode(
+                                file=file,
+                                node=ann,
+                                context=AnnotationContext.RETURN,
+                                line=line,
+                                col=ann.start_pos[1],
+                                code=ann.value if isinstance(ann, Leaf) else _node_code(ann),
+                            )
+                        )
+
+            # Recurse into children
+            for child in node.children:
+                visit(child)
+
+    visit(tree)
+    return annotations
 
 
-def _get_annotation_from_tfpdef(node: BaseNode) -> BaseNode | Leaf | None:
-    """Extract annotation node from a tfpdef (e.g. `x: int` in function params).
+def discover_files(
+    module_path: Path,
+    excluded_modules: list[str] | None = None,
+) -> list[Path]:
+    """Find all Python files in the given module path, respecting exclusions."""
+    if excluded_modules is None:
+        excluded_modules = []
 
-    tfpdef structure: name, ':', annotation
-    """
-    children = node.children
-    if len(children) >= 3:
-        return children[2]
-    return None
-
-
-def _get_return_annotation(funcdef: BaseNode) -> BaseNode | Leaf | None:
-    """Extract return annotation from funcdef.
-
-    Look for '->' operator and take the next sibling.
-    """
-    children = funcdef.children
-    for i, child in enumerate(children):
-        if hasattr(child, "value") and child.value == "->" and i + 1 < len(children):
-            return children[i + 1]
-    return None
-
-
-def _line_text(file_lines: list[str], line: int) -> str:
-    """Get the text of a specific line (1-indexed)."""
-    if 1 <= line <= len(file_lines):
-        return file_lines[line - 1]
-    return ""
-
-
-def _should_skip_line(line_text: str, skip_comments: list[str]) -> bool:
-    """Check if a line contains any skip comment."""
-    return any(comment in line_text for comment in skip_comments)
-
-
-def _is_any(node: BaseNode | Leaf) -> bool:
-    """Check if an annotation node is just `Any`."""
-    return isinstance(node, Leaf) and node.value == "Any"
+    files: list[Path] = []
+    for py_file in sorted(module_path.rglob("*.py")):
+        rel = str(py_file)
+        if any(fnmatch.fnmatch(rel, pattern) for pattern in excluded_modules):
+            continue
+        files.append(py_file)
+    return files
 
 
 def _has_typing_typevar_import(tree: Module) -> tuple[bool, bool]:
@@ -194,101 +255,57 @@ def _extract_typevar_power(node: BaseNode | Leaf, bare: bool, qualified: bool) -
     return None
 
 
-def discover_annotations(
-    file: Path,
-    source: str | None = None,
-    skip_comments: list[str] | None = None,
-) -> list[AnnotationNode]:
-    """Discover all type annotation nodes in a Python source file."""
-    if source is None:
-        source = file.read_text()
-    if skip_comments is None:
-        skip_comments = ["type: ignore", "pragma: no mutate"]
+def _get_annotation_from_annassign(node: BaseNode) -> BaseNode | Leaf | None:
+    """Extract annotation node from an annassign (e.g. `x: int = 5`).
 
-    file_lines = source.splitlines()
-    tree = parso.parse(source)
-    annotations: list[AnnotationNode] = []
+    annassign structure: ':', annotation [, '=', value]
+    The annotation is the child after the ':' operator.
+    """
+    children = node.children
+    # children[0] is ':', children[1] is the annotation
+    if len(children) >= 2:
+        return children[1]
+    return None
 
-    # Check for TypeVar imports
-    bare_typevar, qualified_typevar = _has_typing_typevar_import(tree)
 
-    def visit(node: BaseNode | Leaf) -> None:
-        if isinstance(node, BaseNode):
-            # TypeVar declaration: T = TypeVar("T", ...)
-            if node.type == "expr_stmt" and (bare_typevar or qualified_typevar):
-                call_node = _is_typevar_call(node, bare_typevar, qualified_typevar)
-                if call_node is not None:
-                    line = call_node.start_pos[0]
-                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
-                        annotations.append(
-                            AnnotationNode(
-                                file=file,
-                                node=call_node,
-                                context=AnnotationContext.TYPEVAR,
-                                line=line,
-                                col=call_node.start_pos[1],
-                                code=_node_code(call_node),
-                            )
-                        )
-                    # Don't return; still recurse for nested annotations
+def _get_annotation_from_tfpdef(node: BaseNode) -> BaseNode | Leaf | None:
+    """Extract annotation node from a tfpdef (e.g. `x: int` in function params).
 
-            # Variable annotation: x: int
-            if node.type == "annassign":
-                ann = _get_annotation_from_annassign(node)
-                if ann is not None and not _is_any(ann):
-                    line = ann.start_pos[0]
-                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
-                        annotations.append(
-                            AnnotationNode(
-                                file=file,
-                                node=ann,
-                                context=AnnotationContext.VARIABLE,
-                                line=line,
-                                col=ann.start_pos[1],
-                                code=ann.value if isinstance(ann, Leaf) else _node_code(ann),
-                            )
-                        )
+    tfpdef structure: name, ':', annotation
+    """
+    children = node.children
+    if len(children) >= 3:
+        return children[2]
+    return None
 
-            # Parameter annotation: def f(x: int)
-            elif node.type == "tfpdef":
-                ann = _get_annotation_from_tfpdef(node)
-                if ann is not None and not _is_any(ann):
-                    line = ann.start_pos[0]
-                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
-                        annotations.append(
-                            AnnotationNode(
-                                file=file,
-                                node=ann,
-                                context=AnnotationContext.PARAMETER,
-                                line=line,
-                                col=ann.start_pos[1],
-                                code=ann.value if isinstance(ann, Leaf) else _node_code(ann),
-                            )
-                        )
 
-            # Return annotation: def f() -> int
-            elif node.type == "funcdef":
-                ann = _get_return_annotation(node)
-                if ann is not None and not _is_any(ann):
-                    line = ann.start_pos[0]
-                    if not _should_skip_line(_line_text(file_lines, line), skip_comments):
-                        annotations.append(
-                            AnnotationNode(
-                                file=file,
-                                node=ann,
-                                context=AnnotationContext.RETURN,
-                                line=line,
-                                col=ann.start_pos[1],
-                                code=ann.value if isinstance(ann, Leaf) else _node_code(ann),
-                            )
-                        )
+def _get_return_annotation(funcdef: BaseNode) -> BaseNode | Leaf | None:
+    """Extract return annotation from funcdef.
 
-            # Recurse into children
-            for child in node.children:
-                visit(child)
+    Look for '->' operator and take the next sibling.
+    """
+    children = funcdef.children
+    for i, child in enumerate(children):
+        if hasattr(child, "value") and child.value == "->" and i + 1 < len(children):
+            return children[i + 1]
+    return None
 
-    visit(tree)
-    return annotations
+
+def _line_text(file_lines: list[str], line: int) -> str:
+    """Get the text of a specific line (1-indexed)."""
+    if 1 <= line <= len(file_lines):
+        return file_lines[line - 1]
+    return ""
+
+
+def _should_skip_line(line_text: str, skip_comments: list[str]) -> bool:
+    """Check if a line contains any skip comment."""
+    return any(comment in line_text for comment in skip_comments)
+
+
+def _is_any(node: BaseNode | Leaf) -> bool:
+    """Check if an annotation node is just `Any`."""
+    return isinstance(node, Leaf) and node.value == "Any"
 
 
 def _node_code(node: BaseNode | Leaf) -> str:
@@ -304,20 +321,3 @@ def _node_code(node: BaseNode | Leaf) -> str:
         if code.startswith(prefix):
             code = code[len(prefix) :]
     return code
-
-
-def discover_files(
-    module_path: Path,
-    excluded_modules: list[str] | None = None,
-) -> list[Path]:
-    """Find all Python files in the given module path, respecting exclusions."""
-    if excluded_modules is None:
-        excluded_modules = []
-
-    files: list[Path] = []
-    for py_file in sorted(module_path.rglob("*.py")):
-        rel = str(py_file)
-        if any(fnmatch.fnmatch(rel, pattern) for pattern in excluded_modules):
-            continue
-        files.append(py_file)
-    return files

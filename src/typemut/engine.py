@@ -25,6 +25,40 @@ FALSE_KILL_CODES: frozenset[str] = frozenset(
 _ERROR_CODE_RE = re.compile(r"\[(\w[\w-]*)\]\s*$")
 
 
+def check_baseline(test_command: str, timeout: int) -> tuple[bool, str]:
+    """Run test command on unmodified code. Returns (ok, output)."""
+    try:
+        result = subprocess.run(
+            test_command,
+            shell=True,
+            timeout=timeout,
+            capture_output=True,
+        )
+        output = result.stderr.decode(errors="replace")
+        if not output:
+            output = result.stdout.decode(errors="replace")
+        return result.returncode == 0, output
+    except subprocess.TimeoutExpired:
+        return False, "Baseline check timed out"
+
+
+def run_all_mutants(
+    db: Database,
+    mutants: list[MutantRow],
+    test_command: str,
+    timeout: int,
+) -> None:
+    """Run all pending mutants sequentially with progress bar."""
+    with Progress() as progress:
+        task = progress.add_task("Running mutations...", total=len(mutants))
+
+        for mutant in mutants:
+            assert mutant.id is not None
+            status, output, duration = run_single_mutant(mutant, test_command, timeout)
+            db.update_result(mutant.id, status, output, duration)
+            progress.advance(task)
+
+
 def run_single_mutant(
     mutant: MutantRow,
     test_command: str,
@@ -98,40 +132,6 @@ def run_single_mutant(
         return "killed", "timeout", duration
     finally:
         file_path.write_text(original_source)
-
-
-def check_baseline(test_command: str, timeout: int) -> tuple[bool, str]:
-    """Run test command on unmodified code. Returns (ok, output)."""
-    try:
-        result = subprocess.run(
-            test_command,
-            shell=True,
-            timeout=timeout,
-            capture_output=True,
-        )
-        output = result.stderr.decode(errors="replace")
-        if not output:
-            output = result.stdout.decode(errors="replace")
-        return result.returncode == 0, output
-    except subprocess.TimeoutExpired:
-        return False, "Baseline check timed out"
-
-
-def run_all_mutants(
-    db: Database,
-    mutants: list[MutantRow],
-    test_command: str,
-    timeout: int,
-) -> None:
-    """Run all pending mutants sequentially with progress bar."""
-    with Progress() as progress:
-        task = progress.add_task("Running mutations...", total=len(mutants))
-
-        for mutant in mutants:
-            assert mutant.id is not None
-            status, output, duration = run_single_mutant(mutant, test_command, timeout)
-            db.update_result(mutant.id, status, output, duration)
-            progress.advance(task)
 
 
 def _is_false_kill(output: str) -> bool:

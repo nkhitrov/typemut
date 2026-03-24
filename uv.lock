@@ -47,6 +47,15 @@ wheels = [
 ]
 
 [[package]]
+name = "flake8-newspaper-style"
+version = "0.4.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "flake8" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2b/3f/c43be62fb54b5b1d22954aceeefe9bf1a7238d9b6f36d811ed6f363067af/flake8-newspaper-style-0.4.3.tar.gz", hash = "sha256:d05924256cb9992eb61d3718c7301bc8f3b2a847f159b5f9e25a508261359974", size = 4493, upload-time = "2022-10-15T09:15:11.23Z" }
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -335,6 +344,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "flake8" },
+    { name = "flake8-newspaper-style" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
@@ -345,6 +355,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "flake8-newspaper-style", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "parso", specifier = ">=0.8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
