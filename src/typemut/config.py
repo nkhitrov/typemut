@@ -18,6 +18,7 @@ class OperatorsConfig:
     swap_container_type: bool = True
     tuple_ellipsis: bool = True
     widen_container_type: bool = True
+    swap_iterator_generator: bool = True
 
 
 @dataclass
@@ -51,6 +52,7 @@ def load_config(path: Path) -> Config:
         swap_container_type=ops_raw.get("swap-container-type", True),
         tuple_ellipsis=ops_raw.get("tuple-ellipsis", True),
         widen_container_type=ops_raw.get("widen-container-type", True),
+        swap_iterator_generator=ops_raw.get("swap-iterator-generator", True),
     )
 
     return Config(

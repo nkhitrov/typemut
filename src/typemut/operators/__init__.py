@@ -46,5 +46,9 @@ def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]
         from typemut.operators.widen import WidenContainerType
 
         operators.append(WidenContainerType())
+    if config.swap_iterator_generator:
+        from typemut.operators.iterator_generator import SwapIteratorGenerator
+
+        operators.append(SwapIteratorGenerator())
 
     return operators
