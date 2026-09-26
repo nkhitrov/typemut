@@ -478,6 +478,13 @@
   {
     "file": "src/typemut/operators/base.py",
     "operator": "AddOptional",
+    "original": "bool",
+    "mutated": "bool | None",
+    "source": "def is_qualified_name(leaf: Leaf) -> bool:"
+  },
+  {
+    "file": "src/typemut/operators/base.py",
+    "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",
     "source": "file: str"
