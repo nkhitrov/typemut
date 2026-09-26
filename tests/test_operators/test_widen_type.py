@@ -40,3 +40,11 @@ def test_no_widen_to_interfaceless_base(base: str) -> None:
     reg.class_to_base = {"Child": base}
 
     assert_mutations("x: Child\n", WidenType, expected=[], registry=reg)
+
+
+def test_no_widen_qualified_name() -> None:
+    reg = Registry()
+    reg.hierarchy = {"Animal": ["Cat"]}
+    reg.class_to_base = {"Cat": "Animal"}
+
+    assert_mutations("x: models.Cat\n", WidenType, expected=[], registry=reg)

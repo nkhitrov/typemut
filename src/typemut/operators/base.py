@@ -28,6 +28,17 @@ class Mutation:
     required_import: str | None = None
 
 
+def is_qualified_name(leaf: Leaf) -> bool:
+    """Check whether *leaf* is the attribute part of a dotted name (``module.name``)."""
+    parent = leaf.parent
+    return (
+        parent is not None
+        and parent.type == "trailer"
+        and parent.children[0].type == "operator"
+        and parent.children[0].get_code(include_prefix=False) == "."
+    )
+
+
 class TypeMutationOperator(ABC):
     name: str = ""
     # Key in [typemut.operators] / [typemut.ignore-types], e.g. "add-optional".

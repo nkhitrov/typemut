@@ -5,7 +5,7 @@ from __future__ import annotations
 from parso.python.tree import BaseNode, Leaf
 
 from typemut.discovery import AnnotationContext
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.operators.base import Mutation, TypeMutationOperator, is_qualified_name
 from typemut.registry import Registry
 
 # This operator targets user-defined classes from the project's class
@@ -41,7 +41,7 @@ def _find_widenable_names(
     mutations: list[Mutation],
 ) -> None:
     """Recursively find Name nodes that can be widened to their base class."""
-    if isinstance(node, Leaf) and node.type == "name":
+    if isinstance(node, Leaf) and node.type == "name" and not is_qualified_name(node):
         base = registry.get_base(node.value)
         if base is not None and base not in SKIPPED_BASES:
             mutations.append(

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from parso.python.tree import BaseNode, Leaf
 
 from typemut.discovery import AnnotationContext, _node_code
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.operators.base import Mutation, TypeMutationOperator, is_qualified_name
 from typemut.registry import Registry
 
 # Subscripted swap rules (widening only — each step drops a capability):
@@ -53,7 +53,12 @@ def _find_iterator_generator(
     mutations: list[Mutation],
 ) -> None:
     """Find iterator/generator type names and generate widening mutations."""
-    if isinstance(node, Leaf) and node.type == "name" and node.value in WIDEN_TO:
+    if (
+        isinstance(node, Leaf)
+        and node.type == "name"
+        and node.value in WIDEN_TO
+        and not is_qualified_name(node)
+    ):
         target = WIDEN_TO[node.value]
         original = node.value
         mutated = target
