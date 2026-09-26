@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Collection
 
 from typemut.discovery import AnnotationNode
 from typemut.operators.base import Mutation, TypeMutationOperator
@@ -33,7 +33,7 @@ class Plugin(ABC):
     def find_mutations(
         self,
         annotation: AnnotationNode,
-        operators: Sequence[TypeMutationOperator],
+        operators: Collection[TypeMutationOperator],
         registry: Registry,
     ) -> list[Mutation] | None:
         """Return the mutations for an annotation this plugin owns.

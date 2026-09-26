@@ -15,7 +15,7 @@ variable name. Annotations inside the function body are mutated as usual.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection
 from pathlib import Path
 
 from parso.python.tree import BaseNode, Leaf
@@ -68,7 +68,7 @@ class FastAPIPlugin(Plugin):
     def find_mutations(
         self,
         annotation: AnnotationNode,
-        operators: Sequence[TypeMutationOperator],
+        operators: Collection[TypeMutationOperator],
         registry: Registry,
     ) -> list[Mutation] | None:
         """No mutations for endpoint signatures; leave other annotations to the core."""

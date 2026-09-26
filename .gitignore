@@ -9,3 +9,4 @@ __pycache__/
 typemut-report.html
 dist/
 build/
+.coverage

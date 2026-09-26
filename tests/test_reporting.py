@@ -5,11 +5,12 @@ from __future__ import annotations
 from io import StringIO
 from pathlib import Path
 
+import pytest
 from rich.console import Console
 
 from typemut.db import Database, MutantRow
 from typemut.reporting.html import generate_html
-from typemut.reporting.terminal import print_report
+from typemut.reporting.terminal import print_report, total_score
 
 
 def _populate_db(db: Database) -> None:
@@ -65,3 +66,17 @@ class TestHtmlReport:
         html = generate_html(tmp_db)
         # 2 killed, 1 survived => 66.7%
         assert "66.7%" in html
+
+
+@pytest.mark.parametrize(
+    ("summary", "expected"),
+    [
+        ({}, None),
+        ({"a.py": {"error": 2, "pending": 1}}, None),
+        ({"a.py": {"killed": 3}}, 100.0),
+        ({"a.py": {"survived": 2}}, 0.0),
+        ({"a.py": {"killed": 1, "survived": 1, "error": 5}, "b.py": {"killed": 2}}, 75.0),
+    ],
+)
+def test_total_score(summary: dict[str, dict[str, int]], expected: float | None) -> None:
+    assert total_score(summary) == expected

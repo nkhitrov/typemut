@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,7 +40,7 @@ class Registry:
         return self.base_import_lines.get(base_name)
 
     @classmethod
-    def from_files(cls, files: list[Path]) -> Registry:
+    def from_files(cls, files: Iterable[Path]) -> Registry:
         reg = cls()
         for f in files:
             try:
@@ -126,7 +127,7 @@ def _extract_hierarchy(
 def _process_classdef(
     node: BaseNode,
     reg: Registry,
-    file_imports: dict[str, str],
+    file_imports: Mapping[str, str],
 ) -> None:
     """Extract class Name(Base) pattern from a classdef node."""
     children = node.children

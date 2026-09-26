@@ -21,7 +21,7 @@ the mutations above.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection
 from pathlib import Path
 
 from parso.python.tree import BaseNode, Leaf
@@ -57,7 +57,7 @@ class SQLAlchemyPlugin(Plugin):
     def find_mutations(
         self,
         annotation: AnnotationNode,
-        operators: Sequence[TypeMutationOperator],
+        operators: Collection[TypeMutationOperator],
         registry: Registry,
     ) -> list[Mutation] | None:
         """Mutate the type inside ``Mapped[...]``; leave other annotations to the core."""
@@ -89,7 +89,7 @@ class _Rules:
     def __init__(
         self,
         context: AnnotationContext,
-        operators: Sequence[TypeMutationOperator],
+        operators: Collection[TypeMutationOperator],
         registry: Registry,
         *,
         relationship: bool,
