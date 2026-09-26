@@ -9,7 +9,7 @@ the target type may not be imported in the file. This module provides:
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 
 from parso.python.tree import BaseNode, ImportFrom, ImportName, Leaf, Module
@@ -43,7 +43,7 @@ BUILTIN_TYPES: frozenset[str] = frozenset(
 # Types available from collections.abc (preferred for Python 3.9+)
 # and also re-exported by typing for backwards compatibility.
 # Key = type name, value = default module to import from.
-IMPORT_SOURCES: dict[str, str] = {
+IMPORT_SOURCES: Mapping[str, str] = {
     "Sequence": "collections.abc",
     "MutableSequence": "collections.abc",
     "AbstractSet": "collections.abc",
@@ -58,20 +58,6 @@ IMPORT_SOURCES: dict[str, str] = {
     "AsyncGenerator": "collections.abc",
     "AsyncIterable": "collections.abc",
 }
-
-# Legacy typing-capitalized forms (List, Tuple, etc.).
-# If the original type uses these, the import is already in scope.
-TYPING_GENERIC_ALIASES: frozenset[str] = frozenset(
-    {
-        "List",
-        "Tuple",
-        "Set",
-        "FrozenSet",
-        "Dict",
-        "Sequence",  # also exists in typing
-    }
-)
-
 
 _IMPORT_LINE_RE = re.compile(r"^(?:from\s+[\w.]+\s+import\s|import\s+[\w.])")
 
@@ -212,7 +198,7 @@ def detect_preferred_module(source: str, type_name: str) -> str:
     return default
 
 
-def find_last_import_line(lines: list[str]) -> int:
+def find_last_import_line(lines: Iterable[str]) -> int:
     """Return the 0-based index of the last import statement line.
 
     Only matches real import statements (not ``from`` in docstrings or
@@ -260,7 +246,7 @@ def find_last_import_line(lines: list[str]) -> int:
     return last_import
 
 
-def _find_existing_import_line(lines: list[str], module: str) -> int | None:
+def _find_existing_import_line(lines: Iterable[str], module: str) -> int | None:
     """Find a single-line ``from {module} import ...`` that can be extended.
 
     Returns the 0-based line index, or None if not found or if the import

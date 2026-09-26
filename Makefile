@@ -1,4 +1,4 @@
-.PHONY: install test lint lint-all fmt clean run
+.PHONY: install test lint lint-all fmt clean run mutate mutate-baseline
 
 PYTHON_VERSIONS ?= 3.11 3.12 3.13
 
@@ -27,6 +27,17 @@ lint-all:
 fmt:
 	uv run ruff check --fix src/typemut/
 	uv run ruff format src/typemut/
+
+# Mutation-test typemut's own annotations; fails on any survived mutant
+# that is not in the baseline. `make mutate-baseline` accepts the current ones.
+JOBS ?= 4
+BASELINE ?= typemut-baseline.json
+
+mutate:
+	uv run typemut run --jobs $(JOBS) --baseline $(BASELINE)
+
+mutate-baseline:
+	uv run typemut run --jobs $(JOBS) --baseline $(BASELINE) --update-baseline
 
 clean:
 	rm -f typemut.sqlite

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from parso.python.tree import BaseNode, Leaf
 
 from typemut.discovery import AnnotationContext, _node_code
@@ -23,7 +25,7 @@ from typemut.registry import Registry
 # The source type is already imported in the target file, but the
 # replacement type may not be — import injection is handled by
 # imports.py at mutation application time.
-WIDEN_TO: dict[str, str] = {
+WIDEN_TO: Mapping[str, str] = {
     "Iterator": "Iterable",
     "Generator": "Iterator",
     "AsyncIterator": "AsyncIterable",

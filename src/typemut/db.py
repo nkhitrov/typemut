@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,7 +92,7 @@ class Database:
         self.conn.commit()
         return cursor.lastrowid  # type: ignore[return-value]
 
-    def insert_many(self, mutants: list[MutantRow]) -> None:
+    def insert_many(self, mutants: Iterable[MutantRow]) -> None:
         self.conn.executemany(
             """INSERT INTO mutants
                (module_path, operator, line, col, original_annotation,
@@ -155,7 +156,7 @@ class Database:
 
     def update_results_batch(
         self,
-        results: list[tuple[int, str, str | None, float]],
+        results: Iterable[tuple[int, str, str | None, float]],
     ) -> None:
         """Batch-update mutation results."""
         self.conn.executemany(

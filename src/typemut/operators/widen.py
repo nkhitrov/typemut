@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from parso.python.tree import BaseNode, Leaf
 
 from typemut.discovery import AnnotationContext, _node_code
@@ -17,7 +19,7 @@ from typemut.registry import Registry
 #         Mapping, Collection, Iterable). These may NOT be imported in the
 #         target file — import injection is handled by imports.py at mutation
 #         application time.
-WIDEN_MAP: dict[str, str] = {
+WIDEN_MAP: Mapping[str, str] = {
     "list": "Sequence",
     "List": "Sequence",
     "tuple": "Sequence",

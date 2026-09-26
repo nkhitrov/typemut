@@ -30,3 +30,32 @@ jobs:
 
       - name: Run linters
         run: make lint
+
+  typemut:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install
+        run: make install
+
+      - name: Mutation-test own type annotations
+        run: make mutate
+
+      - name: Build HTML report
+        if: always()
+        run: uv run typemut html -o typemut-report.html
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typemut-report
+          path: typemut-report.html

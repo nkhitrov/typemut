@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping
 
 from typemut.discovery import AnnotationNode
 from typemut.ignore import IgnoredTypes
@@ -14,12 +14,12 @@ from typemut.registry import Registry
 
 logger = logging.getLogger(__name__)
 
-PLUGINS: dict[str, type[Plugin]] = {
+PLUGINS: Mapping[str, type[Plugin]] = {
     SQLAlchemyPlugin.name: SQLAlchemyPlugin,
 }
 
 
-def get_plugins(names: Sequence[str]) -> list[Plugin]:
+def get_plugins(names: Collection[str]) -> list[Plugin]:
     """Instantiate plugins by name, in config order.
 
     Unknown names are logged as a warning and skipped, so a typo in the
@@ -37,9 +37,9 @@ def get_plugins(names: Sequence[str]) -> list[Plugin]:
 
 def find_mutations(
     annotation: AnnotationNode,
-    operators: Sequence[TypeMutationOperator],
+    operators: Collection[TypeMutationOperator],
     registry: Registry,
-    plugins: Sequence[Plugin] = (),
+    plugins: Collection[Plugin] = (),
     ignored: IgnoredTypes | None = None,
 ) -> list[Mutation]:
     """Return all mutations for an annotation.

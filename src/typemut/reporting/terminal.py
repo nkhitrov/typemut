@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from rich.console import Console
 from rich.table import Table
 
@@ -46,18 +48,14 @@ def print_report(db: Database, console: Console) -> None:
         total_survived += survived
         total_all += module_total
 
-    total_score = (
-        (total_killed / (total_killed + total_survived) * 100)
-        if (total_killed + total_survived) > 0
-        else 0
-    )
+    score_total = total_score(summary) or 0
     table.add_section()
     table.add_row(
         "TOTAL",
         str(total_all),
         str(total_killed),
         str(total_survived),
-        f"{total_score:.1f}%",
+        f"{score_total:.1f}%",
     )
 
     console.print(table)
@@ -72,3 +70,15 @@ def print_report(db: Database, console: Console) -> None:
                 f"  {m.module_path}:{m.line}  {m.operator}  "
                 f"{m.original_annotation} → {m.mutated_annotation}"
             )
+
+
+def total_score(summary: Mapping[str, Mapping[str, int]]) -> float | None:
+    """Return the overall mutation score in percent, or None if nothing was scored.
+
+    Only killed and survived mutants count; pending, skipped and error ones don't.
+    """
+    killed = sum(statuses.get("killed", 0) for statuses in summary.values())
+    survived = sum(statuses.get("survived", 0) for statuses in summary.values())
+    if killed + survived == 0:
+        return None
+    return killed / (killed + survived) * 100

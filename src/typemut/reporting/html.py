@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+from collections.abc import Iterable, Mapping
 from html import escape
 from pathlib import Path
 
@@ -311,7 +312,7 @@ document.querySelectorAll('.section-content.open').forEach(function(el) {{
 </html>"""
 
 
-def _build_module_rows(summary: dict[str, dict[str, int]]) -> str:
+def _build_module_rows(summary: Mapping[str, Mapping[str, int]]) -> str:
     rows = ""
     for module, statuses in sorted(summary.items()):
         killed = statuses.get("killed", 0)
@@ -334,7 +335,7 @@ def _build_module_rows(summary: dict[str, dict[str, int]]) -> str:
     return rows
 
 
-def _build_mutant_cards(mutants: list[MutantRow], statuses: set[str]) -> str:
+def _build_mutant_cards(mutants: Iterable[MutantRow], statuses: set[str]) -> str:
     """Build card-based HTML for mutants matching given statuses."""
     cards: list[str] = []
     for m in mutants:

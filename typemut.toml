@@ -1,0 +1,5 @@
+# typemut on its own sources: every mutated annotation must be caught by mypy --strict.
+[typemut]
+module-path = "src/typemut"
+test-command = "mypy src/typemut/"
+timeout = 120

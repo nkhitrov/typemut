@@ -4,12 +4,31 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from typemut.db import Database, MutantRow
 from typemut.engine import check_baseline, run_all_mutants, run_single_mutant
+
+
+_PRINT_MTIME = (
+    f'{sys.executable} -c "import os; print(int(os.stat(\'test.py\').st_mtime))"'
+)
+
+
+def _int_mutant(mutated: str) -> MutantRow:
+    return MutantRow(
+        id=1,
+        module_path="test.py",
+        operator="Test",
+        line=1,
+        col=3,
+        original_annotation="int",
+        mutated_annotation=mutated,
+        description="test",
+    )
 
 
 class TestRunSingleMutant:
@@ -153,6 +172,35 @@ class TestRunSingleMutant:
         )
         assert status == "killed"
         assert "some output" in (output or "")
+
+    def test_original_mtime_restored(self, tmp_path: Path) -> None:
+        src = tmp_path / "test.py"
+        src.write_text("x: int = 5\n")
+        os.utime(src, ns=(1_700_000_000_000_000_000, 1_700_000_000_123_456_789))
+
+        run_single_mutant(_int_mutant("str"), "true", timeout=5, project_root=tmp_path)
+
+        assert src.stat().st_mtime_ns == 1_700_000_000_123_456_789
+
+    def test_mutants_get_content_derived_mtimes(self, tmp_path: Path) -> None:
+        # mypy reuses its cache when size and whole-second mtime match, so
+        # equal-size mutants must not share an mtime with each other or the original.
+        src = tmp_path / "test.py"
+        src.write_text("x: int = 5\n")
+        os.utime(src, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+
+        _, str_mtime, _ = run_single_mutant(
+            _int_mutant("str"), _PRINT_MTIME, timeout=5, project_root=tmp_path
+        )
+        _, set_mtime, _ = run_single_mutant(
+            _int_mutant("set"), _PRINT_MTIME, timeout=5, project_root=tmp_path
+        )
+        _, str_mtime_again, _ = run_single_mutant(
+            _int_mutant("str"), _PRINT_MTIME, timeout=5, project_root=tmp_path
+        )
+
+        assert len({str_mtime, set_mtime, "1700000000\n"}) == 3
+        assert str_mtime == str_mtime_again
 
 
 
