@@ -32,9 +32,15 @@ def test_remove_from_binary_union() -> None:
 
 
 def test_skip_none_removal() -> None:
+    # Removing None is RemoveOptional's job; removing int would leave bare None
     mutations = _get_mutations("x: int | None\n")
-    assert len(mutations) == 1
-    assert mutations[0].mutated == "None"
+    assert len(mutations) == 0
+
+
+def test_keep_none_in_remaining_union() -> None:
+    mutations = _get_mutations("x: int | str | None\n")
+    mutated = {m.mutated for m in mutations}
+    assert mutated == {"str | None", "int | None"}
 
 
 def test_no_mutation_for_simple_type() -> None:

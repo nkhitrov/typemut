@@ -10,13 +10,10 @@ from pathlib import Path
 @dataclass
 class OperatorsConfig:
     remove_union_member: bool = True
-    swap_literal_value: bool = True
+    remove_literal_member: bool = True
     widen_type: bool = True
-    strip_annotated: bool = True
     remove_optional: bool = True
     add_optional: bool = True
-    swap_container_type: bool = True
-    tuple_ellipsis: bool = True
     widen_container_type: bool = True
     swap_iterator_generator: bool = True
     typevar_variance: bool = True
@@ -43,13 +40,10 @@ def load_config(path: Path) -> Config:
 
     operators = OperatorsConfig(
         remove_union_member=ops_raw.get("remove-union-member", True),
-        swap_literal_value=ops_raw.get("swap-literal-value", True),
+        remove_literal_member=ops_raw.get("remove-literal-member", True),
         widen_type=ops_raw.get("widen-type", True),
-        strip_annotated=ops_raw.get("strip-annotated", True),
         remove_optional=ops_raw.get("remove-optional", True),
         add_optional=ops_raw.get("add-optional", True),
-        swap_container_type=ops_raw.get("swap-container-type", True),
-        tuple_ellipsis=ops_raw.get("tuple-ellipsis", True),
         widen_container_type=ops_raw.get("widen-container-type", True),
         swap_iterator_generator=ops_raw.get("swap-iterator-generator", True),
         typevar_variance=ops_raw.get("typevar-variance", True),

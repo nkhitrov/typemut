@@ -82,3 +82,9 @@ def test_add_optional_skips_self() -> None:
         assert len(mutations) == 0
 
 
+def test_add_optional_skips_typevar() -> None:
+    source = 'from typing import TypeVar\nT = TypeVar("T")\n'
+    annotations = discover_annotations(Path("test.py"), source=source)
+    tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
+    mutations = AddOptional().find_mutations(tvars[0].node, AnnotationContext.TYPEVAR, Registry())
+    assert mutations == []

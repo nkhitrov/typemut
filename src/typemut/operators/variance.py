@@ -31,9 +31,10 @@ class TypeVarVariance(TypeMutationOperator):
         line = node.start_pos[0]
         col = node.start_pos[1]
 
-        if has_covariant:
-            # Mutation 1: remove covariant=True
-            mutated = _remove_kwarg(original, "covariant")
+        # Swapping co <-> contra is not generated: a covariant TypeVar sits in
+        # output positions by definition, so the swap is always killed.
+        if has_covariant or has_contravariant:
+            existing = "covariant" if has_covariant else "contravariant"
             mutations.append(
                 Mutation(
                     file="",
@@ -41,48 +42,8 @@ class TypeVarVariance(TypeMutationOperator):
                     line=line,
                     col=col,
                     original=original,
-                    mutated=mutated,
-                    description="Remove covariant=True",
-                )
-            )
-            # Mutation 2: swap to contravariant=True
-            mutated = _replace_kwarg(original, "covariant", "contravariant")
-            mutations.append(
-                Mutation(
-                    file="",
-                    operator=self.name,
-                    line=line,
-                    col=col,
-                    original=original,
-                    mutated=mutated,
-                    description="Replace covariant=True with contravariant=True",
-                )
-            )
-        elif has_contravariant:
-            # Mutation 1: remove contravariant=True
-            mutated = _remove_kwarg(original, "contravariant")
-            mutations.append(
-                Mutation(
-                    file="",
-                    operator=self.name,
-                    line=line,
-                    col=col,
-                    original=original,
-                    mutated=mutated,
-                    description="Remove contravariant=True",
-                )
-            )
-            # Mutation 2: swap to covariant=True
-            mutated = _replace_kwarg(original, "contravariant", "covariant")
-            mutations.append(
-                Mutation(
-                    file="",
-                    operator=self.name,
-                    line=line,
-                    col=col,
-                    original=original,
-                    mutated=mutated,
-                    description="Replace contravariant=True with covariant=True",
+                    mutated=_remove_kwarg(original, existing),
+                    description=f"Remove {existing}=True",
                 )
             )
         else:
@@ -150,11 +111,6 @@ def _remove_kwarg(text: str, kwarg_name: str) -> str:
     # Pattern: kwarg=True + trailing comma + spaces
     result = re.sub(kwarg_name + r"=True\s*,\s*", "", text)
     return result
-
-
-def _replace_kwarg(text: str, old_kwarg: str, new_kwarg: str) -> str:
-    """Replace one kwarg name with another, keeping =True."""
-    return text.replace(old_kwarg + "=True", new_kwarg + "=True")
 
 
 def _add_kwarg(text: str, kwarg: str) -> str:

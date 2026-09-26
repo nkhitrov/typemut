@@ -34,6 +34,10 @@ class RemoveUnionMember(TypeMutationOperator):
 
             remaining = [m for j, m in enumerate(members) if j != i]
             remaining_codes = [_node_code(m).strip() for m in remaining]
+
+            # Skip X | None -> None: degenerate, and RemoveOptional covers X | None
+            if remaining_codes == ["None"]:
+                continue
             mutated = " | ".join(remaining_codes)
 
             mutations.append(

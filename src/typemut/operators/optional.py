@@ -63,12 +63,10 @@ class AddOptional(TypeMutationOperator):
 
         Only applies to return types and class fields — adding None to
         parameters has low value since callers simply won't pass None.
+        TypeVar declarations are skipped: ``TypeVar("T") | None`` is not a
+        type annotation, and the checker error it causes is not a real kill.
         """
-        if context == AnnotationContext.PARAMETER:
-            return []
-
-        # Skip self parameter
-        if isinstance(node, Leaf) and node.value == "self":
+        if context in {AnnotationContext.PARAMETER, AnnotationContext.TYPEVAR}:
             return []
 
         code = _node_code(node).strip()

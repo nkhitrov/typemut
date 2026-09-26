@@ -36,4 +36,4 @@ remove-union-member = false
         cfg = load_config(Path(f.name))
 
     assert cfg.operators.remove_union_member is False
-    assert cfg.operators.swap_literal_value is True
+    assert cfg.operators.remove_literal_member is True

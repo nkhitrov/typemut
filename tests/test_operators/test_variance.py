@@ -23,20 +23,14 @@ def test_covariant_typevar() -> None:
     mutations = _get_typevar_mutations(
         'from typing import TypeVar\nT = TypeVar("T", covariant=True)\n'
     )
-    assert len(mutations) == 2
-    assert "covariant" not in mutations[0].mutated
-    assert 'TypeVar("T")' in mutations[0].mutated
-    assert "contravariant=True" in mutations[1].mutated
+    assert [m.mutated for m in mutations] == ['TypeVar("T")']
 
 
 def test_contravariant_typevar() -> None:
     mutations = _get_typevar_mutations(
         'from typing import TypeVar\nT = TypeVar("T", contravariant=True)\n'
     )
-    assert len(mutations) == 2
-    assert "contravariant" not in mutations[0].mutated
-    assert 'TypeVar("T")' in mutations[0].mutated
-    assert "covariant=True" in mutations[1].mutated
+    assert [m.mutated for m in mutations] == ['TypeVar("T")']
 
 
 def test_invariant_typevar() -> None:
