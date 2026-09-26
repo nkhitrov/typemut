@@ -679,6 +679,27 @@
     "source": "def operators(self) -> list[TypeMutationOperator]:"
   },
   {
+    "file": "src/typemut/plugins/fastapi.py",
+    "operator": "AddOptional",
+    "original": "bool",
+    "mutated": "bool | None",
+    "source": "def _is_route(self, decorator: BaseNode, file: Path) -> bool:"
+  },
+  {
+    "file": "src/typemut/plugins/fastapi.py",
+    "operator": "WidenContainerType",
+    "original": "Collection[TypeMutationOperator]",
+    "mutated": "Iterable[TypeMutationOperator]",
+    "source": "operators: Collection[TypeMutationOperator],"
+  },
+  {
+    "file": "src/typemut/plugins/fastapi.py",
+    "operator": "WidenContainerType",
+    "original": "list[BaseNode]",
+    "mutated": "Sequence[BaseNode]",
+    "source": "def _decorators(annotation: BaseNode | Leaf) -> list[BaseNode]:"
+  },
+  {
     "file": "src/typemut/plugins/sqlalchemy.py",
     "operator": "AddOptional",
     "original": "bool",
@@ -768,5 +789,75 @@
     "original": "str",
     "mutated": "str | None",
     "source": "def _status_badge(status: str) -> str:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "AddOptional",
+    "original": "str",
+    "mutated": "str | None",
+    "source": "def _module_name(file: Path) -> str:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "RemoveUnionMember",
+    "original": "BaseNode | Leaf",
+    "mutated": "BaseNode",
+    "source": "def _called_class(node: BaseNode | Leaf) -> str | None:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "RemoveUnionMember",
+    "original": "BaseNode | Leaf",
+    "mutated": "BaseNode",
+    "source": "def _expression_name(node: BaseNode | Leaf) -> str | None:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "RemoveUnionMember",
+    "original": "BaseNode | Leaf",
+    "mutated": "BaseNode",
+    "source": "def instance_class(self, dotted: str, node: BaseNode | Leaf, file: Path) -> str | None:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "RemoveUnionMember",
+    "original": "BaseNode | Leaf",
+    "mutated": "Leaf",
+    "source": "def _called_class(node: BaseNode | Leaf) -> str | None:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "RemoveUnionMember",
+    "original": "BaseNode | Leaf",
+    "mutated": "Leaf",
+    "source": "def _expression_name(node: BaseNode | Leaf) -> str | None:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "SwapIteratorGenerator",
+    "original": "Iterator[BaseNode]",
+    "mutated": "Iterable[BaseNode]",
+    "source": "def _function_scopes(node: BaseNode | Leaf) -> Iterator[BaseNode]:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "SwapIteratorGenerator",
+    "original": "Iterator[BaseNode]",
+    "mutated": "Iterable[BaseNode]",
+    "source": "def _scope_nodes(scope: BaseNode) -> Iterator[BaseNode]:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "WidenContainerType",
+    "original": "dict[str, str]",
+    "mutated": "Mapping[str, str]",
+    "source": "def _imported_names(self, file: Path) -> dict[str, str]:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "WidenContainerType",
+    "original": "list[str]",
+    "mutated": "Sequence[str]",
+    "source": "def _bases(classdef: BaseNode) -> list[str]:"
   }
 ]
