@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 import subprocess
 import time
+from collections.abc import Collection
 from pathlib import Path
 
 from rich.progress import Progress
@@ -23,6 +26,13 @@ FALSE_KILL_CODES: frozenset[str] = frozenset(
 )
 
 _ERROR_CODE_RE = re.compile(r"\[(\w[\w-]*)\]\s*$")
+
+# mypy trusts its incremental cache when a file's size and whole-second mtime
+# are unchanged. Mutants of one file often have equal sizes and are written
+# within the same second, so each mutated file gets an mtime derived from its
+# content, up to this many seconds before the original one.
+_MTIME_SPREAD_SECONDS = 2**24
+_NS_PER_SECOND = 10**9
 
 
 def check_baseline(test_command: str, timeout: int) -> tuple[bool, str]:
@@ -44,7 +54,7 @@ def check_baseline(test_command: str, timeout: int) -> tuple[bool, str]:
 
 def run_all_mutants(
     db: Database,
-    mutants: list[MutantRow],
+    mutants: Collection[MutantRow],
     test_command: str,
     timeout: int,
 ) -> None:
@@ -101,10 +111,18 @@ def run_single_mutant(
     lines[line_idx] = new_line
     mutated_source = "".join(lines)
 
+    original_stat = file_path.stat()
     try:
         file_path.write_text(mutated_source)
     except OSError as exc:
         return "error", f"Failed to write mutation: {exc}", 0.0
+    os.utime(
+        file_path,
+        ns=(
+            original_stat.st_atime_ns,
+            _content_mtime_ns(mutated_source, original_stat.st_mtime_ns),
+        ),
+    )
 
     start = time.monotonic()
 
@@ -132,6 +150,14 @@ def run_single_mutant(
         return "killed", "timeout", duration
     finally:
         file_path.write_text(original_source)
+        os.utime(file_path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+
+def _content_mtime_ns(source: str, original_mtime_ns: int) -> int:
+    """A whole-second mtime before *original_mtime_ns* that depends only on *source*."""
+    digest = hashlib.sha256(source.encode()).digest()
+    offset = 1 + int.from_bytes(digest[:8]) % _MTIME_SPREAD_SECONDS
+    return (original_mtime_ns // _NS_PER_SECOND - offset) * _NS_PER_SECOND
 
 
 def _is_false_kill(output: str) -> bool:

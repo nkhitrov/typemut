@@ -59,6 +59,28 @@ typemut -C /path/to/project run
 | `typemut report` | Show terminal report |
 | `typemut html` | Generate HTML report with diffs |
 
+## Using in CI
+
+`typemut run` and `typemut report` exit with code 0 regardless of survivors unless
+you ask them to gate:
+
+```bash
+typemut run --fail-under 90                          # exit 1 if the mutation score is below 90%
+typemut run --baseline typemut-baseline.json         # exit 1 on survivors not in the baseline
+typemut run --baseline typemut-baseline.json --update-baseline   # accept the current survivors
+```
+
+A **baseline** is a JSON file of survived mutants you have reviewed and accept
+(e.g. equivalent mutants the type checker can never kill). Commit it and run with
+`--baseline` in CI: known survivors pass, new ones fail the build and are listed.
+Entries are matched by file, operator, original and mutated annotation, and the
+text of the source line — not its number, so edits elsewhere in a file keep the
+baseline valid. Entries that no longer survive are reported; rerun with
+`--update-baseline` to drop them.
+
+Mutation testing is slow, so use `--jobs N` in CI (it needs a clean git working tree).
+typemut runs this on itself — see `make mutate` and `.github/workflows/ci.yml`.
+
 ## What It Finds
 
 typemut generates mutations of type annotations and checks whether the type checker catches them. Each mutation operator targets a specific class of type safety issues.
@@ -318,7 +340,9 @@ typemut html -o report.html             # save to specific file
 ```bash
 make install    # create venv and install with dev deps
 make test       # run tests
-make lint       # run mypy
+make lint       # run ruff, flake8/wps, mypy
+make mutate     # run typemut on itself; fails on survivors missing from typemut-baseline.json
+make mutate-baseline  # accept the current survivors (review the diff before committing)
 ```
 
 ## Dependencies

@@ -16,7 +16,7 @@ from an ignored library). Plugins see annotations first and are not affected.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping
 from fnmatch import fnmatchcase
 
 from parso.python.tree import BaseNode, Leaf, Module
@@ -35,7 +35,7 @@ _NamesCache = dict[int, tuple[Module, dict[str, str]]]
 class IgnoredTypes:
     """Ignored type patterns per operator config key (``add-optional``, ...)."""
 
-    def __init__(self, patterns: Mapping[str, Sequence[str]] | None = None) -> None:
+    def __init__(self, patterns: Mapping[str, Iterable[str]] | None = None) -> None:
         self._patterns = {key: tuple(values) for key, values in (patterns or {}).items()}
         self._names: _NamesCache = {}
 

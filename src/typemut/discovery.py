@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -131,7 +132,7 @@ def discover_annotations(
 
 def discover_files(
     module_path: Path,
-    excluded_modules: list[str] | None = None,
+    excluded_modules: Collection[str] | None = None,
 ) -> list[Path]:
     """Find all Python files in the given module path, respecting exclusions."""
     if excluded_modules is None:
@@ -291,14 +292,14 @@ def _get_return_annotation(funcdef: BaseNode) -> BaseNode | Leaf | None:
     return None
 
 
-def _line_text(file_lines: list[str], line: int) -> str:
+def _line_text(file_lines: Sequence[str], line: int) -> str:
     """Get the text of a specific line (1-indexed)."""
     if 1 <= line <= len(file_lines):
         return file_lines[line - 1]
     return ""
 
 
-def _should_skip_line(line_text: str, skip_comments: list[str]) -> bool:
+def _should_skip_line(line_text: str, skip_comments: Collection[str]) -> bool:
     """Check if a line contains any skip comment."""
     return any(comment in line_text for comment in skip_comments)
 

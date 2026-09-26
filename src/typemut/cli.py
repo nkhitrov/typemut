@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Collection, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,25 @@ if TYPE_CHECKING:
     from typemut.registry import Registry
 
 console = Console()
+
+_fail_under_option = click.option(
+    "--fail-under",
+    type=click.FloatRange(0, 100),
+    default=None,
+    help="Exit with code 1 if the mutation score (%) is below this value.",
+)
+_baseline_option = click.option(
+    "--baseline",
+    "baseline_path",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="JSON file of accepted survived mutants; exit with code 1 on any other survivor.",
+)
+_update_baseline_option = click.option(
+    "--update-baseline",
+    is_flag=True,
+    help="Write the current survived mutants to the --baseline file instead of checking it.",
+)
 
 
 @click.group()
@@ -110,14 +130,23 @@ def exec_cmd(config_path: str, db_path: str | None, jobs: int) -> None:
 
 @main.command()
 @click.option("--db", "db_path", default="typemut.sqlite", help="Database file.")
-def report(db_path: str) -> None:
+@_fail_under_option
+@_baseline_option
+@_update_baseline_option
+def report(
+    db_path: str,
+    fail_under: float | None,
+    baseline_path: str | None,
+    update_baseline: bool,
+) -> None:
     """Show mutation testing results."""
+    _require_baseline_path(baseline_path, update_baseline)
     db = Database(Path(db_path))
 
     from typemut.reporting.terminal import print_report
 
     print_report(db, console)
-    db.close()
+    _check_results(db, fail_under, baseline_path, update_baseline)
 
 
 @main.command()
@@ -151,8 +180,19 @@ def html(db_path: str, out_path: str | None, open_browser: bool) -> None:
 @click.option("--config", "config_path", default="typemut.toml", help="Config file.")
 @click.option("--db", "db_path", default=None, help="Database file.")
 @click.option("--jobs", default=1, help="Number of parallel jobs.")
-def run(config_path: str, db_path: str | None, jobs: int) -> None:
+@_fail_under_option
+@_baseline_option
+@_update_baseline_option
+def run(
+    config_path: str,
+    db_path: str | None,
+    jobs: int,
+    fail_under: float | None,
+    baseline_path: str | None,
+    update_baseline: bool,
+) -> None:
     """Run full pipeline: discover mutations, execute, and report."""
+    _require_baseline_path(baseline_path, update_baseline)
     from typemut.engine import check_baseline, run_all_mutants
     from typemut.operators import get_enabled_operators
     from typemut.registry import Registry
@@ -208,7 +248,65 @@ def run(config_path: str, db_path: str | None, jobs: int) -> None:
     # Report
     console.print()
     print_report(db, console)
+    _check_results(db, fail_under, baseline_path, update_baseline)
+
+
+def _require_baseline_path(baseline_path: str | None, update_baseline: bool) -> None:
+    if update_baseline and baseline_path is None:
+        raise click.UsageError("--update-baseline requires --baseline")
+
+
+def _check_results(
+    db: Database,
+    fail_under: float | None,
+    baseline_path: str | None,
+    update_baseline: bool,
+) -> None:
+    """Close *db*; update or enforce the baseline, enforce --fail-under."""
+    from typemut.baseline import save_baseline
+    from typemut.reporting.terminal import total_score
+
+    score = total_score(db.get_summary())
+    survivors = [mutant for mutant in db.get_all() if mutant.status == "survived"]
     db.close()
+
+    if update_baseline and baseline_path is not None:
+        save_baseline(Path(baseline_path), survivors)
+        console.print(f"Baseline {baseline_path} updated: {len(survivors)} survived mutants")
+        return
+
+    failed = baseline_path is not None and not _check_survivor_baseline(
+        Path(baseline_path), survivors
+    )
+    if fail_under is not None and score is not None and score < fail_under:
+        console.print(
+            f"[red]Mutation score {score:.1f}% is below --fail-under {fail_under:g}%[/red]"
+        )
+        failed = True
+    if failed:
+        raise SystemExit(1)
+
+
+def _check_survivor_baseline(path: Path, survivors: Collection[MutantRow]) -> bool:
+    """Report survivors missing from the baseline at *path*; True if there are none."""
+    from rich.markup import escape
+
+    from typemut.baseline import compare, load_baseline
+
+    diff = compare(survivors, load_baseline(path))
+    accepted = len(survivors) - len(diff.new)
+    console.print(f"Baseline {path}: {accepted} accepted, {len(diff.new)} new survived mutants")
+    if diff.fixed:
+        console.print(
+            f"[yellow]{diff.fixed} baseline entries no longer survive; "
+            "rerun with --update-baseline to drop them.[/yellow]"
+        )
+    for mutant in diff.new:
+        console.print(
+            f"  [red]new[/red] {mutant.module_path}:{mutant.line}  {mutant.operator}  "
+            f"{escape(mutant.original_annotation)} → {escape(mutant.mutated_annotation)}"
+        )
+    return not diff.new
 
 
 def _load(config_path: str, db_path: str | None) -> tuple[Config, Database]:
@@ -245,12 +343,12 @@ def _load_plugins(cfg: Config) -> list[Plugin]:
 
 
 def _discover_mutations(
-    files: list[Path],
+    files: Iterable[Path],
     cfg: Config,
-    operators: list[TypeMutationOperator],
+    operators: Collection[TypeMutationOperator],
     registry: Registry,
     db: Database,
-    plugins: list[Plugin],
+    plugins: Collection[Plugin],
 ) -> int:
     """Discover mutations across files and insert into database.
 

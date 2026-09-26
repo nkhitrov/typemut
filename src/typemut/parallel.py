@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from collections import defaultdict
+from collections.abc import Iterable
 from multiprocessing import Process, Queue
 from pathlib import Path
 
@@ -99,7 +100,7 @@ def run_all_mutants_parallel(
 
 
 def _worker_loop(
-    chunk: list[MutantRow],
+    chunk: Iterable[MutantRow],
     worktree_dir: str,
     test_command: str,
     timeout: int,
@@ -151,7 +152,7 @@ def _create_worktree(project_root: Path, index: int) -> Path:
 
 def _remove_worktrees(
     project_root: Path,
-    worktree_paths: list[Path],
+    worktree_paths: Iterable[Path],
 ) -> None:
     """Remove git worktrees and their temp directories."""
     for wt in worktree_paths:
@@ -176,7 +177,7 @@ def _remove_worktrees(
 
 
 def partition_mutants(
-    mutants: list[MutantRow],
+    mutants: Iterable[MutantRow],
     n_workers: int,
 ) -> list[list[MutantRow]]:
     """Split mutants across workers, grouping by file for less I/O."""
