@@ -15,6 +15,7 @@ from typemut.discovery import discover_annotations, discover_files
 
 if TYPE_CHECKING:
     from typemut.operators.base import TypeMutationOperator
+    from typemut.plugins.base import Plugin
     from typemut.registry import Registry
 
 console = Console()
@@ -56,10 +57,12 @@ def init(config_path: str, db_path: str | None) -> None:
     console.print(f"Found [bold]{len(files)}[/bold] Python files in {module_dir}")
 
     registry = Registry.from_files(files)
+    plugins = _load_plugins(cfg)
     operators = get_enabled_operators(cfg.operators)
+    operators.extend(op for plugin in plugins for op in plugin.operators())
     console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
 
-    total = _discover_mutations(files, cfg, operators, registry, db)
+    total = _discover_mutations(files, cfg, operators, registry, db, plugins)
 
     console.print(
         f"[green]Found {total} type annotation mutations across {len(files)} modules[/green]"
@@ -166,10 +169,12 @@ def run(config_path: str, db_path: str | None, jobs: int) -> None:
     console.print(f"Found [bold]{len(files)}[/bold] Python files in {module_dir}")
 
     registry = Registry.from_files(files)
+    plugins = _load_plugins(cfg)
     operators = get_enabled_operators(cfg.operators)
+    operators.extend(op for plugin in plugins for op in plugin.operators())
     console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
 
-    total = _discover_mutations(files, cfg, operators, registry, db)
+    total = _discover_mutations(files, cfg, operators, registry, db, plugins)
 
     console.print(f"[green]Discovered {total} mutations[/green]")
 
@@ -230,17 +235,33 @@ def _load(config_path: str, db_path: str | None) -> tuple[Config, Database]:
     return cfg, db
 
 
+def _load_plugins(cfg: Config) -> list[Plugin]:
+    from typemut.plugins import UnknownPluginError, get_plugins
+
+    try:
+        plugins = get_plugins(cfg.plugins)
+    except UnknownPluginError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1) from None
+    if plugins:
+        console.print(f"Enabled plugins: {', '.join(plugin.name for plugin in plugins)}")
+    return plugins
+
+
 def _discover_mutations(
     files: list[Path],
     cfg: Config,
     operators: list[TypeMutationOperator],
     registry: Registry,
     db: Database,
+    plugins: list[Plugin],
 ) -> int:
     """Discover mutations across files and insert into database.
 
     Returns the total number of mutations found.
     """
+    from typemut.plugins import find_mutations
+
     db.clear()
     total = 0
 
@@ -249,21 +270,20 @@ def _discover_mutations(
         mutants: list[MutantRow] = []
 
         for ann in annotations:
-            for op in operators:
-                for mutation in op.find_mutations(ann.node, ann.context, registry):
-                    mutants.append(
-                        MutantRow(
-                            id=None,
-                            module_path=str(py_file),
-                            operator=mutation.operator,
-                            line=mutation.line,
-                            col=mutation.col,
-                            original_annotation=mutation.original,
-                            mutated_annotation=mutation.mutated,
-                            description=mutation.description,
-                            required_import=mutation.required_import,
-                        )
+            for mutation in find_mutations(ann, operators, registry, plugins):
+                mutants.append(
+                    MutantRow(
+                        id=None,
+                        module_path=str(py_file),
+                        operator=mutation.operator,
+                        line=mutation.line,
+                        col=mutation.col,
+                        original_annotation=mutation.original,
+                        mutated_annotation=mutation.mutated,
+                        description=mutation.description,
+                        required_import=mutation.required_import,
                     )
+                )
 
         if mutants:
             db.insert_many(mutants)

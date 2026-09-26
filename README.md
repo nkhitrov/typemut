@@ -183,6 +183,56 @@ T_co = TypeVar("T_co")
 
 **Survived = variance is not relied on (removal), or the TypeVar could be declared variant (addition).**
 
+## Plugins
+
+Core operators know nothing about libraries. Some libraries wrap your types in
+their own generics and read them at runtime, which changes what a mutation
+means. Plugins teach typemut these rules. They are opt-in:
+
+```toml
+[typemut]
+plugins = ["sqlalchemy"]
+```
+
+An unknown plugin name is an error. A plugin can claim an annotation and decide
+its mutations (usually by running the core operators on a wrapped type and
+dropping mutations that are invalid for the library), and can contribute its own
+operators. Annotations no plugin claims are mutated as usual.
+
+### sqlalchemy
+
+For SQLAlchemy 2.0 declarative models (`Mapped[...]`, also `orm.Mapped[...]`).
+SQLAlchemy derives the column type, nullability and relationship target from
+the type inside `Mapped[...]`, so the plugin mutates that type instead of the
+whole annotation:
+
+| Annotation | Without plugin | With plugin |
+|------------|----------------|-------------|
+| `id: Mapped[int]` | `Mapped[int] \| None` (meaningless) | `Mapped[int \| None]` (nullable column) |
+| `email: Mapped[str \| None]` | not mutated | `Mapped[str]` |
+| `user: Mapped["UserDB"] = relationship()` | `Mapped["UserDB"] \| None` | `Mapped["UserDB \| None"]` |
+| `profile: Mapped["ProfileDB \| None"] = relationship()` | `Mapped["ProfileDB \| None"] \| None` | `Mapped["ProfileDB"]` |
+| `roles: Mapped[list[RoleDB]] = relationship()` | `Mapped[Sequence[RoleDB]]` | skipped |
+| `payload: Mapped[dict[str, Any]]` | `Mapped[Mapping[str, Any]]` | skipped |
+| `user: Mapped[UserDB] = relationship()` (`UserDB(BaseDB)`) | `Mapped[BaseDB]` | skipped |
+
+Rules:
+
+- Quoted forward references (`Mapped["UserDB | None"]`) are mutated inside the quotes.
+- `WidenContainerType` skips the top-level type inside `Mapped[...]`: SQLAlchemy needs a
+  concrete column type / collection class there (`list`, `set`), not an ABC. Nested
+  containers (`Mapped[dict[str, list[int]]]`) are still widened.
+- On relationship attributes (`= relationship(...)`):
+  - `WidenType` is skipped: the target must be a mapped class, and widening usually points
+    at the declarative base;
+  - `AddOptional` is skipped for collections (`Mapped[list[X]]`): a collection
+    relationship is an empty collection, never `None`.
+- `WriteOnlyMapped[...]` and `DynamicMapped[...]` get no mutations: they are always
+  relationship collections, and none of the core mutations is valid for them.
+
+Nullability mismatches between `Mapped[X | None]` and `mapped_column(nullable=...)`
+are a runtime/schema issue, not a typing one, so the plugin does not generate them.
+
 ## Filtering
 
 Annotations are automatically skipped when:
@@ -201,6 +251,7 @@ timeout = 30                            # seconds per mutation
 excluded-modules = ["src/vendor/*.py"]  # glob patterns to skip
 skip-comments = ["type: ignore", "pragma: no mutate"]
 db = "typemut.sqlite"                   # database file
+plugins = ["sqlalchemy"]                # library plugins, none by default
 
 [typemut.operators]
 # all enabled by default, disable selectively

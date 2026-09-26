@@ -37,3 +37,23 @@ remove-union-member = false
 
     assert cfg.operators.remove_union_member is False
     assert cfg.operators.remove_literal_member is True
+
+
+def test_load_config_plugins_default_empty():
+    toml = '[typemut]\nmodule-path = "src"\n'
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(toml)
+        f.flush()
+        cfg = load_config(Path(f.name))
+
+    assert cfg.plugins == []
+
+
+def test_load_config_plugins():
+    toml = '[typemut]\nmodule-path = "src"\nplugins = ["sqlalchemy"]\n'
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(toml)
+        f.flush()
+        cfg = load_config(Path(f.name))
+
+    assert cfg.plugins == ["sqlalchemy"]

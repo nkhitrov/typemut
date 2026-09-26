@@ -27,6 +27,7 @@ class Config:
     excluded_modules: list[str] = field(default_factory=list)
     skip_comments: list[str] = field(default_factory=lambda: ["type: ignore", "pragma: no mutate"])
     operators: OperatorsConfig = field(default_factory=OperatorsConfig)
+    plugins: list[str] = field(default_factory=list)
     db_path: str = "typemut.sqlite"
 
 
@@ -56,5 +57,6 @@ def load_config(path: Path) -> Config:
         excluded_modules=section.get("excluded-modules", []),
         skip_comments=section.get("skip-comments", ["type: ignore", "pragma: no mutate"]),
         operators=operators,
+        plugins=section.get("plugins", []),
         db_path=section.get("db", "typemut.sqlite"),
     )
