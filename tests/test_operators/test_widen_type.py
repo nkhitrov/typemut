@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from typemut.operators.widen_type import WidenType
@@ -48,3 +50,21 @@ def test_no_widen_qualified_name() -> None:
     reg.class_to_base = {"Cat": "Animal"}
 
     assert_mutations("x: models.Cat\n", WidenType, expected=[], registry=reg)
+
+
+@pytest.mark.parametrize("protocol_base", ["Protocol[A, B]", "Protocol"])
+def test_no_widen_to_protocol_from_files(tmp_path: Path, protocol_base: str) -> None:
+    """Regression test for #14: a Protocol base must not be a WidenType target."""
+    src = tmp_path / "serialization.py"
+    src.write_text(
+        "from typing import Protocol, TypeVar\n"
+        "\n"
+        "A = TypeVar('A')\n"
+        "B = TypeVar('B')\n"
+        "\n"
+        f"class Coder({protocol_base}):\n"
+        "    def encode(self, value: A) -> B: ...\n"
+    )
+    reg = Registry.from_files([src])
+
+    assert_mutations("c: Coder\n", WidenType, expected=[], registry=reg)
