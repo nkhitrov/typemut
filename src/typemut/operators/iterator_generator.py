@@ -33,6 +33,7 @@ WIDEN_TO: dict[str, str] = {
 
 class SwapIteratorGenerator(TypeMutationOperator):
     name = "SwapIteratorGenerator"
+    config_key = "swap-iterator-generator"
 
     def find_mutations(
         self,

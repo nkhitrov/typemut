@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from typemut.config import load_config
+from typemut.config import Config, load_config
 
 
 def test_load_config_defaults():
@@ -77,4 +77,64 @@ def test_load_config_invalid_plugins_warns(value: str, caplog: pytest.LogCapture
 
     assert cfg.plugins == []
     assert "Ignoring invalid 'plugins' option" in caplog.text
+    assert cfg.module_path == "src"
+
+
+def load_toml(toml: str, tmp_path: Path) -> Config:
+    path = tmp_path / "typemut.toml"
+    path.write_text(toml)
+    return load_config(path)
+
+
+def test_load_config_ignore_types(tmp_path: Path) -> None:
+    cfg = load_toml(
+        '[typemut]\nmodule-path = "src"\n\n'
+        "[typemut.ignore-types]\n"
+        'all = ["django.db.models.*"]\n'
+        'add-optional = ["sqlalchemy.orm.Mapped"]\n',
+        tmp_path,
+    )
+    assert cfg.ignore_types == {
+        "all": ["django.db.models.*"],
+        "add-optional": ["sqlalchemy.orm.Mapped"],
+    }
+
+
+def test_load_config_ignore_types_default_empty(tmp_path: Path) -> None:
+    assert load_toml('[typemut]\nmodule-path = "src"\n', tmp_path).ignore_types == {}
+
+
+@pytest.mark.parametrize(
+    "toml_value,expected,message",
+    [
+        pytest.param(
+            'ignore-types = ["sqlalchemy.orm.Mapped"]',
+            {},
+            "Ignoring invalid 'ignore-types' option",
+            id="not-a-table",
+        ),
+        pytest.param(
+            'ignore-types = { add-optionl = ["x.Y"], add-optional = ["x.Z"] }',
+            {"add-optional": ["x.Z"]},
+            "Ignoring unknown operator 'add-optionl' in 'ignore-types'",
+            id="unknown-operator-key",
+        ),
+        pytest.param(
+            'ignore-types = { add-optional = "x.Y", all = ["x.Z"] }',
+            {"all": ["x.Z"]},
+            "Ignoring invalid 'ignore-types.add-optional' option",
+            id="value-not-a-list",
+        ),
+    ],
+)
+def test_load_config_invalid_ignore_types_warns(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    toml_value: str,
+    expected: dict[str, list[str]],
+    message: str,
+) -> None:
+    cfg = load_toml(f'[typemut]\nmodule-path = "src"\n{toml_value}\n', tmp_path)
+    assert cfg.ignore_types == expected
+    assert message in caplog.text
     assert cfg.module_path == "src"

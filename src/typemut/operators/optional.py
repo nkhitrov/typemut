@@ -11,6 +11,7 @@ from typemut.registry import Registry
 
 class RemoveOptional(TypeMutationOperator):
     name = "RemoveOptional"
+    config_key = "remove-optional"
 
     def find_mutations(
         self,
@@ -52,6 +53,7 @@ class RemoveOptional(TypeMutationOperator):
 
 class AddOptional(TypeMutationOperator):
     name = "AddOptional"
+    config_key = "add-optional"
 
     def find_mutations(
         self,

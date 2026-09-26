@@ -40,6 +40,7 @@ MAPPING_NAMES = frozenset(("Mapping",))
 
 class WidenContainerType(TypeMutationOperator):
     name = "WidenContainerType"
+    config_key = "widen-container-type"
 
     def find_mutations(
         self,

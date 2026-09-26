@@ -11,6 +11,7 @@ from typemut.registry import Registry
 
 class RemoveUnionMember(TypeMutationOperator):
     name = "RemoveUnionMember"
+    config_key = "remove-union-member"
 
     def find_mutations(
         self,

@@ -256,8 +256,10 @@ def _discover_mutations(
 
     Returns the total number of mutations found.
     """
+    from typemut.ignore import IgnoredTypes
     from typemut.plugins import find_mutations
 
+    ignored = IgnoredTypes(cfg.ignore_types)
     db.clear()
     total = 0
 
@@ -266,7 +268,7 @@ def _discover_mutations(
         mutants: list[MutantRow] = []
 
         for ann in annotations:
-            for mutation in find_mutations(ann, operators, registry, plugins):
+            for mutation in find_mutations(ann, operators, registry, plugins, ignored):
                 mutants.append(
                     MutantRow(
                         id=None,

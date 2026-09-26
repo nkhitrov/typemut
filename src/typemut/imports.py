@@ -9,6 +9,10 @@ the target type may not be imported in the file. This module provides:
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from pathlib import Path
+
+from parso.python.tree import BaseNode, ImportFrom, ImportName, Leaf, Module
 
 # ---------------------------------------------------------------------------
 # Type origin classification
@@ -324,3 +328,66 @@ def extract_type_name(annotation: str) -> str:
     if bracket == -1:
         return annotation.strip()
     return annotation[:bracket].strip()
+
+
+# ---------------------------------------------------------------------------
+# Qualified names of imported types
+# ---------------------------------------------------------------------------
+
+
+def package_of(file: Path) -> str:
+    """Return the dotted package a file belongs to, e.g. ``app/x/models.py`` -> ``app.x``.
+
+    The package root is the topmost directory still containing ``__init__.py``.
+    Used to resolve relative imports.
+    """
+    parts: list[str] = []
+    directory = file.parent
+    while directory.name and (directory / "__init__.py").exists():
+        parts.append(directory.name)
+        directory = directory.parent
+    return ".".join(reversed(parts))
+
+
+def imported_names(tree: Module, package: str = "") -> dict[str, str]:
+    """Map every name bound by an import in *tree* to its qualified name.
+
+    ``from sqlalchemy.orm import Mapped as M`` -> ``{"M": "sqlalchemy.orm.Mapped"}``
+    ``import sqlalchemy.orm as orm``           -> ``{"orm": "sqlalchemy.orm"}``
+    ``import sqlalchemy.orm``                  -> ``{"sqlalchemy": "sqlalchemy"}``
+    ``from .models import User`` (in ``app``)  -> ``{"User": "app.models.User"}``
+
+    Imports anywhere in the module count (e.g. under ``if TYPE_CHECKING:``).
+    Star imports bind nothing we can know statically and are skipped.
+    """
+    names: dict[str, str] = {}
+    for imp in _iter_imports(tree):
+        defined_names = imp.get_defined_names()
+        if not defined_names:
+            continue  # star import
+        prefix = _relative_prefix(imp, package)
+        for defined, path in zip(defined_names, imp.get_paths(), strict=True):
+            if isinstance(imp, ImportName) and defined is path[0]:
+                # ``import a.b`` binds only ``a``
+                names[defined.value] = defined.value
+            else:
+                names[defined.value] = prefix + ".".join(leaf.value for leaf in path)
+    return names
+
+
+def _iter_imports(node: BaseNode | Leaf) -> Iterator[ImportFrom | ImportName]:
+    if isinstance(node, ImportFrom | ImportName):
+        yield node
+    elif isinstance(node, BaseNode):
+        for child in node.children:
+            yield from _iter_imports(child)
+
+
+def _relative_prefix(imp: ImportFrom | ImportName, package: str) -> str:
+    """Return the absolute package prefix for a relative ``from . import`` statement."""
+    level = imp.level if isinstance(imp, ImportFrom) else 0
+    if level == 0:
+        return ""
+    parts = package.split(".") if package else []
+    base = parts[: len(parts) - (level - 1)]
+    return "".join(f"{part}." for part in base)

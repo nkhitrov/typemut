@@ -6,6 +6,7 @@ import logging
 from collections.abc import Sequence
 
 from typemut.discovery import AnnotationNode
+from typemut.ignore import IgnoredTypes
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.plugins.base import Plugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
@@ -39,17 +40,23 @@ def find_mutations(
     operators: Sequence[TypeMutationOperator],
     registry: Registry,
     plugins: Sequence[Plugin] = (),
+    ignored: IgnoredTypes | None = None,
 ) -> list[Mutation]:
     """Return all mutations for an annotation.
 
     The first plugin that claims the annotation decides its mutations;
-    otherwise every operator runs on the annotation as is.
+    otherwise every operator runs on the annotation as is, except operators
+    that ignore a type the annotation references (see ``typemut.ignore``).
     """
     for plugin in plugins:
         claimed = plugin.find_mutations(annotation, operators, registry)
         if claimed is not None:
             return claimed
+    rules = ignored or IgnoredTypes()
     mutations: list[Mutation] = []
     for op in operators:
-        mutations.extend(op.find_mutations(annotation.node, annotation.context, registry))
+        if rules.is_ignored(annotation, op.config_key):
+            continue
+        found = op.find_mutations(annotation.node, annotation.context, registry)
+        mutations.extend(m for m in found if not rules.drops(m, annotation, op.config_key))
     return mutations

@@ -22,6 +22,7 @@ SKIPPED_BASES = frozenset(("object", "ABC", "Generic", "Protocol", "NamedTuple",
 
 class WidenType(TypeMutationOperator):
     name = "WidenType"
+    config_key = "widen-type"
 
     def find_mutations(
         self,

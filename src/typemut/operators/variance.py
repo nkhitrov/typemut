@@ -11,6 +11,7 @@ from typemut.registry import Registry
 
 class TypeVarVariance(TypeMutationOperator):
     name = "TypeVarVariance"
+    config_key = "typevar-variance"
 
     def find_mutations(
         self,

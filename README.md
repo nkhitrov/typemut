@@ -241,6 +241,35 @@ Annotations are automatically skipped when:
 - The annotation is `Any` (mutations are meaningless — Any absorbs all types)
 - `AddOptional` targets a function parameter (low signal — callers won't pass None)
 
+### Ignoring library types per operator
+
+By default every operator mutates every annotation, including library wrapper
+types it knows nothing about (`Mapped[int]` → `Mapped[int] | None`). To silence
+such noise, list the types an operator must not touch under
+`[typemut.ignore-types]`, keyed by operator (same keys as `[typemut.operators]`):
+
+```toml
+[typemut.ignore-types]
+all = ["django.db.models.*"]                        # every operator
+add-optional = ["sqlalchemy.orm.Mapped"]
+remove-optional = ["sqlalchemy.orm.Mapped"]
+widen-container-type = ["sqlalchemy.orm.Mapped"]
+widen-type = ["sqlalchemy.orm.DeclarativeBase"]
+```
+
+- An operator skips every annotation that references one of its ignored types
+  (anywhere in it, e.g. `list[Mapped[int]]`); other operators still mutate it.
+- An operator also drops mutations that would introduce an ignored type, e.g.
+  `WidenType` widening a model to `DeclarativeBase`.
+- Patterns are `fnmatch` globs matched against the qualified name the type is
+  **imported under** in the file (`from sqlalchemy.orm import Mapped` →
+  `sqlalchemy.orm.Mapped`), not where it is defined. Aliases (`import sqlalchemy.orm as orm`,
+  `orm.Mapped`) and relative imports of your own packages are resolved.
+- Names that aren't imported (builtins, classes defined in the same file) are never ignored.
+- Plugins see annotations first and are not affected: with `plugins = ["sqlalchemy"]`,
+  `Mapped[...]` is still mutated correctly (`Mapped[int]` → `Mapped[int | None]`).
+- Unknown operator keys and invalid values are logged as warnings and skipped.
+
 ## Config Reference
 
 ```toml
@@ -263,6 +292,11 @@ add-optional = true
 widen-container-type = true
 swap-iterator-generator = true
 typevar-variance = true
+
+[typemut.ignore-types]
+# qualified type patterns each operator must not touch; "all" applies to every operator
+all = []
+add-optional = ["sqlalchemy.orm.Mapped"]
 ```
 
 ## HTML Report

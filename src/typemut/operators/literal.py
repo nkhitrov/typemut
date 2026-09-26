@@ -18,6 +18,7 @@ class RemoveLiteralMember(TypeMutationOperator):
     """
 
     name = "RemoveLiteralMember"
+    config_key = "remove-literal-member"
 
     def find_mutations(
         self,
