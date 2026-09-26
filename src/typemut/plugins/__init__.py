@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from typemut.discovery import AnnotationNode
@@ -10,24 +11,27 @@ from typemut.plugins.base import Plugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
 from typemut.registry import Registry
 
+logger = logging.getLogger(__name__)
+
 PLUGINS: dict[str, type[Plugin]] = {
     SQLAlchemyPlugin.name: SQLAlchemyPlugin,
 }
 
 
-class UnknownPluginError(ValueError):
-    """Raised when the config names a plugin that does not exist."""
-
-
 def get_plugins(names: Sequence[str]) -> list[Plugin]:
-    """Instantiate plugins by name, in config order."""
+    """Instantiate plugins by name, in config order.
+
+    Unknown names are logged as a warning and skipped, so a typo in the
+    config does not abort the whole run.
+    """
     unknown = [name for name in names if name not in PLUGINS]
     if unknown:
-        available = ", ".join(sorted(PLUGINS))
-        raise UnknownPluginError(
-            f"Unknown plugin(s): {', '.join(unknown)}. Available plugins: {available}"
+        logger.warning(
+            "Skipping unknown plugin(s): %s. Available plugins: %s",
+            ", ".join(unknown),
+            ", ".join(sorted(PLUGINS)),
         )
-    return [PLUGINS[name]() for name in names]
+    return [PLUGINS[name]() for name in names if name in PLUGINS]
 
 
 def find_mutations(

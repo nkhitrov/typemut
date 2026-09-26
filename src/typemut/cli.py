@@ -236,13 +236,9 @@ def _load(config_path: str, db_path: str | None) -> tuple[Config, Database]:
 
 
 def _load_plugins(cfg: Config) -> list[Plugin]:
-    from typemut.plugins import UnknownPluginError, get_plugins
+    from typemut.plugins import get_plugins
 
-    try:
-        plugins = get_plugins(cfg.plugins)
-    except UnknownPluginError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise SystemExit(1) from None
+    plugins = get_plugins(cfg.plugins)
     if plugins:
         console.print(f"Enabled plugins: {', '.join(plugin.name for plugin in plugins)}")
     return plugins

@@ -194,7 +194,7 @@ means. Plugins teach typemut these rules. They are opt-in:
 plugins = ["sqlalchemy"]
 ```
 
-An unknown plugin name is an error. A plugin can claim an annotation and decide
+An unknown plugin name is logged as a warning and skipped. A plugin can claim an annotation and decide
 its mutations (usually by running the core operators on a wrapped type and
 dropping mutations that are invalid for the library), and can contribute its own
 operators. Annotations no plugin claims are mutated as usual.

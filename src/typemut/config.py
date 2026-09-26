@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,6 +60,14 @@ def load_config(path: Path) -> Config:
         excluded_modules=section.get("excluded-modules", []),
         skip_comments=section.get("skip-comments", ["type: ignore", "pragma: no mutate"]),
         operators=operators,
-        plugins=section.get("plugins", []),
+        plugins=_parse_plugins(section.get("plugins", [])),
         db_path=section.get("db", "typemut.sqlite"),
     )
+
+
+def _parse_plugins(raw: object) -> list[str]:
+    """Validate the ``plugins`` option; warn and ignore invalid values."""
+    if isinstance(raw, list) and all(isinstance(name, str) for name in raw):
+        return raw
+    logger.warning("Ignoring invalid 'plugins' option %r: expected a list of strings", raw)
+    return []

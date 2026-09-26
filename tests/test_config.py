@@ -5,6 +5,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from typemut.config import load_config
 
 
@@ -57,3 +59,22 @@ def test_load_config_plugins():
         cfg = load_config(Path(f.name))
 
     assert cfg.plugins == ["sqlalchemy"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param('"sqlalchemy"', id="string-not-list"),
+        pytest.param("[1, 2]", id="list-of-ints"),
+    ],
+)
+def test_load_config_invalid_plugins_warns(value: str, caplog: pytest.LogCaptureFixture) -> None:
+    toml = f'[typemut]\nmodule-path = "src"\nplugins = {value}\n'
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(toml)
+        f.flush()
+        cfg = load_config(Path(f.name))
+
+    assert cfg.plugins == []
+    assert "Ignoring invalid 'plugins' option" in caplog.text
+    assert cfg.module_path == "src"
