@@ -14,8 +14,8 @@ from tests.conftest import assert_mutations
     [
         pytest.param(
             "x: Iterator[int]\n",
-            ["Generator[int, None, None]", "Iterable[int]"],
-            id="Iterator->Generator+Iterable",
+            ["Iterable[int]"],
+            id="Iterator->Iterable",
         ),
         pytest.param(
             "x: Generator[int, None, None]\n",
@@ -24,8 +24,8 @@ from tests.conftest import assert_mutations
         ),
         pytest.param(
             "x: AsyncIterator[int]\n",
-            ["AsyncGenerator[int, None]", "AsyncIterable[int]"],
-            id="AsyncIterator->AsyncGenerator+AsyncIterable",
+            ["AsyncIterable[int]"],
+            id="AsyncIterator->AsyncIterable",
         ),
         pytest.param(
             "x: AsyncGenerator[int, None]\n",
@@ -33,14 +33,14 @@ from tests.conftest import assert_mutations
             id="AsyncGenerator->AsyncIterator",
         ),
         pytest.param(
-            "x: Iterable[int]\n",
+            "x: Generator[int, str, bool]\n",
             ["Iterator[int]"],
-            id="Iterable->Iterator",
+            id="Generator-with-send-and-return->Iterator",
         ),
         pytest.param(
             "x: Iterator\n",
-            ["Generator", "Iterable"],
-            id="bare-Iterator->Generator+Iterable",
+            ["Iterable"],
+            id="bare-Iterator->Iterable",
         ),
         pytest.param(
             "x: Generator\n",
@@ -58,15 +58,10 @@ def test_swap_iterator_generator(source: str, expected: list[str]) -> None:
     [
         pytest.param("x: list[int]\n", id="list-no-swap"),
         pytest.param("x: dict[str, int]\n", id="dict-no-swap"),
+        pytest.param("x: Iterable[int]\n", id="Iterable-no-narrowing"),
+        pytest.param("x: AsyncIterable[int]\n", id="AsyncIterable-no-narrowing"),
     ],
 )
 def test_no_swap(source: str) -> None:
     assert_mutations(source, SwapIteratorGenerator, expected=[])
 
-
-def test_async_iterable_subscripted() -> None:
-    assert_mutations(
-        "x: AsyncIterable[int]\n",
-        SwapIteratorGenerator,
-        expected=["AsyncIterator[int]"],
-    )

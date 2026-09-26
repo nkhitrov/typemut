@@ -1,59 +1,65 @@
-"""Tests for SwapLiteralValue operator."""
+"""Tests for RemoveLiteralMember operator."""
 
 from __future__ import annotations
 
-from pathlib import Path
+import pytest
 
-from typemut.discovery import AnnotationContext, discover_annotations
-from typemut.operators.literal import SwapLiteralValue
-from typemut.registry import Registry
+from typemut.operators.literal import RemoveLiteralMember
 
-
-def test_swap_literal_string():
-    source = 'from typing import Literal\nstatus: Literal["active"]\n'
-    annotations = discover_annotations(Path("test.py"), source=source)
-    # Find the annotation with Literal
-    ann = [a for a in annotations if "Literal" in a.code]
-    assert len(ann) == 1
-
-    reg = Registry()
-    reg.literal_pool = {'"active"', '"closed"', '"overdue"'}
-
-    op = SwapLiteralValue()
-    mutations = op.find_mutations(ann[0].node, AnnotationContext.VARIABLE, reg)
-
-    assert len(mutations) == 2
-    descriptions = {m.description for m in mutations}
-    assert any("closed" in d for d in descriptions)
-    assert any("overdue" in d for d in descriptions)
+from tests.conftest import assert_mutations
 
 
-def test_no_swap_without_pool():
-    source = 'from typing import Literal\nstatus: Literal["active"]\n'
-    annotations = discover_annotations(Path("test.py"), source=source)
-    ann = [a for a in annotations if "Literal" in a.code]
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param(
+            'x: Literal["a", "b"]\n',
+            ['Literal["b"]', 'Literal["a"]'],
+            id="two-strings",
+        ),
+        pytest.param(
+            'x: Literal["a", "b", "c"]\n',
+            ['Literal["b", "c"]', 'Literal["a", "c"]', 'Literal["a", "b"]'],
+            id="three-strings",
+        ),
+        pytest.param(
+            "x: Literal[10, 1, -1]\n",
+            ["Literal[1, -1]", "Literal[10, -1]", "Literal[10, 1]"],
+            id="numbers-prefix-safe",
+        ),
+        pytest.param(
+            "x: typing.Literal[Color.RED, None]\n",
+            ["typing.Literal[None]", "typing.Literal[Color.RED]"],
+            id="qualified-enum-and-none",
+        ),
+        pytest.param(
+            'x: list[Literal["r", "w"]] | None\n',
+            ['list[Literal["w"]] | None', 'list[Literal["r"]] | None'],
+            id="nested-in-container",
+        ),
+        pytest.param(
+            'x: Literal["a", "b"] | Literal[1, 2]\n',
+            [
+                'Literal["b"] | Literal[1, 2]',
+                'Literal["a"] | Literal[1, 2]',
+                'Literal["a", "b"] | Literal[2]',
+                'Literal["a", "b"] | Literal[1]',
+            ],
+            id="two-literals",
+        ),
+    ],
+)
+def test_remove_literal_member(source: str, expected: list[str]) -> None:
+    assert_mutations(source, RemoveLiteralMember, expected=expected)
 
-    reg = Registry()
-    reg.literal_pool = {'"active"'}  # Only one value, no swap possible
 
-    op = SwapLiteralValue()
-    mutations = op.find_mutations(ann[0].node, AnnotationContext.VARIABLE, reg)
-    assert len(mutations) == 0
-
-
-def test_swap_literal_multiple_values():
-    source = 'from typing import Literal\nstatus: Literal["active", "closed"]\n'
-    annotations = discover_annotations(Path("test.py"), source=source)
-    ann = [a for a in annotations if "Literal" in a.code]
-    assert len(ann) == 1
-
-    reg = Registry()
-    reg.literal_pool = {'"active"', '"closed"', '"pending"'}
-
-    op = SwapLiteralValue()
-    mutations = op.find_mutations(ann[0].node, AnnotationContext.VARIABLE, reg)
-    # Each literal value can be swapped with each other value in pool
-    assert len(mutations) > 0
-    # Verify at least one swap happened
-    mutated_set = {m.mutated for m in mutations}
-    assert any('"pending"' in m for m in mutated_set)
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('x: Literal["a"]\n', id="single-value"),
+        pytest.param("x: list[int]\n", id="not-literal"),
+        pytest.param("x: int\n", id="plain-name"),
+    ],
+)
+def test_no_remove_literal_member(source: str) -> None:
+    assert_mutations(source, RemoveLiteralMember, expected=[])

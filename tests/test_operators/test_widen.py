@@ -17,7 +17,10 @@ from tests.conftest import assert_mutations
         pytest.param("x: dict[str, int]\n", ["Mapping[str, int]"], id="dict->Mapping"),
         pytest.param("x: Sequence[int]\n", ["Collection[int]"], id="Sequence->Collection"),
         pytest.param("x: Collection[int]\n", ["Iterable[int]"], id="Collection->Iterable"),
-        pytest.param("x: tuple[int, str]\n", ["Sequence[int, str]"], id="tuple->Sequence"),
+        pytest.param("x: tuple[int, ...]\n", ["Sequence[int]"], id="variadic-tuple->Sequence"),
+        pytest.param("x: Tuple[int, ...]\n", ["Sequence[int]"], id="Tuple-variadic->Sequence"),
+        pytest.param("x: tuple[int]\n", ["Sequence[int]"], id="single-tuple->Sequence"),
+        pytest.param("x: Mapping[str, int]\n", ["Collection[str]"], id="Mapping->Collection-keys"),
         pytest.param("x: list\n", ["Sequence"], id="bare-list->Sequence"),
     ],
 )
@@ -30,6 +33,8 @@ def test_widen_container(source: str, expected: list[str]) -> None:
     [
         pytest.param("x: Iterable[int]\n", id="Iterable-no-widen"),
         pytest.param("x: int\n", id="plain-type-no-widen"),
+        pytest.param("x: tuple[int, str]\n", id="heterogeneous-tuple-skipped"),
+        pytest.param("x: tuple[()]\n", id="empty-tuple-skipped"),
     ],
 )
 def test_no_widen(source: str) -> None:

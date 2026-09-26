@@ -18,15 +18,6 @@ def test_hierarchy_from_fixture(fixtures_dir: Path):
     assert "ActiveLoan" not in siblings
 
 
-def test_literal_pool(fixtures_dir: Path):
-    files = [fixtures_dir / "pydantic_models.py"]
-    reg = Registry.from_files(files)
-
-    file_key = str(fixtures_dir / "pydantic_models.py")
-    literals = reg.get_file_literals(file_key)
-    assert '"active"' in literals or "'active'" in literals
-
-
 def test_no_siblings_for_unknown():
     reg = Registry()
     assert reg.get_siblings("Unknown") == []

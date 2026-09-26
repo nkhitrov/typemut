@@ -6,6 +6,7 @@ from parso.python.tree import BaseNode, Leaf
 
 from typemut.discovery import AnnotationContext, _node_code
 from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.operators.iterator_generator import _extract_params
 from typemut.registry import Registry
 
 # Widening map: one step up the MRO toward more abstract types.
@@ -32,6 +33,9 @@ WIDEN_MAP: dict[str, str] = {
     "Mapping": "Collection",
     "Collection": "Iterable",
 }
+
+TUPLE_NAMES = frozenset(("tuple", "Tuple"))
+MAPPING_NAMES = frozenset(("Mapping",))
 
 
 class WidenContainerType(TypeMutationOperator):
@@ -61,9 +65,12 @@ def _find_widenings(
             if idx + 1 < len(parent.children):
                 next_child = parent.children[idx + 1]
                 if isinstance(next_child, BaseNode) and next_child.type == "trailer":
-                    # This is container[...] — widen the name, keep subscript
+                    # This is container[...] — widen the name, adapt the subscript
+                    subscript = _widened_subscript(node.value, next_child)
+                    if subscript is None:
+                        return
                     original_full = _node_code(node) + _node_code(next_child)
-                    mutated = widen_to + _node_code(next_child)
+                    mutated = widen_to + subscript
                     mutations.append(
                         Mutation(
                             file="",
@@ -93,3 +100,25 @@ def _find_widenings(
     if isinstance(node, BaseNode):
         for child in node.children:
             _find_widenings(child, mutations)
+
+
+def _widened_subscript(name: str, trailer: BaseNode) -> str | None:
+    """Return the subscript for the widened type, or None if it can't be expressed.
+
+    Most containers keep their subscript as is (list[X] -> Sequence[X]).
+    Special cases, where a verbatim copy would produce an invalid type:
+      tuple[X, ...] -> Sequence[X]
+      tuple[X]      -> Sequence[X]
+      tuple[A, B]   -> skipped (heterogeneous; no single-parameter equivalent)
+      Mapping[K, V] -> Collection[K]
+    """
+    params = _extract_params(trailer)
+    if name in TUPLE_NAMES:
+        if len(params) == 2 and params[1] == "...":
+            return f"[{params[0]}]"
+        if len(params) == 1 and params[0] != "()":
+            return f"[{params[0]}]"
+        return None
+    if name in MAPPING_NAMES and params:
+        return f"[{params[0]}]"
+    return _node_code(trailer)

@@ -14,18 +14,14 @@ def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]
         from typemut.operators.union import RemoveUnionMember
 
         operators.append(RemoveUnionMember())
-    if config.swap_literal_value:
-        from typemut.operators.literal import SwapLiteralValue
+    if config.remove_literal_member:
+        from typemut.operators.literal import RemoveLiteralMember
 
-        operators.append(SwapLiteralValue())
+        operators.append(RemoveLiteralMember())
     if config.widen_type:
         from typemut.operators.widen_type import WidenType
 
         operators.append(WidenType())
-    if config.strip_annotated:
-        from typemut.operators.annotated import StripAnnotated
-
-        operators.append(StripAnnotated())
     if config.remove_optional:
         from typemut.operators.optional import RemoveOptional
 
@@ -34,14 +30,6 @@ def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]
         from typemut.operators.optional import AddOptional
 
         operators.append(AddOptional())
-    if config.swap_container_type:
-        from typemut.operators.container import SwapContainerType
-
-        operators.append(SwapContainerType())
-    if config.tuple_ellipsis:
-        from typemut.operators.tuple_ellipsis import TupleEllipsis
-
-        operators.append(TupleEllipsis())
     if config.widen_container_type:
         from typemut.operators.widen import WidenContainerType
 

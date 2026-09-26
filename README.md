@@ -27,12 +27,13 @@ timeout = 30
 
 [typemut.operators]
 remove-union-member = true
-swap-literal-value = true
+remove-literal-member = true
 widen-type = true
-strip-annotated = true
 remove-optional = true
 add-optional = true
-swap-container-type = true
+widen-container-type = true
+swap-iterator-generator = true
+typevar-variance = true
 ```
 
 2. Run:
@@ -124,49 +125,63 @@ def feed(pet: Animal) -> None: ...
 
 **Survived = the code doesn't rely on the concrete subclass.** The function could accept the broader base type, suggesting the annotation is more specific than necessary.
 
-### SwapLiteralValue
+### RemoveLiteralMember
 
-Swaps values inside `Literal[...]` with other literal values from the same file.
+Removes one value from a multi-value `Literal[...]`.
 
 ```python
 # Original
-status: Literal["active"]
+def open_file(mode: Literal["r", "w", "a"]) -> None: ...
 
-# Mutant (if "closed" exists in the same file)
-status: Literal["closed"]
+# Mutant: remove "a"
+def open_file(mode: Literal["r", "w"]) -> None: ...
 ```
 
-**Survived = literal values are interchangeable from the type checker's perspective.** The code doesn't use literal narrowing or overloads to distinguish between the values.
+**Survived = that literal value is never used.** No typed caller passes `"a"`, so the Literal is broader than the code actually needs.
 
-### StripAnnotated
+### WidenContainerType
 
-Removes metadata from `Annotated[X, ...]`, leaving just the base type.
+Replaces a concrete container with the next more abstract type.
 
 ```python
 # Original
-age: Annotated[int, Gt(0)]
+def total(items: list[int]) -> int: ...
 
 # Mutant
-age: int
+def total(items: Sequence[int]) -> int: ...
 ```
 
-**Survived = expected in most cases.** `Annotated` metadata is typically runtime-only (Pydantic validators, etc.). Survived mutants here are normal unless you use mypy plugins that understand the metadata.
+**Widening steps:** `list`/`tuple` → `Sequence`, `set`/`frozenset` → `AbstractSet`, `dict` → `Mapping`, `Sequence`/`AbstractSet`/`Mapping` → `Collection`, `Collection` → `Iterable`. `tuple[X, ...]` becomes `Sequence[X]`, `Mapping[K, V]` becomes `Collection[K]`, and heterogeneous tuples like `tuple[int, str]` are skipped.
 
-### SwapContainerType
+**Survived = the code only uses the abstract interface.** A parameter could accept the wider type; a return type could promise less.
 
-Swaps between compatible container types.
+### SwapIteratorGenerator
+
+Widens iterator/generator types by one step: `Iterator` → `Iterable`, `Generator[Y, S, R]` → `Iterator[Y]`, and the async equivalents.
 
 ```python
 # Original
-items: list[int]
+def read_lines(path: str) -> Generator[str, None, None]: ...
 
 # Mutant
-items: tuple[int]
+def read_lines(path: str) -> Iterator[str]: ...
 ```
 
-**Swap groups:** `list` <-> `tuple`, `set` <-> `frozenset`. Dict has no swap target.
+**Survived = nobody uses the extra capability.** Callers never call `next()` / `send()` or read the generator's return value, so the simpler type is enough.
 
-**Survived = code doesn't rely on container-specific behavior at the type level.** For example, if code only iterates over items, both `list` and `tuple` work equally.
+### TypeVarVariance
+
+Removes `covariant=True` / `contravariant=True` from a `TypeVar`, or adds either one to an invariant `TypeVar`.
+
+```python
+# Original
+T_co = TypeVar("T_co", covariant=True)
+
+# Mutant
+T_co = TypeVar("T_co")
+```
+
+**Survived = variance is not relied on (removal), or the TypeVar could be declared variant (addition).**
 
 ## Filtering
 
@@ -190,12 +205,13 @@ db = "typemut.sqlite"                   # database file
 [typemut.operators]
 # all enabled by default, disable selectively
 remove-union-member = true
-swap-literal-value = true
+remove-literal-member = true
 widen-type = true
-strip-annotated = true
 remove-optional = true
 add-optional = true
-swap-container-type = true
+widen-container-type = true
+swap-iterator-generator = true
+typevar-variance = true
 ```
 
 ## HTML Report

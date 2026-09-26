@@ -14,6 +14,11 @@ from typemut.registry import Registry
 # The required import line is resolved from the Registry's base_import_lines
 # (extracted from the file that defines the child class).
 
+# Bases that carry no useful interface of their own: widening to them is
+# either invalid as a type (Generic, Protocol, NamedTuple, TypedDict) or
+# strips every member (object, ABC), so the mutant is trivially killed.
+SKIPPED_BASES = frozenset(("object", "ABC", "Generic", "Protocol", "NamedTuple", "TypedDict"))
+
 
 class WidenType(TypeMutationOperator):
     name = "WidenType"
@@ -37,7 +42,7 @@ def _find_widenable_names(
     """Recursively find Name nodes that can be widened to their base class."""
     if isinstance(node, Leaf) and node.type == "name":
         base = registry.get_base(node.value)
-        if base is not None:
+        if base is not None and base not in SKIPPED_BASES:
             mutations.append(
                 Mutation(
                     file="",
