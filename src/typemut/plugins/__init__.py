@@ -9,12 +9,14 @@ from typemut.discovery import AnnotationNode
 from typemut.ignore import IgnoredTypes
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.plugins.base import Plugin
+from typemut.plugins.fastapi import FastAPIPlugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
 from typemut.registry import Registry
 
 logger = logging.getLogger(__name__)
 
 PLUGINS: dict[str, type[Plugin]] = {
+    FastAPIPlugin.name: FastAPIPlugin,
     SQLAlchemyPlugin.name: SQLAlchemyPlugin,
 }
 
