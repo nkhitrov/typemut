@@ -2,9 +2,27 @@
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Operator keys under [typemut.operators] and [typemut.ignore-types].
+OPERATOR_KEYS: tuple[str, ...] = (
+    "remove-union-member",
+    "remove-literal-member",
+    "widen-type",
+    "remove-optional",
+    "add-optional",
+    "widen-container-type",
+    "swap-iterator-generator",
+    "typevar-variance",
+)
+
+# Key under [typemut.ignore-types] that applies to every operator.
+ALL_OPERATORS = "all"
 
 
 @dataclass
@@ -27,6 +45,9 @@ class Config:
     excluded_modules: list[str] = field(default_factory=list)
     skip_comments: list[str] = field(default_factory=lambda: ["type: ignore", "pragma: no mutate"])
     operators: OperatorsConfig = field(default_factory=OperatorsConfig)
+    plugins: list[str] = field(default_factory=list)
+    # {operator key or "all": [qualified type name patterns]}
+    ignore_types: dict[str, list[str]] = field(default_factory=dict)
     db_path: str = "typemut.sqlite"
 
 
@@ -39,14 +60,7 @@ def load_config(path: Path) -> Config:
     ops_raw = section.pop("operators", {})
 
     operators = OperatorsConfig(
-        remove_union_member=ops_raw.get("remove-union-member", True),
-        remove_literal_member=ops_raw.get("remove-literal-member", True),
-        widen_type=ops_raw.get("widen-type", True),
-        remove_optional=ops_raw.get("remove-optional", True),
-        add_optional=ops_raw.get("add-optional", True),
-        widen_container_type=ops_raw.get("widen-container-type", True),
-        swap_iterator_generator=ops_raw.get("swap-iterator-generator", True),
-        typevar_variance=ops_raw.get("typevar-variance", True),
+        **{key.replace("-", "_"): ops_raw.get(key, True) for key in OPERATOR_KEYS}
     )
 
     return Config(
@@ -56,5 +70,41 @@ def load_config(path: Path) -> Config:
         excluded_modules=section.get("excluded-modules", []),
         skip_comments=section.get("skip-comments", ["type: ignore", "pragma: no mutate"]),
         operators=operators,
+        plugins=_parse_plugins(section.get("plugins", [])),
+        ignore_types=_parse_ignore_types(section.get("ignore-types", {})),
         db_path=section.get("db", "typemut.sqlite"),
     )
+
+
+def _parse_plugins(raw: object) -> list[str]:
+    """Validate the ``plugins`` option; warn and ignore invalid values."""
+    return _string_list(raw, "plugins") or []
+
+
+def _parse_ignore_types(raw: object) -> dict[str, list[str]]:
+    """Validate ``[typemut.ignore-types]``; warn about and skip invalid entries."""
+    if not isinstance(raw, dict):
+        logger.warning("Ignoring invalid 'ignore-types' option %r: expected a table", raw)
+        return {}
+    valid_keys = (ALL_OPERATORS, *OPERATOR_KEYS)
+    ignore_types: dict[str, list[str]] = {}
+    for key, value in raw.items():
+        if key not in valid_keys:
+            logger.warning(
+                "Ignoring unknown operator %r in 'ignore-types'. Valid keys: %s",
+                key,
+                ", ".join(valid_keys),
+            )
+            continue
+        patterns = _string_list(value, f"ignore-types.{key}")
+        if patterns is not None:
+            ignore_types[key] = patterns
+    return ignore_types
+
+
+def _string_list(raw: object, option: str) -> list[str] | None:
+    """Return *raw* if it is a list of strings, else warn and return None."""
+    if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
+        return raw
+    logger.warning("Ignoring invalid %r option %r: expected a list of strings", option, raw)
+    return None

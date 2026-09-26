@@ -30,6 +30,8 @@ class Mutation:
 
 class TypeMutationOperator(ABC):
     name: str = ""
+    # Key in [typemut.operators] / [typemut.ignore-types], e.g. "add-optional".
+    config_key: str = ""
 
     @abstractmethod
     def find_mutations(

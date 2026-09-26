@@ -183,6 +183,56 @@ T_co = TypeVar("T_co")
 
 **Survived = variance is not relied on (removal), or the TypeVar could be declared variant (addition).**
 
+## Plugins
+
+Core operators know nothing about libraries. Some libraries wrap your types in
+their own generics and read them at runtime, which changes what a mutation
+means. Plugins teach typemut these rules. They are opt-in:
+
+```toml
+[typemut]
+plugins = ["sqlalchemy"]
+```
+
+An unknown plugin name is logged as a warning and skipped. A plugin can claim an annotation and decide
+its mutations (usually by running the core operators on a wrapped type and
+dropping mutations that are invalid for the library), and can contribute its own
+operators. Annotations no plugin claims are mutated as usual.
+
+### sqlalchemy
+
+For SQLAlchemy 2.0 declarative models (`Mapped[...]`, also `orm.Mapped[...]`).
+SQLAlchemy derives the column type, nullability and relationship target from
+the type inside `Mapped[...]`, so the plugin mutates that type instead of the
+whole annotation:
+
+| Annotation | Without plugin | With plugin |
+|------------|----------------|-------------|
+| `id: Mapped[int]` | `Mapped[int] \| None` (meaningless) | `Mapped[int \| None]` (nullable column) |
+| `email: Mapped[str \| None]` | not mutated | `Mapped[str]` |
+| `user: Mapped["UserDB"] = relationship()` | `Mapped["UserDB"] \| None` | `Mapped["UserDB \| None"]` |
+| `profile: Mapped["ProfileDB \| None"] = relationship()` | `Mapped["ProfileDB \| None"] \| None` | `Mapped["ProfileDB"]` |
+| `roles: Mapped[list[RoleDB]] = relationship()` | `Mapped[Sequence[RoleDB]]` | skipped |
+| `payload: Mapped[dict[str, Any]]` | `Mapped[Mapping[str, Any]]` | skipped |
+| `user: Mapped[UserDB] = relationship()` (`UserDB(BaseDB)`) | `Mapped[BaseDB]` | skipped |
+
+Rules:
+
+- Quoted forward references (`Mapped["UserDB | None"]`) are mutated inside the quotes.
+- `WidenContainerType` skips the top-level type inside `Mapped[...]`: SQLAlchemy needs a
+  concrete column type / collection class there (`list`, `set`), not an ABC. Nested
+  containers (`Mapped[dict[str, list[int]]]`) are still widened.
+- On relationship attributes (`= relationship(...)`):
+  - `WidenType` is skipped: the target must be a mapped class, and widening usually points
+    at the declarative base;
+  - `AddOptional` is skipped for collections (`Mapped[list[X]]`): a collection
+    relationship is an empty collection, never `None`.
+- `WriteOnlyMapped[...]` and `DynamicMapped[...]` get no mutations: they are always
+  relationship collections, and none of the core mutations is valid for them.
+
+Nullability mismatches between `Mapped[X | None]` and `mapped_column(nullable=...)`
+are a runtime/schema issue, not a typing one, so the plugin does not generate them.
+
 ## Filtering
 
 Annotations are automatically skipped when:
@@ -190,6 +240,35 @@ Annotations are automatically skipped when:
 - The line contains `# type: ignore` or `# pragma: no mutate`
 - The annotation is `Any` (mutations are meaningless — Any absorbs all types)
 - `AddOptional` targets a function parameter (low signal — callers won't pass None)
+
+### Ignoring library types per operator
+
+By default every operator mutates every annotation, including library wrapper
+types it knows nothing about (`Mapped[int]` → `Mapped[int] | None`). To silence
+such noise, list the types an operator must not touch under
+`[typemut.ignore-types]`, keyed by operator (same keys as `[typemut.operators]`):
+
+```toml
+[typemut.ignore-types]
+all = ["django.db.models.*"]                        # every operator
+add-optional = ["sqlalchemy.orm.Mapped"]
+remove-optional = ["sqlalchemy.orm.Mapped"]
+widen-container-type = ["sqlalchemy.orm.Mapped"]
+widen-type = ["sqlalchemy.orm.DeclarativeBase"]
+```
+
+- An operator skips every annotation that references one of its ignored types
+  (anywhere in it, e.g. `list[Mapped[int]]`); other operators still mutate it.
+- An operator also drops mutations that would introduce an ignored type, e.g.
+  `WidenType` widening a model to `DeclarativeBase`.
+- Patterns are `fnmatch` globs matched against the qualified name the type is
+  **imported under** in the file (`from sqlalchemy.orm import Mapped` →
+  `sqlalchemy.orm.Mapped`), not where it is defined. Aliases (`import sqlalchemy.orm as orm`,
+  `orm.Mapped`) and relative imports of your own packages are resolved.
+- Names that aren't imported (builtins, classes defined in the same file) are never ignored.
+- Plugins see annotations first and are not affected: with `plugins = ["sqlalchemy"]`,
+  `Mapped[...]` is still mutated correctly (`Mapped[int]` → `Mapped[int | None]`).
+- Unknown operator keys and invalid values are logged as warnings and skipped.
 
 ## Config Reference
 
@@ -201,6 +280,7 @@ timeout = 30                            # seconds per mutation
 excluded-modules = ["src/vendor/*.py"]  # glob patterns to skip
 skip-comments = ["type: ignore", "pragma: no mutate"]
 db = "typemut.sqlite"                   # database file
+plugins = ["sqlalchemy"]                # library plugins, none by default
 
 [typemut.operators]
 # all enabled by default, disable selectively
@@ -212,6 +292,11 @@ add-optional = true
 widen-container-type = true
 swap-iterator-generator = true
 typevar-variance = true
+
+[typemut.ignore-types]
+# qualified type patterns each operator must not touch; "all" applies to every operator
+all = []
+add-optional = ["sqlalchemy.orm.Mapped"]
 ```
 
 ## HTML Report

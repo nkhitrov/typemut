@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typemut.config import OperatorsConfig
+from typemut.config import OPERATOR_KEYS, OperatorsConfig
 from typemut.operators import get_enabled_operators
 
 
@@ -63,3 +63,8 @@ def test_each_operator_individually() -> None:
         operators = get_enabled_operators(config)
         assert len(operators) == 1, f"Expected 1 operator for {flag}"
         assert operators[0].name == name
+
+
+def test_operator_config_keys_match_config() -> None:
+    operators = get_enabled_operators(OperatorsConfig())
+    assert [op.config_key for op in operators] == list(OPERATOR_KEYS)
