@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 SCHEMA = """\
@@ -33,6 +34,16 @@ _MIGRATIONS = [
 ]
 
 
+class MutantStatus(StrEnum):
+    """Result of testing a mutant, as stored in the ``status`` column."""
+
+    PENDING = "pending"
+    KILLED = "killed"
+    SURVIVED = "survived"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
 @dataclass
 class MutantRow:
     id: int | None
@@ -44,7 +55,7 @@ class MutantRow:
     mutated_annotation: str
     description: str
     required_import: str | None = None
-    status: str = "pending"
+    status: MutantStatus = MutantStatus.PENDING
     output: str | None = None
     duration_seconds: float | None = None
 
@@ -115,24 +126,9 @@ class Database:
         )
         self.conn.commit()
 
-    def update_result(
-        self,
-        mutant_id: int,
-        status: str,
-        output: str | None = None,
-        duration: float | None = None,
-    ) -> None:
-        self.conn.execute(
-            """UPDATE mutants
-               SET status = ?, output = ?, duration_seconds = ?
-               WHERE id = ?""",
-            (status, output, duration, mutant_id),
-        )
-        self.conn.commit()
-
     def get_pending(self) -> Collection[MutantRow]:
         rows = self.conn.execute(
-            "SELECT * FROM mutants WHERE status = 'pending' ORDER BY id"
+            "SELECT * FROM mutants WHERE status = ? ORDER BY id", (MutantStatus.PENDING,)
         ).fetchall()
         return [self._row_to_mutant(r) for r in rows]
 
@@ -186,7 +182,7 @@ class Database:
             mutated_annotation=row["mutated_annotation"],
             description=row["description"],
             required_import=row["required_import"],
-            status=row["status"],
+            status=MutantStatus(row["status"]),
             output=row["output"],
             duration_seconds=row["duration_seconds"],
         )

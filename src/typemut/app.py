@@ -13,7 +13,7 @@ from rich.markup import escape
 
 from typemut.baseline import Baseline
 from typemut.config import Config, ConfigLoader
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 from typemut.discovery import AnnotationFinder, SourceFiles
 from typemut.engine import (
     MutantExecutor,
@@ -137,7 +137,7 @@ class App:
         Returns False if the run must fail.
         """
         score = MutationScore(db.get_summary()).total()
-        survivors = [mutant for mutant in db.get_all() if mutant.status == "survived"]
+        survivors = [mutant for mutant in db.get_all() if mutant.status is MutantStatus.SURVIVED]
 
         if update_baseline and baseline_path is not None:
             Baseline(Path(baseline_path)).save(survivors)

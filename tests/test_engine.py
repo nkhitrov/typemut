@@ -11,7 +11,7 @@ import pytest
 from rich.console import Console
 
 from tests.fakes import RecordingProgressBar, StubExecutor, StubRunner, make_mutant
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 from typemut.engine import (
     MutationApplyError,
     MutationTester,
@@ -209,7 +209,7 @@ class TestRunMutants:
         tmp_db.insert_many([make_mutant(None, line=line) for line in range(51)])
         progress = RecordingProgressBar()
 
-        ResultRecorder(tmp_db, progress).record(tmp_db.get_pending(), StubExecutor("killed"))
+        ResultRecorder(tmp_db, progress).record(tmp_db.get_pending(), StubExecutor(MutantStatus.KILLED))
 
         assert {m.status for m in tmp_db.get_all()} == {"killed"}
         assert progress.totals == [51]
