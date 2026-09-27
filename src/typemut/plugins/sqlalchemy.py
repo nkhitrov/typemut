@@ -29,6 +29,7 @@ from parso.python.tree import BaseNode, Leaf
 from typemut.discovery import AnnotationContext, AnnotationNode, discover_annotations
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.plugins.base import Plugin
+from typemut.plugins.nodes import trailer_target
 from typemut.registry import Registry
 
 MAPPED = "Mapped"
@@ -160,7 +161,7 @@ def _subscript(node: BaseNode | Leaf) -> tuple[str, BaseNode | Leaf | None] | No
 
     arg is None when the subscript has several arguments.
     """
-    target = _trailer_target(node, "[")
+    target = trailer_target(node, "[")
     if target is None:
         return None
     name, trailer = target
@@ -178,25 +179,5 @@ def _is_relationship(annotation: BaseNode | Leaf) -> bool:
     value = annassign.children[-1]
     if value is annotation:
         return False
-    target = _trailer_target(value, "(")
+    target = trailer_target(value, "(")
     return target is not None and target[0] in RELATIONSHIP_FACTORIES
-
-
-def _trailer_target(node: BaseNode | Leaf, bracket: str) -> tuple[str, BaseNode] | None:
-    """For ``name[...]``/``a.name(...)`` return the name and the last trailer."""
-    if not isinstance(node, BaseNode) or node.type not in {"atom_expr", "power"}:
-        return None
-    trailer = node.children[-1]
-    if not isinstance(trailer, BaseNode) or trailer.type != "trailer":
-        return None
-    opening = trailer.children[0]
-    if not isinstance(opening, Leaf) or opening.value != bracket:
-        return None
-
-    target = node.children[-2]
-    if isinstance(target, BaseNode) and target.type == "trailer":
-        # Attribute access: `.name`
-        target = target.children[-1]
-    if not isinstance(target, Leaf) or target.type != "name":
-        return None
-    return target.value, trailer

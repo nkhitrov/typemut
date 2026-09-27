@@ -141,6 +141,7 @@ module = [
     "typemut.discovery",
     "typemut.imports",
     "typemut.registry",
+    "typemut.symbols",
     "typemut.operators.*",
 ]
 disallow_untyped_calls = false

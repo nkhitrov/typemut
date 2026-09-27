@@ -27,7 +27,7 @@ def test_get_plugins_empty() -> None:
 def test_get_plugins_unknown_name_is_skipped(caplog: pytest.LogCaptureFixture) -> None:
     plugins = get_plugins(["sqlalchemy", "django"])
     assert [plugin.name for plugin in plugins] == ["sqlalchemy"]
-    assert "Skipping unknown plugin(s): django. Available plugins: sqlalchemy" in caplog.text
+    assert "Skipping unknown plugin(s): django. Available plugins: fastapi, sqlalchemy" in caplog.text
 
 
 def test_find_mutations_without_plugins_uses_core_operators() -> None:
@@ -75,4 +75,4 @@ def test_init_unknown_plugin_warns_and_continues(
             mutated = {mutant.mutated_annotation for mutant in db.get_all()}
     assert result.exit_code == 0
     assert mutated == {"Mapped[int] | None"}
-    assert "Skipping unknown plugin(s): nope. Available plugins: sqlalchemy" in caplog.text
+    assert "Skipping unknown plugin(s): nope. Available plugins: fastapi, sqlalchemy" in caplog.text

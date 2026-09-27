@@ -213,7 +213,7 @@ means. Plugins teach typemut these rules. They are opt-in:
 
 ```toml
 [typemut]
-plugins = ["sqlalchemy"]
+plugins = ["sqlalchemy", "fastapi"]
 ```
 
 An unknown plugin name is logged as a warning and skipped. A plugin can claim an annotation and decide
@@ -254,6 +254,42 @@ Rules:
 
 Nullability mismatches between `Mapped[X | None]` and `mapped_column(nullable=...)`
 are a runtime/schema issue, not a typing one, so the plugin does not generate them.
+
+### fastapi
+
+FastAPI calls route handlers itself, and tests reach them over HTTP, so no Python
+code calls them. The type checker has no caller to check a mutated signature
+against: `-> RedirectResponse` → `-> RedirectResponse | None` always survives.
+The plugin skips all parameter and return annotations of such functions:
+
+```python
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/login")
+async def login(next: str | None = None) -> RedirectResponse:  # not mutated
+    target: str | None = next  # still mutated
+    ...
+```
+
+A function counts as an endpoint when it is decorated with
+`@<receiver>.<method>(...)`, where `<method>` is a route method (`get`, `post`, `put`,
+`patch`, `delete`, `head`, `options`, `trace`, `api_route`, `websocket`) or
+`exception_handler`, `middleware`, `on_event`. The receiver has to be an instance
+of `fastapi.FastAPI` / `fastapi.APIRouter`, or of a project class inheriting from
+them (also across modules). The type is resolved statically from imports, not
+from variable names:
+
+- `app = FastAPI()`, `router: APIRouter = make_router()`, `def register(app: FastAPI)`;
+- `app = FastAPI()` inside an app factory function;
+- a receiver imported from another project module, including re-exports
+  (`from app.api import router`, `from app import api` + `@api.router.get`).
+
+Unresolvable receivers (a factory call without annotation, `self.router`, a star
+import) are not treated as endpoints. The same goes for functions registered
+without a decorator (`app.add_api_route(...)`) or used only through `Depends(...)`.
+Mark those with `# pragma: no mutate`.
 
 ## Filtering
 
