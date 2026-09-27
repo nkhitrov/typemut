@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from html import escape
 from pathlib import Path
@@ -66,7 +67,9 @@ class HtmlReport:
     def render(self, db: Database) -> str:
         """Generate the report for the results in *db*."""
         summary = db.get_summary()
-        all_mutants = db.get_all()
+        by_status: dict[MutantStatus, list[MutantRow]] = defaultdict(list)
+        for mutant in db.get_all():
+            by_status[mutant.status].append(mutant)
 
         total_killed = sum(s.get(MutantStatus.KILLED, 0) for s in summary.values())
         total_survived = sum(s.get(MutantStatus.SURVIVED, 0) for s in summary.values())
@@ -77,9 +80,9 @@ class HtmlReport:
         total_score = (total_killed / testable * 100) if testable > 0 else 0
 
         module_rows = self._build_module_rows(summary)
-        survived_cards = self._build_mutant_cards(all_mutants, MutantStatus.SURVIVED)
-        error_cards = self._build_mutant_cards(all_mutants, MutantStatus.ERROR)
-        killed_cards = self._build_mutant_cards(all_mutants, MutantStatus.KILLED)
+        survived_cards = self._build_mutant_cards(by_status[MutantStatus.SURVIVED])
+        error_cards = self._build_mutant_cards(by_status[MutantStatus.ERROR])
+        killed_cards = self._build_mutant_cards(by_status[MutantStatus.KILLED])
 
         sc = self._score_class(total_score)
 
@@ -361,18 +364,11 @@ class HtmlReport:
             )
         return rows
 
-    def _build_mutant_cards(
-        self,
-        mutants: Iterable[MutantRow],
-        status: MutantStatus,
-    ) -> str:
-        """Build card-based HTML for the mutants with *status*."""
+    def _build_mutant_cards(self, mutants: Iterable[MutantRow]) -> str:
+        """Build card-based HTML for *mutants*."""
         cards: list[str] = []
         for m in mutants:
-            if m.status is not status:
-                continue
-
-            header_bg = HEADER_COLORS[status]
+            header_bg = HEADER_COLORS[m.status]
             duration_str = f"{m.duration_seconds:.1f}s" if m.duration_seconds else ""
             duration_html = (
                 f'<span class="mutant-duration">{duration_str}</span>' if duration_str else ""
