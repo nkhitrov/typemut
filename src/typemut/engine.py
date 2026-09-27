@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.progress import track
 
 from typemut.db import Database, MutantRow
-from typemut.imports import resolve_import
+from typemut.imports import ImportInjector
 from typemut.runner import CommandResult, CommandRunner, Outcome
 
 # mypy error codes that indicate the mutated code is broken (missing import,
@@ -168,7 +168,7 @@ def run_mutants(
 
 def apply_mutation(source: str, mutant: MutantRow) -> str:
     """Return *source* with *mutant* applied, adding the import its type needs."""
-    source_for_mutation, inserted_at = resolve_import(
+    source_for_mutation, inserted_at = ImportInjector().resolve(
         source,
         mutant.mutated_annotation,
         mutant.required_import,

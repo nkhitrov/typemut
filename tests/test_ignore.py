@@ -12,7 +12,7 @@ from typemut.config import OperatorsConfig
 from typemut.db import Database
 from typemut.discovery import discover_annotations
 from typemut.ignore import IgnoredTypes
-from typemut.imports import package_of
+from typemut.imports import ModuleImports
 from typemut.operators import OperatorRegistry
 from typemut.plugins import PluginRegistry, find_mutations
 from typemut.registry import Registry
@@ -176,11 +176,11 @@ def test_package_of_nested_package(tmp_path: Path) -> None:
     (tmp_path / "app" / "sub").mkdir(parents=True)
     (tmp_path / "app" / "__init__.py").write_text("")
     (tmp_path / "app" / "sub" / "__init__.py").write_text("")
-    assert package_of(tmp_path / "app" / "sub" / "module.py") == "app.sub"
+    assert ModuleImports().package_of(tmp_path / "app" / "sub" / "module.py") == "app.sub"
 
 
 def test_package_of_outside_package(tmp_path: Path) -> None:
-    assert package_of(tmp_path / "module.py") == ""
+    assert ModuleImports().package_of(tmp_path / "module.py") == ""
 
 
 def test_plugin_still_mutates_ignored_types() -> None:
