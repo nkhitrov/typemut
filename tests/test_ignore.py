@@ -13,8 +13,8 @@ from typemut.db import Database
 from typemut.discovery import discover_annotations
 from typemut.ignore import IgnoredTypes
 from typemut.imports import package_of
-from typemut.operators import get_enabled_operators
-from typemut.plugins import find_mutations, get_plugins
+from typemut.operators import OperatorRegistry
+from typemut.plugins import PluginRegistry, find_mutations
 from typemut.registry import Registry
 
 REGISTRY = Registry(
@@ -33,13 +33,13 @@ def mutated(
     plugins: list[str] | None = None,
 ) -> set[str]:
     """Mutated annotations of every annotation in *source* with the given ignore rules."""
-    operators = get_enabled_operators(OperatorsConfig())
+    operators = OperatorRegistry().enabled(OperatorsConfig())
     ignored = IgnoredTypes(ignore)
     return {
         mutation.mutated
         for annotation in discover_annotations(file, source=source)
         for mutation in find_mutations(
-            annotation, operators, REGISTRY, get_plugins(plugins or []), ignored
+            annotation, operators, REGISTRY, PluginRegistry().get(plugins or []), ignored
         )
     }
 

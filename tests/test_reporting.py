@@ -9,7 +9,7 @@ import pytest
 from rich.console import Console
 
 from typemut.db import Database, MutantRow
-from typemut.reporting.html import generate_html
+from typemut.reporting.html import generate_html, read_source_file
 from typemut.reporting.terminal import print_report, total_score
 
 
@@ -66,6 +66,35 @@ class TestHtmlReport:
         html = generate_html(tmp_db)
         # 2 killed, 1 survived => 66.7%
         assert "66.7%" in html
+
+
+class TestHtmlDiff:
+    def test_diff_from_source(self, tmp_db: Database) -> None:
+        _populate_db(tmp_db)
+        sources = {"a.py": "x: int | str\ny: int\n"}
+        html = generate_html(tmp_db, read_source=sources.get)
+        assert '<span class="diff-del">-y: int</span>' in html
+        assert '<span class="diff-add">+y: int | None</span>' in html
+        assert '<span class="diff-hunk">@@ -1,2 +1,2 @@</span>' in html
+
+    def test_fallback_without_source(self, tmp_db: Database) -> None:
+        _populate_db(tmp_db)
+        html = generate_html(tmp_db, read_source={}.get)
+        assert '<div class="diff-add-block"><code>int | None</code></div>' in html
+
+    def test_output_shown(self, tmp_db: Database) -> None:
+        mutant_id = tmp_db.insert_mutant(
+            MutantRow(None, "a.py", "AddOptional", 1, 3, "int", "int | None", "")
+        )
+        tmp_db.update_result(mutant_id, "killed", "error <here>", 0.5)
+        html = generate_html(tmp_db, read_source={}.get)
+        assert "<pre>error &lt;here&gt;</pre>" in html
+
+
+def test_read_source_file(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x: int\n")
+    assert read_source_file(str(tmp_path / "a.py")) == "x: int\n"
+    assert read_source_file(str(tmp_path / "missing.py")) is None
 
 
 @pytest.mark.parametrize(

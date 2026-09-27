@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import difflib
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from html import escape
 from pathlib import Path
 
@@ -35,8 +35,23 @@ HEADER_COLORS = {
 }
 
 
-def generate_html(db: Database) -> str:
-    """Generate a standalone HTML report with full mutant details."""
+# Returns the source of a mutated module, or None if it cannot be read.
+SourceReader = Callable[[str], str | None]
+
+
+def read_source_file(module_path: str) -> str | None:
+    """Read a mutated module from disk, relative to the current directory."""
+    try:
+        return Path(module_path).read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def generate_html(db: Database, read_source: SourceReader = read_source_file) -> str:
+    """Generate a standalone HTML report with full mutant details.
+
+    *read_source* supplies module sources for the diffs of the mutant cards.
+    """
     summary = db.get_summary()
     all_mutants = db.get_all()
 
@@ -49,9 +64,9 @@ def generate_html(db: Database) -> str:
     total_score = (total_killed / testable * 100) if testable > 0 else 0
 
     module_rows = _build_module_rows(summary)
-    survived_cards = _build_mutant_cards(all_mutants, {"survived"})
-    error_cards = _build_mutant_cards(all_mutants, {"error"})
-    killed_cards = _build_mutant_cards(all_mutants, {"killed"})
+    survived_cards = _build_mutant_cards(all_mutants, {"survived"}, read_source)
+    error_cards = _build_mutant_cards(all_mutants, {"error"}, read_source)
+    killed_cards = _build_mutant_cards(all_mutants, {"killed"}, read_source)
 
     sc = _score_class(total_score)
 
@@ -335,7 +350,11 @@ def _build_module_rows(summary: Mapping[str, Mapping[str, int]]) -> str:
     return rows
 
 
-def _build_mutant_cards(mutants: Iterable[MutantRow], statuses: set[str]) -> str:
+def _build_mutant_cards(
+    mutants: Iterable[MutantRow],
+    statuses: set[str],
+    read_source: SourceReader,
+) -> str:
     """Build card-based HTML for mutants matching given statuses."""
     cards: list[str] = []
     for m in mutants:
@@ -349,7 +368,7 @@ def _build_mutant_cards(mutants: Iterable[MutantRow], statuses: set[str]) -> str
         )
 
         # Diff section
-        diff_text = _generate_diff(m)
+        diff_text = _generate_diff(m, read_source(m.module_path))
         if diff_text:
             diff_html = f'<pre class="diff">{_format_diff_html(diff_text)}</pre>'
         else:
@@ -416,11 +435,9 @@ def _status_badge(status: str) -> str:
     return f'<span class="badge" style="background:{color}">{label}</span>'
 
 
-def _generate_diff(mutant: MutantRow, context_lines: int = 3) -> str | None:
-    """Generate a unified diff showing the mutation in context."""
-    try:
-        source = Path(mutant.module_path).read_text()
-    except (OSError, UnicodeDecodeError):
+def _generate_diff(mutant: MutantRow, source: str | None, context_lines: int = 3) -> str | None:
+    """Generate a unified diff showing the mutation in *source*, in context."""
+    if source is None:
         return None
 
     lines = source.splitlines(keepends=True)

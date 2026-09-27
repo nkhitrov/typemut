@@ -2,24 +2,16 @@
 
 from __future__ import annotations
 
-import tomllib
-from collections.abc import Collection, Iterable
+import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any
 
 import click
-from rich.console import Console
+from rich.markup import escape
 
-from typemut.config import Config, load_config
-from typemut.db import Database, MutantRow
-from typemut.discovery import discover_annotations, discover_files
-
-if TYPE_CHECKING:
-    from typemut.operators.base import TypeMutationOperator
-    from typemut.plugins.base import Plugin
-    from typemut.registry import Registry
-
-console = Console()
+from typemut.app import App, Services
+from typemut.db import Database
+from typemut.errors import TypemutError
 
 _fail_under_option = click.option(
     "--fail-under",
@@ -39,9 +31,27 @@ _update_baseline_option = click.option(
     is_flag=True,
     help="Write the current survived mutants to the --baseline file instead of checking it.",
 )
+_config_option = click.option(
+    "--config", "config_path", default="typemut.toml", help="Config file."
+)
+_jobs_option = click.option("--jobs", default=1, help="Number of parallel jobs.")
 
 
-@click.group()
+class _TypemutGroup(click.Group):
+    """Reports a :class:`TypemutError` from any command as a message and exit code 1."""
+
+    def invoke(self, ctx: click.Context) -> Any:
+        try:
+            return super().invoke(ctx)
+        except TypemutError as exc:
+            app: App = ctx.obj
+            app.console.print(f"[red]{escape(exc.message)}[/red]")
+            if exc.details:
+                app.console.print(escape(exc.details))
+            ctx.exit(1)
+
+
+@click.group(cls=_TypemutGroup)
 @click.option(
     "-C",
     "--project-dir",
@@ -51,81 +61,48 @@ _update_baseline_option = click.option(
 )
 @click.pass_context
 def main(ctx: click.Context, project_dir: str | None) -> None:
-    """typemut — Mutation testing for type annotations."""
-    import os
+    """typemut — Mutation testing for type annotations.
 
+    ``ctx.obj`` may carry :class:`Services` to run with (tests pass stubs);
+    by default the real ones are used.
+    """
     if project_dir:
         os.chdir(project_dir)
+    services = ctx.obj if isinstance(ctx.obj, Services) else Services()
+    ctx.obj = App(services, Path.cwd())
 
 
 @main.command()
-@click.option("--config", "config_path", default="typemut.toml", help="Config file.")
+@_config_option
 @click.option("--db", "db_path", default=None, help="Database file.")
-def init(config_path: str, db_path: str | None) -> None:
+@click.pass_obj
+def init(
+    app: App,
+    config_path: str,
+    db_path: str | None,  # pragma: no mutate  (click passes None when --db is omitted)
+) -> None:
     """Discover all possible mutations and store in database."""
-    cfg, db = _load(config_path, db_path)
-
-    from typemut.operators import get_enabled_operators
-    from typemut.registry import Registry
-
-    module_dir = Path(cfg.module_path)
-    if not module_dir.exists():
-        console.print(f"[red]Module path not found: {module_dir}[/red]")
-        raise SystemExit(1)
-
-    files = discover_files(module_dir, cfg.excluded_modules)
-    console.print(f"Found [bold]{len(files)}[/bold] Python files in {module_dir}")
-
-    registry = Registry.from_files(files)
-    plugins = _load_plugins(cfg)
-    operators = get_enabled_operators(cfg.operators)
-    operators.extend(op for plugin in plugins for op in plugin.operators())
-    console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
-
-    total = _discover_mutations(files, cfg, operators, registry, db, plugins)
-
-    console.print(
-        f"[green]Found {total} type annotation mutations across {len(files)} modules[/green]"
-    )
-    db.close()
+    cfg, db = app.load(config_path, db_path)
+    with db:
+        app.discover(cfg, db)
 
 
 @main.command("exec")
-@click.option("--config", "config_path", default="typemut.toml", help="Config file.")
+@_config_option
 @click.option("--db", "db_path", default=None, help="Database file.")
-@click.option("--jobs", default=1, help="Number of parallel jobs.")
-def exec_cmd(config_path: str, db_path: str | None, jobs: int) -> None:
+@_jobs_option
+@click.pass_obj
+def exec_cmd(
+    app: App,
+    config_path: str,
+    db_path: str | None,  # pragma: no mutate  (click passes None when --db is omitted)
+    jobs: int,
+) -> None:
     """Run type checker against each mutation."""
-    cfg, db = _load(config_path, db_path)
-
-    from typemut.engine import check_baseline, run_all_mutants
-
-    pending = db.get_pending()
-    if not pending:
-        console.print("[yellow]No pending mutants. Run 'typemut init' first.[/yellow]")
-        db.close()
-        return
-
-    console.print("Running baseline check...")
-    ok, output = check_baseline(cfg.test_command, cfg.timeout)
-    if not ok:
-        console.print(
-            "[red]Baseline check failed — type checker reports errors on unmodified code:[/red]"
-        )
-        console.print(output)
-        db.close()
-        raise SystemExit(1)
-    console.print("[green]Baseline clean.[/green]")
-
-    console.print(f"Running [bold]{len(pending)}[/bold] mutations...")
-    if jobs > 1:
-        from typemut.parallel import run_all_mutants_parallel
-
-        run_all_mutants_parallel(db, pending, cfg.test_command, cfg.timeout, jobs)
-    else:
-        run_all_mutants(db, pending, cfg.test_command, cfg.timeout)
-    db.close()
-    console.print("[green]Done.[/green]")
+    cfg, db = app.load(config_path, db_path)
+    with db:
+        app.execute(cfg, db, jobs)
+    app.console.print("[green]Done.[/green]")
 
 
 @main.command()
@@ -133,7 +110,9 @@ def exec_cmd(config_path: str, db_path: str | None, jobs: int) -> None:
 @_fail_under_option
 @_baseline_option
 @_update_baseline_option
+@click.pass_obj
 def report(
+    app: App,
     db_path: str,
     fail_under: float | None,
     baseline_path: str | None,
@@ -141,49 +120,33 @@ def report(
 ) -> None:
     """Show mutation testing results."""
     _require_baseline_path(baseline_path, update_baseline)
-    db = Database(Path(db_path))
-
-    from typemut.reporting.terminal import print_report
-
-    print_report(db, console)
-    _check_results(db, fail_under, baseline_path, update_baseline)
+    with Database(Path(db_path)) as db:
+        app.report(db)
+        passed = app.check_results(db, fail_under, baseline_path, update_baseline)
+    _exit_unless(passed)
 
 
 @main.command()
 @click.option("--db", "db_path", default="typemut.sqlite", help="Database file.")
-@click.option("-o", "--output", "out_path", default=None, help="Output file (default: stdout).")
+@click.option("-o", "--output", "out_path", default="typemut-report.html", help="Output file.")
 @click.option("--open", "open_browser", is_flag=True, help="Open report in browser.")
-def html(db_path: str, out_path: str | None, open_browser: bool) -> None:
+@click.pass_obj
+def html(app: App, db_path: str, out_path: str, open_browser: bool) -> None:
     """Generate HTML report."""
-    db = Database(Path(db_path))
-
-    from typemut.reporting.html import generate_html
-
-    report = generate_html(db)
-    db.close()
-
-    if out_path:
-        Path(out_path).write_text(report)
-        console.print(f"Report saved to [bold]{out_path}[/bold]")
-    else:
-        out_path = "typemut-report.html"
-        Path(out_path).write_text(report)
-        console.print(f"Report saved to [bold]{out_path}[/bold]")
-
-    if open_browser:
-        import webbrowser
-
-        webbrowser.open(f"file://{Path(out_path).resolve()}")
+    with Database(Path(db_path)) as db:
+        app.write_html(db, Path(out_path), open_browser)
 
 
 @main.command()
-@click.option("--config", "config_path", default="typemut.toml", help="Config file.")
+@_config_option
 @click.option("--db", "db_path", default=None, help="Database file.")
-@click.option("--jobs", default=1, help="Number of parallel jobs.")
+@_jobs_option
 @_fail_under_option
 @_baseline_option
 @_update_baseline_option
+@click.pass_obj
 def run(
+    app: App,
     config_path: str,
     db_path: str | None,
     jobs: int,
@@ -193,62 +156,14 @@ def run(
 ) -> None:
     """Run full pipeline: discover mutations, execute, and report."""
     _require_baseline_path(baseline_path, update_baseline)
-    from typemut.engine import check_baseline, run_all_mutants
-    from typemut.operators import get_enabled_operators
-    from typemut.registry import Registry
-    from typemut.reporting.terminal import print_report
-
-    cfg, db = _load(config_path, db_path)
-
-    module_dir = Path(cfg.module_path)
-    if not module_dir.exists():
-        console.print(f"[red]Module path not found: {module_dir}[/red]")
-        raise SystemExit(1)
-
-    files = discover_files(module_dir, cfg.excluded_modules)
-    console.print(f"Found [bold]{len(files)}[/bold] Python files in {module_dir}")
-
-    registry = Registry.from_files(files)
-    plugins = _load_plugins(cfg)
-    operators = get_enabled_operators(cfg.operators)
-    operators.extend(op for plugin in plugins for op in plugin.operators())
-    console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
-
-    total = _discover_mutations(files, cfg, operators, registry, db, plugins)
-
-    console.print(f"[green]Discovered {total} mutations[/green]")
-
-    if total == 0:
-        console.print("[yellow]Nothing to test.[/yellow]")
-        db.close()
-        return
-
-    # Baseline check
-    console.print("Running baseline check...")
-    ok, output = check_baseline(cfg.test_command, cfg.timeout)
-    if not ok:
-        console.print(
-            "[red]Baseline check failed — type checker reports errors on unmodified code:[/red]"
-        )
-        console.print(output)
-        db.close()
-        raise SystemExit(1)
-    console.print("[green]Baseline clean.[/green]")
-
-    # Exec
-    pending = db.get_pending()
-    console.print(f"Running [bold]{len(pending)}[/bold] mutations...")
-    if jobs > 1:
-        from typemut.parallel import run_all_mutants_parallel
-
-        run_all_mutants_parallel(db, pending, cfg.test_command, cfg.timeout, jobs)
-    else:
-        run_all_mutants(db, pending, cfg.test_command, cfg.timeout)
-
-    # Report
-    console.print()
-    print_report(db, console)
-    _check_results(db, fail_under, baseline_path, update_baseline)
+    cfg, db = app.load(config_path, db_path)
+    with db:
+        app.discover(cfg, db)
+        app.execute(cfg, db, jobs)
+        app.console.print()
+        app.report(db)
+        passed = app.check_results(db, fail_under, baseline_path, update_baseline)
+    _exit_unless(passed)
 
 
 def _require_baseline_path(baseline_path: str | None, update_baseline: bool) -> None:
@@ -256,133 +171,6 @@ def _require_baseline_path(baseline_path: str | None, update_baseline: bool) -> 
         raise click.UsageError("--update-baseline requires --baseline")
 
 
-def _check_results(
-    db: Database,
-    fail_under: float | None,
-    baseline_path: str | None,
-    update_baseline: bool,
-) -> None:
-    """Close *db*; update or enforce the baseline, enforce --fail-under."""
-    from typemut.baseline import save_baseline
-    from typemut.reporting.terminal import total_score
-
-    score = total_score(db.get_summary())
-    survivors = [mutant for mutant in db.get_all() if mutant.status == "survived"]
-    db.close()
-
-    if update_baseline and baseline_path is not None:
-        save_baseline(Path(baseline_path), survivors)
-        console.print(f"Baseline {baseline_path} updated: {len(survivors)} survived mutants")
-        return
-
-    failed = baseline_path is not None and not _check_survivor_baseline(
-        Path(baseline_path), survivors
-    )
-    if fail_under is not None and score is not None and score < fail_under:
-        console.print(
-            f"[red]Mutation score {score:.1f}% is below --fail-under {fail_under:g}%[/red]"
-        )
-        failed = True
-    if failed:
-        raise SystemExit(1)
-
-
-def _check_survivor_baseline(path: Path, survivors: Collection[MutantRow]) -> bool:
-    """Report survivors missing from the baseline at *path*; True if there are none."""
-    from rich.markup import escape
-
-    from typemut.baseline import compare, load_baseline
-
-    diff = compare(survivors, load_baseline(path))
-    accepted = len(survivors) - len(diff.new)
-    console.print(f"Baseline {path}: {accepted} accepted, {len(diff.new)} new survived mutants")
-    if diff.fixed:
-        console.print(
-            f"[yellow]{diff.fixed} baseline entries no longer survive; "
-            "rerun with --update-baseline to drop them.[/yellow]"
-        )
-    for mutant in diff.new:
-        console.print(
-            f"  [red]new[/red] {mutant.module_path}:{mutant.line}  {mutant.operator}  "
-            f"{escape(mutant.original_annotation)} → {escape(mutant.mutated_annotation)}"
-        )
-    return not diff.new
-
-
-def _load(config_path: str, db_path: str | None) -> tuple[Config, Database]:
-    path = Path(config_path)
-    if not path.exists():
-        console.print(
-            f"[red]Config file not found: {path}[/red]\n"
-            "Create a [bold]typemut.toml[/bold] with at least:\n\n"
-            "  [typemut]\n"
-            '  module-path = "src"\n'
-            '  test-command = "mypy src/"'
-        )
-        raise SystemExit(1)
-
-    try:
-        cfg = load_config(path)
-    except tomllib.TOMLDecodeError as exc:
-        console.print(
-            f"[red]Invalid TOML in {path}:[/red] {exc}\nPlease fix the syntax and try again."
-        )
-        raise SystemExit(1) from None
-
-    db = Database(Path(db_path or cfg.db_path))
-    return cfg, db
-
-
-def _load_plugins(cfg: Config) -> list[Plugin]:
-    from typemut.plugins import get_plugins
-
-    plugins = get_plugins(cfg.plugins)
-    if plugins:
-        console.print(f"Enabled plugins: {', '.join(plugin.name for plugin in plugins)}")
-    return plugins
-
-
-def _discover_mutations(
-    files: Iterable[Path],
-    cfg: Config,
-    operators: Collection[TypeMutationOperator],
-    registry: Registry,
-    db: Database,
-    plugins: Collection[Plugin],
-) -> int:
-    """Discover mutations across files and insert into database.
-
-    Returns the total number of mutations found.
-    """
-    from typemut.ignore import IgnoredTypes
-    from typemut.plugins import find_mutations
-
-    ignored = IgnoredTypes(cfg.ignore_types)
-    db.clear()
-    total = 0
-
-    for py_file in files:
-        annotations = discover_annotations(py_file, skip_comments=cfg.skip_comments)
-        mutants: list[MutantRow] = []
-
-        for ann in annotations:
-            for mutation in find_mutations(ann, operators, registry, plugins, ignored):
-                mutants.append(
-                    MutantRow(
-                        id=None,
-                        module_path=str(py_file),
-                        operator=mutation.operator,
-                        line=mutation.line,
-                        col=mutation.col,
-                        original_annotation=mutation.original,
-                        mutated_annotation=mutation.mutated,
-                        description=mutation.description,
-                        required_import=mutation.required_import,
-                    )
-                )
-
-        if mutants:
-            db.insert_many(mutants)
-            total += len(mutants)
-
-    return total
+def _exit_unless(passed: bool) -> None:
+    if not passed:
+        raise click.exceptions.Exit(1)

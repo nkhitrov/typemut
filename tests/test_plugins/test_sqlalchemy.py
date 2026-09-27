@@ -9,10 +9,11 @@ import pytest
 from typemut.config import OperatorsConfig
 from typemut.db import MutantRow
 from typemut.discovery import discover_annotations
-from typemut.engine import run_single_mutant
-from typemut.operators import get_enabled_operators
-from typemut.plugins import find_mutations, get_plugins
+from typemut.engine import MutationTester
+from typemut.operators import OperatorRegistry
+from typemut.plugins import PluginRegistry, find_mutations
 from typemut.registry import Registry
+from typemut.runner import ShellRunner
 
 REGISTRY = Registry(
     hierarchy={"BaseDB": ["UserDB"], "StrEnum": ["StatusEnum"]},
@@ -22,8 +23,8 @@ REGISTRY = Registry(
 
 def plugin_mutations(source: str) -> set[tuple[str, str, str]]:
     """Mutations of every annotation in *source* with the SQLAlchemy plugin enabled."""
-    operators = get_enabled_operators(OperatorsConfig())
-    plugins = get_plugins(["sqlalchemy"])
+    operators = OperatorRegistry().enabled(OperatorsConfig())
+    plugins = PluginRegistry().get(["sqlalchemy"])
     return {
         (mutation.operator, mutation.original, mutation.mutated)
         for annotation in discover_annotations(Path("models.py"), source=source)
@@ -225,7 +226,7 @@ def test_returned_mapped_is_unwrapped() -> None:
 
 
 def test_plugin_has_no_extra_operators() -> None:
-    assert get_plugins(["sqlalchemy"])[0].operators() == []
+    assert PluginRegistry().get(["sqlalchemy"])[0].operators() == []
 
 
 @pytest.mark.parametrize(
@@ -248,9 +249,9 @@ def test_mutation_applies_inside_mapped(tmp_path: Path, source: str, expected: s
     annotation = discover_annotations(Path("models.py"), source=source)[0]
     mutation = find_mutations(
         annotation,
-        get_enabled_operators(OperatorsConfig()),
+        OperatorRegistry().enabled(OperatorsConfig()),
         Registry(),
-        get_plugins(["sqlalchemy"]),
+        PluginRegistry().get(["sqlalchemy"]),
     )[0]
     mutant = MutantRow(
         id=1,
@@ -263,10 +264,10 @@ def test_mutation_applies_inside_mapped(tmp_path: Path, source: str, expected: s
         description=mutation.description,
     )
 
-    status, _, _ = run_single_mutant(
-        mutant, "cp models.py mutated.py", timeout=5, project_root=tmp_path
+    result = MutationTester(ShellRunner(), "cp models.py mutated.py", timeout=5).run(
+        mutant, tmp_path
     )
 
-    assert status == "survived"
+    assert result.status == "survived"
     assert (tmp_path / "mutated.py").read_text() == expected
     assert (tmp_path / "models.py").read_text() == source

@@ -221,6 +221,21 @@ its mutations (usually by running the core operators on a wrapped type and
 dropping mutations that are invalid for the library), and can contribute its own
 operators. Annotations no plugin claims are mutated as usual.
 
+### Third-party plugins
+
+A package can ship its own plugin: subclass `typemut.plugins.base.Plugin` and
+register it under the `typemut.plugins` entry point group. The entry point name
+is the name used in `plugins = [...]`:
+
+```toml
+# pyproject.toml of the plugin package
+[project.entry-points."typemut.plugins"]
+django = "typemut_django:DjangoPlugin"
+```
+
+An entry point that fails to import or does not name a `Plugin` subclass is
+logged as a warning and skipped.
+
 ### sqlalchemy
 
 For SQLAlchemy 2.0 declarative models (`Mapped[...]`, also `orm.Mapped[...]`).

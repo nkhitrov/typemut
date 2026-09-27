@@ -1,179 +1,192 @@
-"""Parallel mutation execution using git worktrees."""
+"""Parallel mutation execution in git worktrees."""
 
 from __future__ import annotations
 
 import logging
+import queue
+import shlex
 import shutil
-import subprocess
 import tempfile
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
+from dataclasses import dataclass
 from multiprocessing import Process, Queue
 from pathlib import Path
+from typing import Protocol
 
-from rich.progress import Progress
-
-from typemut.db import Database, MutantRow
-from typemut.engine import run_single_mutant
+from typemut.db import MutantRow
+from typemut.engine import MutationTester
+from typemut.errors import TypemutError
+from typemut.runner import CommandResult, CommandRunner, Outcome
 
 logger = logging.getLogger(__name__)
 
-_DB_FLUSH_BATCH_SIZE = 50
+# Seconds to wait for a terminated worker to exit.
+_TERMINATE_TIMEOUT = 5
 
 
-class DirtyWorkingTreeError(Exception):
+class WorkspaceError(TypemutError):
+    """A git operation needed for parallel execution failed."""
+
+
+class WorkerError(TypemutError):
+    """A worker process failed."""
+
+
+class DirtyWorkingTreeError(WorkspaceError):
     """Raised when the git working tree has uncommitted changes."""
 
 
-def run_all_mutants_parallel(
-    db: Database,
-    mutants: list[MutantRow],
-    test_command: str,
-    timeout: int,
-    jobs: int,
-) -> None:
-    """Run all pending mutants in parallel using git worktrees."""
-    ensure_clean_git_status()
+@dataclass(frozen=True)
+class WorkerJob:
+    """Mutants that one worker runs, one after another, in its own copy of the project."""
 
-    project_root = Path.cwd()
-    n_workers = min(jobs, len(mutants))
-    worktree_paths: list[Path] = []
-
-    try:
-        # Create worktrees
-        for i in range(n_workers):
-            wt = _create_worktree(project_root, i)
-            worktree_paths.append(wt)
-
-        # Partition work
-        chunks = partition_mutants(mutants, n_workers)
-
-        # Launch workers
-        result_queue: Queue[tuple[int, str, str | None, float]] = Queue()
-        processes: list[Process] = []
-        for i in range(n_workers):
-            if not chunks[i]:
-                continue
-            p = Process(
-                target=_worker_loop,
-                args=(
-                    chunks[i],
-                    str(worktree_paths[i]),
-                    test_command,
-                    timeout,
-                    result_queue,
-                ),
-            )
-            processes.append(p)
-            p.start()
-
-        # Collect results with progress bar
-        with Progress() as progress:
-            task = progress.add_task("Running mutations...", total=len(mutants))
-            batch: list[tuple[int, str, str | None, float]] = []
-            completed = 0
-
-            while completed < len(mutants):
-                item = result_queue.get()
-                batch.append(item)
-                completed += 1
-                progress.advance(task)
-
-                if len(batch) >= _DB_FLUSH_BATCH_SIZE:
-                    db.update_results_batch(batch)
-                    batch.clear()
-
-            # Flush remaining
-            if batch:
-                db.update_results_batch(batch)
-
-        for p in processes:
-            p.join()
-
-    finally:
-        # Terminate any still-running workers
-        for p in processes:
-            if p.is_alive():
-                p.terminate()
-                p.join(timeout=5)
-        _remove_worktrees(project_root, worktree_paths)
+    mutants: Collection[MutantRow]
+    root: Path
 
 
-def _worker_loop(
-    chunk: Iterable[MutantRow],
-    worktree_dir: str,
-    test_command: str,
-    timeout: int,
-    result_queue: Queue[tuple[int, str, str | None, float]],
-) -> None:
-    """Worker process: run mutations in its own worktree."""
-    root = Path(worktree_dir)
-    for mutant in chunk:
-        assert mutant.id is not None
-        status, output, duration = run_single_mutant(
-            mutant, test_command, timeout, project_root=root
-        )
-        result_queue.put((mutant.id, status, output, duration))
+class WorkerPool(Protocol):
+    """Runs worker jobs, possibly concurrently, and yields results as they arrive."""
+
+    def run(self, tester: MutationTester, jobs: Iterable[WorkerJob]) -> Iterable[MutantRow]:
+        """Run every job with *tester*."""
+        ...
 
 
-def ensure_clean_git_status() -> None:
-    """Verify git working tree is clean (no uncommitted or untracked files).
+class InlinePool:
+    """Runs jobs one after another in the current process."""
 
-    Parallel execution uses git worktrees which only see committed state,
-    so uncommitted changes would be silently lost.
+    def run(self, tester: MutationTester, jobs: Iterable[WorkerJob]) -> Iterable[MutantRow]:
+        for job in jobs:
+            for mutant in job.mutants:
+                yield tester.run(mutant, job.root)
+
+
+class ProcessPool:
+    """Runs each job in its own process.
+
+    Waits for results *poll_interval* seconds at a time, checking in between
+    that some worker is still alive.
     """
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise DirtyWorkingTreeError(f"Failed to check git status: {result.stderr.strip()}")
-    if result.stdout.strip():
-        raise DirtyWorkingTreeError(
-            "Working tree has uncommitted changes. "
-            "Please commit or stash them before running with --jobs > 1.\n"
-            f"  git status:\n{result.stdout.rstrip()}"
-        )
 
+    def __init__(self, poll_interval: float = 1.0) -> None:
+        self._poll_interval = poll_interval
 
-def _create_worktree(project_root: Path, index: int) -> Path:
-    """Create a detached git worktree for a worker."""
-    tmp = Path(tempfile.mkdtemp(prefix=f"typemut_w{index}_"))
-    worktree_path = tmp / "worktree"
-    subprocess.run(
-        ["git", "worktree", "add", "--detach", str(worktree_path)],
-        cwd=str(project_root),
-        capture_output=True,
-        check=True,
-    )
-    return worktree_path
-
-
-def _remove_worktrees(
-    project_root: Path,
-    worktree_paths: Iterable[Path],
-) -> None:
-    """Remove git worktrees and their temp directories."""
-    for wt in worktree_paths:
+    def run(self, tester: MutationTester, jobs: Iterable[WorkerJob]) -> Iterable[MutantRow]:
+        results: Queue[MutantRow] = Queue()
+        active = [job for job in jobs if job.mutants]
+        processes = [Process(target=run_worker, args=(tester, job, results)) for job in active]
+        for process in processes:
+            process.start()
         try:
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", str(wt)],
-                cwd=str(project_root),
-                capture_output=True,
+            remaining = sum(len(job.mutants) for job in active)
+            while remaining:
+                result = self._next_result(results)
+                if result is None:
+                    if not any(process.is_alive() for process in processes):
+                        raise WorkerError("A worker process exited before finishing its mutants")
+                    continue
+                remaining -= 1
+                yield result
+            for process in processes:
+                process.join()
+        finally:
+            # Workers are still running if the consumer stopped early.
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+                    process.join(timeout=_TERMINATE_TIMEOUT)
+
+    def _next_result(self, results: Queue[MutantRow]) -> MutantRow | None:
+        """The next result, or None if none arrived within the poll interval."""
+        try:
+            return results.get(timeout=self._poll_interval)
+        except queue.Empty:
+            return None
+
+
+def run_worker(tester: MutationTester, job: WorkerJob, results: Queue[MutantRow]) -> None:
+    """Worker process body: run *job* and put each result on *results*."""
+    for result in InlinePool().run(tester, [job]):
+        results.put(result)
+
+
+class GitWorkspace:
+    """Creates and removes detached git worktrees of the project at *root*."""
+
+    def __init__(self, root: Path, runner: CommandRunner) -> None:
+        self.root = root
+        self._runner = runner
+
+    def ensure_clean(self) -> None:
+        """Verify the working tree has no uncommitted or untracked files.
+
+        Worktrees only see committed state, so uncommitted changes would be
+        silently lost.
+        """
+        result = self._git("status", "--porcelain")
+        if result.outcome is not Outcome.PASSED:
+            raise WorkspaceError("Failed to check git status", result.output.strip())
+        if result.output.strip():
+            raise DirtyWorkingTreeError(
+                "Working tree has uncommitted changes. "
+                "Please commit or stash them before running with --jobs > 1.",
+                f"git status:\n{result.output.rstrip()}",
             )
-        except Exception:
-            logger.warning("Failed to remove worktree %s", wt, exc_info=True)
-        # Clean up the parent temp directory
-        parent = wt.parent
-        if parent.exists():
-            shutil.rmtree(parent, ignore_errors=True)
-    # Prune stale worktree references
-    subprocess.run(
-        ["git", "worktree", "prune"],
-        cwd=str(project_root),
-        capture_output=True,
-    )
+
+    def create_worktree(self, index: int) -> Path:
+        """Create a detached worktree for worker *index* in a new temp directory."""
+        worktree = Path(tempfile.mkdtemp(prefix=f"typemut_w{index}_")) / "worktree"
+        result = self._git("worktree", "add", "--detach", str(worktree))
+        if result.outcome is not Outcome.PASSED:
+            shutil.rmtree(worktree.parent, ignore_errors=True)
+            raise WorkspaceError("Failed to create git worktree", result.output.strip())
+        return worktree
+
+    def remove_worktrees(self, worktrees: Iterable[Path]) -> None:
+        """Remove *worktrees* and their temp directories; failures are only logged."""
+        for worktree in worktrees:
+            result = self._git("worktree", "remove", "--force", str(worktree))
+            if result.outcome is not Outcome.PASSED:
+                logger.warning("Failed to remove worktree %s: %s", worktree, result.output.strip())
+            shutil.rmtree(worktree.parent, ignore_errors=True)
+        self._git("worktree", "prune")
+
+    def _git(self, *args: str) -> CommandResult:
+        return self._runner.run(shlex.join(("git", *args)), cwd=self.root)
+
+
+class WorktreeExecutor:
+    """Runs mutants on up to *jobs* workers, each in its own git worktree."""
+
+    def __init__(
+        self,
+        tester: MutationTester,
+        workspace: GitWorkspace,
+        pool: WorkerPool,
+        jobs: int,
+    ) -> None:
+        self._tester = tester
+        self._workspace = workspace
+        self._pool = pool
+        self._jobs = jobs
+
+    def execute(self, mutants: Collection[MutantRow]) -> Iterable[MutantRow]:
+        self._workspace.ensure_clean()
+        n_workers = min(self._jobs, len(mutants))
+        worktrees: list[Path] = []
+        try:
+            for index in range(n_workers):
+                worktrees.append(self._workspace.create_worktree(index))
+            jobs = [
+                WorkerJob(chunk, root)
+                for chunk, root in zip(
+                    partition_mutants(mutants, n_workers), worktrees, strict=True
+                )
+            ]
+            yield from self._pool.run(self._tester, jobs)
+        finally:
+            self._workspace.remove_worktrees(worktrees)
 
 
 def partition_mutants(

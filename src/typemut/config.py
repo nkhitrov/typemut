@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tomllib
+from collections.abc import Container
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,6 +36,10 @@ class OperatorsConfig:
     widen_container_type: bool = True
     swap_iterator_generator: bool = True
     typevar_variance: bool = True
+
+    def disabled_operators(self) -> Container[str]:
+        """Config keys of the operators switched off."""
+        return {key for key in OPERATOR_KEYS if not getattr(self, key.replace("-", "_"))}
 
 
 @dataclass

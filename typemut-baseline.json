@@ -50,20 +50,6 @@
   },
   {
     "file": "src/typemut/cli.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "def _check_survivor_baseline(path: Path, survivors: Collection[MutantRow]) -> bool:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "AddOptional",
-    "original": "int",
-    "mutated": "int | None",
-    "source": ") -> int:"
-  },
-  {
-    "file": "src/typemut/cli.py",
     "operator": "RemoveOptional",
     "original": "float | None",
     "mutated": "float",
@@ -102,35 +88,7 @@
     "operator": "RemoveOptional",
     "original": "str | None",
     "mutated": "str",
-    "source": "def exec_cmd(config_path: str, db_path: str | None, jobs: int) -> None:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "RemoveOptional",
-    "original": "str | None",
-    "mutated": "str",
-    "source": "def html(db_path: str, out_path: str | None, open_browser: bool) -> None:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "RemoveOptional",
-    "original": "str | None",
-    "mutated": "str",
-    "source": "def init(config_path: str, db_path: str | None) -> None:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "RemoveOptional",
-    "original": "str | None",
-    "mutated": "str",
     "source": "def main(ctx: click.Context, project_dir: str | None) -> None:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "WidenContainerType",
-    "original": "list[Plugin]",
-    "mutated": "Sequence[Plugin]",
-    "source": "def _load_plugins(cfg: Config) -> list[Plugin]:"
   },
   {
     "file": "src/typemut/config.py",
@@ -229,13 +187,6 @@
     "original": "tuple[str, ...]",
     "mutated": "Sequence[str]",
     "source": "OPERATOR_KEYS: tuple[str, ...] = ("
-  },
-  {
-    "file": "src/typemut/db.py",
-    "operator": "AddOptional",
-    "original": "Database",
-    "mutated": "Database | None",
-    "source": "def __enter__(self) -> Database:"
   },
   {
     "file": "src/typemut/db.py",
@@ -383,13 +334,6 @@
     "original": "list[str]",
     "mutated": "Sequence[str]",
     "source": "skip_comments: list[str] | None = None,"
-  },
-  {
-    "file": "src/typemut/engine.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "def _is_false_kill(output: str) -> bool:"
   },
   {
     "file": "src/typemut/ignore.py",
@@ -646,13 +590,6 @@
   {
     "file": "src/typemut/parallel.py",
     "operator": "WidenContainerType",
-    "original": "list[MutantRow]",
-    "mutated": "Sequence[MutantRow]",
-    "source": "mutants: list[MutantRow],"
-  },
-  {
-    "file": "src/typemut/parallel.py",
-    "operator": "WidenContainerType",
     "original": "list[list[MutantRow]]",
     "mutated": "Sequence[list[MutantRow]]",
     "source": ") -> list[list[MutantRow]]:"
@@ -663,13 +600,6 @@
     "original": "Collection[Plugin]",
     "mutated": "Iterable[Plugin]",
     "source": "plugins: Collection[Plugin] = (),"
-  },
-  {
-    "file": "src/typemut/plugins/__init__.py",
-    "operator": "WidenContainerType",
-    "original": "Collection[str]",
-    "mutated": "Iterable[str]",
-    "source": "def get_plugins(names: Collection[str]) -> list[Plugin]:"
   },
   {
     "file": "src/typemut/plugins/__init__.py",

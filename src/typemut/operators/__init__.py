@@ -2,45 +2,41 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Final
+
 from typemut.config import OperatorsConfig
 from typemut.operators.base import TypeMutationOperator
+from typemut.operators.iterator_generator import SwapIteratorGenerator
+from typemut.operators.literal import RemoveLiteralMember
+from typemut.operators.optional import AddOptional, RemoveOptional
+from typemut.operators.union import RemoveUnionMember
+from typemut.operators.variance import TypeVarVariance
+from typemut.operators.widen import WidenContainerType
+from typemut.operators.widen_type import WidenType
+
+BUILTIN_OPERATORS: Final = (
+    RemoveUnionMember,
+    RemoveLiteralMember,
+    WidenType,
+    RemoveOptional,
+    AddOptional,
+    WidenContainerType,
+    SwapIteratorGenerator,
+    TypeVarVariance,
+)
 
 
-def get_enabled_operators(config: OperatorsConfig) -> list[TypeMutationOperator]:
-    """Return list of enabled operators based on config."""
-    operators: list[TypeMutationOperator] = []
+class OperatorRegistry:
+    """The operators typemut can run, switched on and off by ``[typemut.operators]``."""
 
-    if config.remove_union_member:
-        from typemut.operators.union import RemoveUnionMember
+    def __init__(
+        self,
+        operators: Iterable[type[TypeMutationOperator]] = BUILTIN_OPERATORS,
+    ) -> None:
+        self._operators = tuple(operators)
 
-        operators.append(RemoveUnionMember())
-    if config.remove_literal_member:
-        from typemut.operators.literal import RemoveLiteralMember
-
-        operators.append(RemoveLiteralMember())
-    if config.widen_type:
-        from typemut.operators.widen_type import WidenType
-
-        operators.append(WidenType())
-    if config.remove_optional:
-        from typemut.operators.optional import RemoveOptional
-
-        operators.append(RemoveOptional())
-    if config.add_optional:
-        from typemut.operators.optional import AddOptional
-
-        operators.append(AddOptional())
-    if config.widen_container_type:
-        from typemut.operators.widen import WidenContainerType
-
-        operators.append(WidenContainerType())
-    if config.swap_iterator_generator:
-        from typemut.operators.iterator_generator import SwapIteratorGenerator
-
-        operators.append(SwapIteratorGenerator())
-    if config.typevar_variance:
-        from typemut.operators.variance import TypeVarVariance
-
-        operators.append(TypeVarVariance())
-
-    return operators
+    def enabled(self, config: OperatorsConfig) -> list[TypeMutationOperator]:
+        """Instantiate the operators *config* enables, in registration order."""
+        disabled = config.disabled_operators()
+        return [operator() for operator in self._operators if operator.config_key not in disabled]
