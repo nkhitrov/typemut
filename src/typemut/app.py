@@ -30,7 +30,8 @@ from typemut.parallel import GitWorkspace, ProcessPool, WorkerPool, WorktreeExec
 from typemut.plugins import MutationFinder, PluginRegistry
 from typemut.registry import RegistryBuilder
 from typemut.reporting.html import HtmlReport
-from typemut.reporting.terminal import MutationScore, TerminalReport
+from typemut.reporting.score import MutationScore
+from typemut.reporting.terminal import TerminalReport
 from typemut.runner import CommandRunner, ShellRunner
 
 

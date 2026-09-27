@@ -12,7 +12,8 @@ from rich.console import Console
 from tests.fakes import StubSourceReader
 from typemut.db import Database, MutantRow, MutantStatus
 from typemut.reporting.html import FileSourceReader, HtmlReport
-from typemut.reporting.terminal import MutationScore, TerminalReport
+from typemut.reporting.score import MutationScore
+from typemut.reporting.terminal import TerminalReport
 
 
 def _populate_db(db: Database) -> None:
@@ -54,7 +55,8 @@ class TestHtmlReport:
     def test_empty_db(self, tmp_db: Database) -> None:
         html = HtmlReport().render(tmp_db)
         assert "typemut" in html
-        assert "0.0%" in html
+        assert "—" in html
+        assert "0.0%" not in html
 
     def test_html_contains_modules(self, tmp_db: Database) -> None:
         _populate_db(tmp_db)
@@ -62,6 +64,13 @@ class TestHtmlReport:
         assert "a.py" in html
         assert "b.py" in html
         assert "TOTAL" in html
+
+    def test_unscored_module_shows_dash(self, tmp_db: Database) -> None:
+        tmp_db.insert_mutant(
+            MutantRow(None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status=MutantStatus.ERROR)
+        )
+        html = HtmlReport(StubSourceReader({})).render(tmp_db)
+        assert '<td class="">—</td></tr>\n' in html
 
     def test_html_score_calculation(self, tmp_db: Database) -> None:
         _populate_db(tmp_db)

@@ -11,6 +11,7 @@ from typing import Protocol
 
 import typemut
 from typemut.db import Database, MutantRow, MutantStatus
+from typemut.reporting.score import MutationScore
 
 STATUS_COLORS = {
     MutantStatus.KILLED: "#2d7d2d",
@@ -76,15 +77,14 @@ class HtmlReport:
         total_errors = sum(s.get(MutantStatus.ERROR, 0) for s in summary.values())
         total_skipped = sum(s.get(MutantStatus.SKIPPED, 0) for s in summary.values())
         total_all = sum(sum(s.values()) for s in summary.values())
-        testable = total_killed + total_survived
-        total_score = (total_killed / testable * 100) if testable > 0 else 0
+        total_score = MutationScore(summary).total()
 
         module_rows = self._build_module_rows(summary)
         survived_cards = self._build_mutant_cards(by_status[MutantStatus.SURVIVED])
         error_cards = self._build_mutant_cards(by_status[MutantStatus.ERROR])
         killed_cards = self._build_mutant_cards(by_status[MutantStatus.KILLED])
 
-        sc = self._score_class(total_score)
+        sc = "" if total_score is None else self._score_class(total_score)
 
         survived_section = (
             "<p>No survived mutants. All mutations were caught by the type checker.</p>"
@@ -261,7 +261,7 @@ class HtmlReport:
 
     <div class="summary">
       <div class="stat">
-        <div class="value {sc}">{total_score:.1f}%</div>
+        <div class="value {sc}">{self._score_text(total_score)}</div>
         <div class="label">Mutation Score</div>
       </div>
       <div class="stat">
@@ -291,7 +291,7 @@ class HtmlReport:
     <tr><th>Module</th><th>Total</th><th>Killed</th><th>Survived</th><th>Errors</th><th>Skipped</th><th>Score</th></tr>
     {module_rows}<tr class="totals">
     <td>TOTAL</td><td>{total_all}</td><td>{total_killed}</td><td>{total_survived}</td>
-    <td>{total_errors}</td><td>{total_skipped}</td><td class="{sc}">{total_score:.1f}%</td></tr>
+    <td>{total_errors}</td><td>{total_skipped}</td><td class="{sc}">{self._score_text(total_score)}</td></tr>
     </table>
 
     <h2 class="collapsible" onclick="toggle(this)">Survived Mutants ({total_survived})</h2>
@@ -350,9 +350,8 @@ class HtmlReport:
             errors = statuses.get(MutantStatus.ERROR, 0)
             skipped = statuses.get(MutantStatus.SKIPPED, 0)
             total = sum(statuses.values())
-            testable = killed + survived
-            score = (killed / testable * 100) if testable > 0 else 0
-            sc = self._score_class(score)
+            score = MutationScore({module: statuses}).total()
+            sc = "" if score is None else self._score_class(score)
             rows += (
                 f'<tr><td class="module-name">{escape(module)}</td>'
                 f"<td>{total}</td>"
@@ -360,7 +359,7 @@ class HtmlReport:
                 f"<td>{survived}</td>"
                 f"<td>{errors}</td>"
                 f"<td>{skipped}</td>"
-                f'<td class="{sc}">{score:.1f}%</td></tr>\n'
+                f'<td class="{sc}">{self._score_text(score)}</td></tr>\n'
             )
         return rows
 
@@ -433,6 +432,12 @@ class HtmlReport:
         if score >= 50:
             return "mid"
         return "bad"
+
+    def _score_text(
+        self, score: float | None
+    ) -> str:  # pragma: no mutate  (only used in f-strings)
+        """The score in percent, or a dash when no mutant was killed or survived."""
+        return "—" if score is None else f"{score:.1f}%"
 
     def _generate_diff(
         self, mutant: MutantRow, source: str | None, context_lines: int = 3
