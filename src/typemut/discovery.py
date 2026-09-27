@@ -105,17 +105,17 @@ class AnnotationFinder(NodeSource):
                 # Don't return; still recurse for nested annotations
         context = _ANNOTATION_CONTEXTS.get(node.type)
         if context is not None:
-            ann = self._annotation(node, context)
+            ann = self._annotation(node)
             if ann is not None and not self._is_any(ann):
                 self._add(scan, ann, context)
         for child in node.children:
             self._visit(child, scan)
 
-    def _annotation(self, node: BaseNode, context: AnnotationContext) -> BaseNode | Leaf | None:
+    def _annotation(self, node: BaseNode) -> BaseNode | Leaf | None:
         """The annotation of an annassign (``x: int``), tfpdef (``x: int`` param) or funcdef."""
-        if context is AnnotationContext.VARIABLE:
+        if node.type == "annassign":
             return self._get_annotation_from_annassign(node)
-        if context is AnnotationContext.PARAMETER:
+        if node.type == "tfpdef":
             return self._get_annotation_from_tfpdef(node)
         return self._get_return_annotation(node)
 

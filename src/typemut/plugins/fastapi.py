@@ -70,7 +70,8 @@ class FastAPIPlugin(Plugin):
     def find_mutations(
         self,
         annotation: AnnotationNode,
-        operators: Collection[TypeMutationOperator],
+        # Unused: the signature mirrors Plugin.find_mutations.
+        operators: Collection[TypeMutationOperator],  # pragma: no mutate
         registry: Registry,
     ) -> list[Mutation] | None:
         """No mutations for endpoint signatures; leave other annotations to the core."""

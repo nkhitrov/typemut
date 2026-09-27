@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -115,7 +115,7 @@ class RegistryBuilder:
                                     imports.setdefault(s.value, f"from {module} import {s.value}")
                                     break
 
-    def _import_froms(self, node: BaseNode) -> Iterator[BaseNode]:
+    def _import_froms(self, node: BaseNode) -> Iterable[BaseNode]:
         """Yield ``import_from`` nodes, descending into try/if blocks but not def/class."""
         for child in node.children:
             if not isinstance(child, BaseNode):

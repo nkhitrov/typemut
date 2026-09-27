@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
 from parso.python.tree import BaseNode, Leaf
@@ -54,7 +55,7 @@ class TypeMutationOperator(NodeSource, ABC):
             and parent.children[0].get_code(include_prefix=False) == "."
         )
 
-    def _union_members(self, node: BaseNode | Leaf) -> list[BaseNode | Leaf]:
+    def _union_members(self, node: BaseNode | Leaf) -> Collection[BaseNode | Leaf]:
         """Extract members from a PEP 604 union (A | B | C).
 
         In parso, `A | B | C` is parsed as an `expr` node with children:
@@ -69,7 +70,7 @@ class TypeMutationOperator(NodeSource, ABC):
             return []
         return [c for c in node.children if not (isinstance(c, Leaf) and c.value == "|")]
 
-    def _type_params(self, trailer: BaseNode) -> list[str]:
+    def _type_params(self, trailer: BaseNode) -> Sequence[str]:
         """Extract comma-separated type parameters from a trailer node like [X, Y, Z].
 
         The trailer structure is: '[' subscriptlist ']' (for multiple params)

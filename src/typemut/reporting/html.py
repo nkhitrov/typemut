@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import difflib
-from collections.abc import Iterable, Mapping
+from collections.abc import Container, Iterable, Mapping
 from html import escape
 from pathlib import Path
 from typing import Protocol
@@ -61,7 +61,7 @@ class HtmlReport:
     """
 
     def __init__(self, sources: SourceReader | None = None) -> None:
-        self._sources = sources or FileSourceReader()
+        self._sources: SourceReader = sources or FileSourceReader()
 
     def render(self, db: Database) -> str:
         """Generate the report for the results in *db*."""
@@ -364,7 +364,7 @@ class HtmlReport:
     def _build_mutant_cards(
         self,
         mutants: Iterable[MutantRow],
-        statuses: set[str],
+        statuses: Container[str],
     ) -> str:
         """Build card-based HTML for mutants matching given statuses."""
         cards: list[str] = []
