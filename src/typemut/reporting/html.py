@@ -84,7 +84,7 @@ class HtmlReport:
         error_cards = self._build_mutant_cards(by_status[MutantStatus.ERROR])
         killed_cards = self._build_mutant_cards(by_status[MutantStatus.KILLED])
 
-        sc = self._score_class(total_score)
+        sc = "" if total_score is None else self._score_class(total_score)
 
         survived_section = (
             "<p>No survived mutants. All mutations were caught by the type checker.</p>"
@@ -351,7 +351,7 @@ class HtmlReport:
             skipped = statuses.get(MutantStatus.SKIPPED, 0)
             total = sum(statuses.values())
             score = MutationScore({module: statuses}).total()
-            sc = self._score_class(score)
+            sc = "" if score is None else self._score_class(score)
             rows += (
                 f'<tr><td class="module-name">{escape(module)}</td>'
                 f"<td>{total}</td>"
@@ -426,16 +426,16 @@ class HtmlReport:
             f"{cards_html}"
         )
 
-    def _score_class(self, score: float | None) -> str:
-        if score is None:
-            return ""
+    def _score_class(self, score: float) -> str:
         if score >= 80:
             return "good"
         if score >= 50:
             return "mid"
         return "bad"
 
-    def _score_text(self, score: float | None) -> str:
+    def _score_text(
+        self, score: float | None
+    ) -> str:  # pragma: no mutate  (only used in f-strings)
         """The score in percent, or a dash when no mutant was killed or survived."""
         return "—" if score is None else f"{score:.1f}%"
 
