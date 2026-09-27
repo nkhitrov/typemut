@@ -8,6 +8,7 @@ from collections.abc import Collection
 from parso.python.tree import BaseNode, Leaf
 
 from typemut.discovery import AnnotationNode
+from typemut.nodes import NodeSource
 from typemut.operators.base import Mutation, TypeMutationOperator
 
 TYPE_CHECKING = False
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
     from typemut.registry import Registry
 
 
-class Plugin(ABC):
+class Plugin(NodeSource, ABC):
     """Library-specific knowledge layered on top of the core operators.
 
     Core operators are library-agnostic. Libraries that wrap user types in
