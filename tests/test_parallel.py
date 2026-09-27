@@ -25,8 +25,12 @@ from typemut.parallel import (
 )
 from typemut.runner import ShellRunner
 
-# Survives quickly, except in a directory holding a `slow` file.
-_SLOW_IN_MARKED_ROOT = "test -f slow && sleep 30; true"
+# In a root holding a `slow` file: mark itself started and hang.
+# Elsewhere: survive as soon as the slow worker has started.
+_SLOW_IN_MARKED_ROOT = (
+    "if [ -f slow ]; then touch started; sleep 30; "
+    "else until [ -f ../slow/started ]; do sleep 0.01; done; fi"
+)
 
 
 def _tester(command: str = "true") -> MutationTester:

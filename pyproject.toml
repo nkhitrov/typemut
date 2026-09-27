@@ -66,7 +66,6 @@ branch = true
 # Worker processes (typemut.parallel.ProcessPool) record coverage too.
 concurrency = ["multiprocessing"]
 parallel = true
-sigterm = true
 
 [tool.coverage.report]
 show_missing = true
