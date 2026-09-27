@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -53,8 +53,18 @@ class Registry:
         return reg
 
 
+# Module-level compound statements whose bodies may hold imports, e.g.
+# ``try: ... except ImportError: ...`` or ``if TYPE_CHECKING: ...``.
+# ``suite`` is the indented body of any of their branches.
+_CONDITIONAL_BLOCK_TYPES = frozenset({"try_stmt", "if_stmt", "suite"})
+
+
 def _extract_imports(tree: BaseNode) -> dict[str, str]:
     """Extract all ``from X import Y`` mappings from the module-level AST.
+
+    Imports inside module-level ``try``/``if`` blocks are included; imports
+    inside function or class bodies are not. The first occurrence of a name
+    wins, so ``try:`` imports take precedence over ``except`` fallbacks.
 
     Returns {name: "from module import name"} for each imported name.
     """
@@ -79,7 +89,7 @@ def _extract_imports(tree: BaseNode) -> dict[str, str]:
                     # Imported name
                     if child.type == "name":
                         module = "".join(module_parts)
-                        imports[child.value] = f"from {module} import {child.value}"
+                        imports.setdefault(child.value, f"from {module} import {child.value}")
             elif isinstance(child, BaseNode):
                 if not found_import:
                     # Dotted module name
@@ -91,24 +101,31 @@ def _extract_imports(tree: BaseNode) -> dict[str, str]:
                     module = "".join(module_parts)
                     for sub in child.children:
                         if isinstance(sub, Leaf) and sub.type == "name":
-                            imports[sub.value] = f"from {module} import {sub.value}"
+                            imports.setdefault(sub.value, f"from {module} import {sub.value}")
                         elif isinstance(sub, BaseNode) and sub.type == "import_as_name":
                             # from X import Y as Z — use the original name Y
                             for s in sub.children:
                                 if isinstance(s, Leaf) and s.type == "name":
-                                    imports[s.value] = f"from {module} import {s.value}"
+                                    imports.setdefault(s.value, f"from {module} import {s.value}")
                                     break
 
-    for child in tree.children:
-        if isinstance(child, BaseNode):
-            if child.type == "import_from":
-                _visit_import_from(child)
-            elif child.type == "simple_stmt":
-                for sub in child.children:
-                    if isinstance(sub, BaseNode) and sub.type == "import_from":
-                        _visit_import_from(sub)
-
+    _visit_import_froms(tree, _visit_import_from)
     return imports
+
+
+def _visit_import_froms(node: BaseNode, visit: Callable[[BaseNode], None]) -> None:
+    """Call *visit* on ``import_from`` nodes, descending into try/if blocks but not def/class."""
+    for child in node.children:
+        if not isinstance(child, BaseNode):
+            continue
+        if child.type == "import_from":
+            visit(child)
+        elif child.type == "simple_stmt":
+            for sub in child.children:
+                if isinstance(sub, BaseNode) and sub.type == "import_from":
+                    visit(sub)
+        elif child.type in _CONDITIONAL_BLOCK_TYPES:
+            _visit_import_froms(child, visit)
 
 
 def _extract_hierarchy(
