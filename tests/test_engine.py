@@ -18,6 +18,29 @@ _PRINT_MTIME = (
 )
 
 
+_MULTILINE_ANNOTATION = "Callable[\n    [int],\n    str,\n]"
+_MULTILINE_SOURCE = (
+    "from typing import Callable\n"
+    "\n"
+    "\n"
+    f"def f() -> {_MULTILINE_ANNOTATION}:\n"
+    "    ...\n"
+)
+
+
+def _multiline_mutant(original: str) -> MutantRow:
+    return MutantRow(
+        id=1,
+        module_path="test.py",
+        operator="AddOptional",
+        line=4,
+        col=11,
+        original_annotation=original,
+        mutated_annotation=f"{original} | None",
+        description="test",
+    )
+
+
 def _int_mutant(mutated: str) -> MutantRow:
     return MutantRow(
         id=1,
@@ -107,6 +130,38 @@ class TestRunSingleMutant:
         assert status == "error"
         assert "Could not apply mutation" in (output or "")
 
+
+    def test_multiline_annotation_applied(self, tmp_path: Path) -> None:
+        src = tmp_path / "test.py"
+        src.write_text(_MULTILINE_SOURCE)
+
+        status, output, _ = run_single_mutant(
+            _multiline_mutant(_MULTILINE_ANNOTATION),
+            "cat test.py && false",
+            timeout=5,
+            project_root=tmp_path,
+        )
+
+        assert status == "killed"
+        assert output == _MULTILINE_SOURCE.replace(
+            _MULTILINE_ANNOTATION, f"{_MULTILINE_ANNOTATION} | None"
+        )
+        assert src.read_text() == _MULTILINE_SOURCE
+
+    def test_multiline_annotation_mismatch(self, tmp_path: Path) -> None:
+        src = tmp_path / "test.py"
+        src.write_text(_MULTILINE_SOURCE)
+
+        status, output, _ = run_single_mutant(
+            _multiline_mutant("Callable[\n    [int],\n    int,\n]"),
+            "true",
+            timeout=5,
+            project_root=tmp_path,
+        )
+
+        assert status == "error"
+        assert "Could not apply mutation" in (output or "")
+        assert src.read_text() == _MULTILINE_SOURCE
 
     def test_false_kill_detected(self, tmp_path: Path) -> None:
         src = tmp_path / "test.py"

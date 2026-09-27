@@ -95,21 +95,21 @@ def run_single_mutant(
     if line_idx >= len(lines):
         return "error", "Line number out of range", 0.0
 
-    line = lines[line_idx]
-    # Replace at exact column position
+    # Replace at exact offset in the whole source (annotation may span lines)
     col = mutant.col
     orig = mutant.original_annotation
-    end_col = col + len(orig)
-    if line[col:end_col] != orig:
+    offset = sum(len(line) for line in lines[:line_idx]) + col
+    end = offset + len(orig)
+    found = source_for_mutation[offset:end]
+    if found != orig:
         return (
             "error",
-            f"Could not apply mutation — expected '{orig}' at col {col}, found '{line[col:end_col]}'",
+            f"Could not apply mutation — expected '{orig}' at col {col}, found '{found}'",
             0.0,
         )
-    new_line = line[:col] + mutant.mutated_annotation + line[end_col:]
-
-    lines[line_idx] = new_line
-    mutated_source = "".join(lines)
+    mutated_source = (
+        source_for_mutation[:offset] + mutant.mutated_annotation + source_for_mutation[end:]
+    )
 
     original_stat = file_path.stat()
     try:
