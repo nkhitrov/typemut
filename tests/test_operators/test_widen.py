@@ -35,6 +35,10 @@ def test_widen_container(source: str, expected: list[str]) -> None:
         pytest.param("x: int\n", id="plain-type-no-widen"),
         pytest.param("x: tuple[int, str]\n", id="heterogeneous-tuple-skipped"),
         pytest.param("x: tuple[()]\n", id="empty-tuple-skipped"),
+        pytest.param(
+            "import builtins\nx: builtins.dict[str, int]\n", id="qualified-dict-skipped"
+        ),
+        pytest.param("import builtins\nx: builtins.list\n", id="qualified-bare-list-skipped"),
     ],
 )
 def test_no_widen(source: str) -> None:

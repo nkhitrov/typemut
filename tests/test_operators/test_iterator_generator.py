@@ -60,6 +60,11 @@ def test_swap_iterator_generator(source: str, expected: list[str]) -> None:
         pytest.param("x: dict[str, int]\n", id="dict-no-swap"),
         pytest.param("x: Iterable[int]\n", id="Iterable-no-narrowing"),
         pytest.param("x: AsyncIterable[int]\n", id="AsyncIterable-no-narrowing"),
+        pytest.param("import typing\nx: typing.Iterator[int]\n", id="qualified-Iterator-skipped"),
+        pytest.param(
+            "import typing\nx: typing.Generator[int, None, None]\n",
+            id="qualified-Generator-skipped",
+        ),
     ],
 )
 def test_no_swap(source: str) -> None:

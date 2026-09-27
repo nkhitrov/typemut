@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from parso.python.tree import BaseNode, Leaf
 
 from typemut.discovery import AnnotationContext, _node_code
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.operators.base import Mutation, TypeMutationOperator, is_qualified_name
 from typemut.operators.iterator_generator import _extract_params
 from typemut.registry import Registry
 
@@ -60,7 +60,12 @@ def _find_widenings(
     mutations: list[Mutation],
 ) -> None:
     """Find container type names and generate widening mutations."""
-    if isinstance(node, Leaf) and node.value in WIDEN_MAP and node.type == "name":
+    if (
+        isinstance(node, Leaf)
+        and node.value in WIDEN_MAP
+        and node.type == "name"
+        and not is_qualified_name(node)
+    ):
         widen_to = WIDEN_MAP[node.value]
         parent = node.parent
         if parent is not None and isinstance(parent, BaseNode):
