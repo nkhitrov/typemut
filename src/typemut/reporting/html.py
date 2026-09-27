@@ -406,8 +406,8 @@ class HtmlReport:
                 f'<span class="mutant-id">#{m.id}</span>'
                 f'<span class="mutant-operator">{escape(m.operator)}</span>'
                 f'<span class="mutant-location">{escape(m.module_path)}:{m.line}</span>'
-                f'<span class="badge" style="background:{STATUS_COLORS[status]}">'
-                f"{STATUS_LABELS[status]}</span>"
+                f'<span class="badge" style="background:{STATUS_COLORS[m.status]}">'
+                f"{STATUS_LABELS[m.status]}</span>"
                 f"{duration_html}"
                 f'<span class="chevron">&#x25B6;</span>'
                 f"</div>"
