@@ -9,16 +9,16 @@ import pytest
 from rich.console import Console
 
 from tests.fakes import StubSourceReader
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 from typemut.reporting.html import FileSourceReader, HtmlReport
 from typemut.reporting.terminal import MutationScore, TerminalReport
 
 
 def _populate_db(db: Database) -> None:
     db.insert_many([
-        MutantRow(None, "a.py", "RemoveUnionMember", 1, 3, "int | str", "int", "Remove str", status="killed"),
-        MutantRow(None, "a.py", "AddOptional", 2, 3, "int", "int | None", "Add None", status="survived"),
-        MutantRow(None, "b.py", "RemoveOptional", 1, 3, "int | None", "int", "Remove None", status="killed"),
+        MutantRow(None, "a.py", "RemoveUnionMember", 1, 3, "int | str", "int", "Remove str", status=MutantStatus.KILLED),
+        MutantRow(None, "a.py", "AddOptional", 2, 3, "int", "int | None", "Add None", status=MutantStatus.SURVIVED),
+        MutantRow(None, "b.py", "RemoveOptional", 1, 3, "int | None", "int", "Remove None", status=MutantStatus.KILLED),
     ])
 
 

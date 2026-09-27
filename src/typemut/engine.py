@@ -15,7 +15,7 @@ from typing import Final, Protocol
 from rich.console import Console
 from rich.progress import track
 
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 from typemut.imports import ImportInjector
 from typemut.runner import CommandResult, CommandRunner, Outcome
 
@@ -43,9 +43,9 @@ DB_FLUSH_BATCH_SIZE = 50
 
 # Mutant status by test-command outcome, before false-kill detection.
 _STATUS_BY_OUTCOME: Final = {
-    Outcome.PASSED: "survived",  # no type errors: the mutant went unnoticed
-    Outcome.FAILED: "killed",
-    Outcome.TIMED_OUT: "killed",
+    Outcome.PASSED: MutantStatus.SURVIVED,  # no type errors: the mutant went unnoticed
+    Outcome.FAILED: MutantStatus.KILLED,
+    Outcome.TIMED_OUT: MutantStatus.KILLED,
 }
 
 
@@ -118,14 +118,14 @@ class MutationTester:
         try:
             mutated_source = self.applier.apply(original_source, mutant)
         except MutationApplyError as exc:
-            return replace(mutant, status="error", output=str(exc), duration_seconds=0.0)
+            return replace(mutant, status=MutantStatus.ERROR, output=str(exc), duration_seconds=0.0)
 
         original_stat = file_path.stat()
         try:
             file_path.write_text(mutated_source)
         except OSError as exc:
             output = f"Failed to write mutation: {exc}"
-            return replace(mutant, status="error", output=output, duration_seconds=0.0)
+            return replace(mutant, status=MutantStatus.ERROR, output=output, duration_seconds=0.0)
         os.utime(
             file_path,
             ns=(
@@ -206,7 +206,7 @@ class OutcomeClassifier:
     def __init__(self, false_kill_codes: AbstractSet[str] = FALSE_KILL_CODES) -> None:
         self._false_kill_codes = false_kill_codes
 
-    def classify(self, result: CommandResult) -> tuple[str, str]:
+    def classify(self, result: CommandResult) -> tuple[MutantStatus, str]:
         """Mutant status and output for the test command's *result*.
 
         A failure whose error codes are all false-kill codes comes from
@@ -214,11 +214,11 @@ class OutcomeClassifier:
         system: it is an error, not a kill.
         """
         if result.outcome is Outcome.TIMED_OUT:
-            return "killed", "timeout"
+            return MutantStatus.KILLED, "timeout"
         status = _STATUS_BY_OUTCOME[result.outcome]
         codes = self.error_codes(result.output)
-        if status == "killed" and codes <= self._false_kill_codes and codes:
-            return "error", result.output
+        if status is MutantStatus.KILLED and codes <= self._false_kill_codes and codes:
+            return MutantStatus.ERROR, result.output
         return status, result.output
 
     def error_codes(self, output: str) -> AbstractSet[str]:

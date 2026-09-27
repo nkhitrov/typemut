@@ -9,30 +9,30 @@ from pathlib import Path
 from typing import Protocol
 
 import typemut
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 
 STATUS_COLORS = {
-    "killed": "#2d7d2d",
-    "survived": "#d32f2f",
-    "error": "#e67e22",
-    "pending": "#7f8c8d",
-    "skipped": "#95a5a6",
+    MutantStatus.KILLED: "#2d7d2d",
+    MutantStatus.SURVIVED: "#d32f2f",
+    MutantStatus.ERROR: "#e67e22",
+    MutantStatus.PENDING: "#7f8c8d",
+    MutantStatus.SKIPPED: "#95a5a6",
 }
 
 STATUS_LABELS = {
-    "killed": "Killed",
-    "survived": "Survived",
-    "error": "Error",
-    "pending": "Pending",
-    "skipped": "Skipped",
+    MutantStatus.KILLED: "Killed",
+    MutantStatus.SURVIVED: "Survived",
+    MutantStatus.ERROR: "Error",
+    MutantStatus.PENDING: "Pending",
+    MutantStatus.SKIPPED: "Skipped",
 }
 
 HEADER_COLORS = {
-    "killed": "#e8f5e9",
-    "survived": "#ffebee",
-    "error": "#fff3e0",
-    "pending": "#f5f5f5",
-    "skipped": "#f5f5f5",
+    MutantStatus.KILLED: "#e8f5e9",
+    MutantStatus.SURVIVED: "#ffebee",
+    MutantStatus.ERROR: "#fff3e0",
+    MutantStatus.PENDING: "#f5f5f5",
+    MutantStatus.SKIPPED: "#f5f5f5",
 }
 
 
@@ -68,18 +68,18 @@ class HtmlReport:
         summary = db.get_summary()
         all_mutants = db.get_all()
 
-        total_killed = sum(s.get("killed", 0) for s in summary.values())
-        total_survived = sum(s.get("survived", 0) for s in summary.values())
-        total_errors = sum(s.get("error", 0) for s in summary.values())
-        total_skipped = sum(s.get("skipped", 0) for s in summary.values())
+        total_killed = sum(s.get(MutantStatus.KILLED, 0) for s in summary.values())
+        total_survived = sum(s.get(MutantStatus.SURVIVED, 0) for s in summary.values())
+        total_errors = sum(s.get(MutantStatus.ERROR, 0) for s in summary.values())
+        total_skipped = sum(s.get(MutantStatus.SKIPPED, 0) for s in summary.values())
         total_all = sum(sum(s.values()) for s in summary.values())
         testable = total_killed + total_survived
         total_score = (total_killed / testable * 100) if testable > 0 else 0
 
         module_rows = self._build_module_rows(summary)
-        survived_cards = self._build_mutant_cards(all_mutants, {"survived"})
-        error_cards = self._build_mutant_cards(all_mutants, {"error"})
-        killed_cards = self._build_mutant_cards(all_mutants, {"killed"})
+        survived_cards = self._build_mutant_cards(all_mutants, {MutantStatus.SURVIVED})
+        error_cards = self._build_mutant_cards(all_mutants, {MutantStatus.ERROR})
+        killed_cards = self._build_mutant_cards(all_mutants, {MutantStatus.KILLED})
 
         sc = self._score_class(total_score)
 
@@ -342,10 +342,10 @@ class HtmlReport:
     def _build_module_rows(self, summary: Mapping[str, Mapping[str, int]]) -> str:
         rows = ""
         for module, statuses in sorted(summary.items()):
-            killed = statuses.get("killed", 0)
-            survived = statuses.get("survived", 0)
-            errors = statuses.get("error", 0)
-            skipped = statuses.get("skipped", 0)
+            killed = statuses.get(MutantStatus.KILLED, 0)
+            survived = statuses.get(MutantStatus.SURVIVED, 0)
+            errors = statuses.get(MutantStatus.ERROR, 0)
+            skipped = statuses.get(MutantStatus.SKIPPED, 0)
             total = sum(statuses.values())
             testable = killed + survived
             score = (killed / testable * 100) if testable > 0 else 0
@@ -364,7 +364,7 @@ class HtmlReport:
     def _build_mutant_cards(
         self,
         mutants: Iterable[MutantRow],
-        statuses: Container[str],
+        statuses: Container[MutantStatus],
     ) -> str:
         """Build card-based HTML for mutants matching given statuses."""
         cards: list[str] = []
@@ -372,7 +372,7 @@ class HtmlReport:
             if m.status not in statuses:
                 continue
 
-            header_bg = HEADER_COLORS.get(m.status, "#f5f5f5")
+            header_bg = HEADER_COLORS[m.status]
             duration_str = f"{m.duration_seconds:.1f}s" if m.duration_seconds else ""
             duration_html = (
                 f'<span class="mutant-duration">{duration_str}</span>' if duration_str else ""
@@ -437,9 +437,9 @@ class HtmlReport:
             return "mid"
         return "bad"
 
-    def _status_badge(self, status: str) -> str:
-        color = STATUS_COLORS.get(status, "#7f8c8d")
-        label = STATUS_LABELS.get(status, status)
+    def _status_badge(self, status: MutantStatus) -> str:
+        color = STATUS_COLORS[status]
+        label = STATUS_LABELS[status]
         return f'<span class="badge" style="background:{color}">{label}</span>'
 
     def _generate_diff(

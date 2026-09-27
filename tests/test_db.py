@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 
 
 def _make_mutant(**overrides) -> MutantRow:
@@ -35,10 +35,10 @@ def test_insert_and_retrieve(tmp_db: Database) -> None:
 def test_update_result(tmp_db: Database) -> None:
     mutant = _make_mutant(operator="RemoveOptional", original_annotation="int | None", mutated_annotation="int")
     mid = tmp_db.insert_mutant(mutant)
-    tmp_db.update_result(mid, "killed", "type error found", 1.5)
+    tmp_db.update_result(mid, MutantStatus.KILLED, "type error found", 1.5)
 
     all_m = tmp_db.get_all()
-    assert all_m[0].status == "killed"
+    assert all_m[0].status is MutantStatus.KILLED
     assert all_m[0].duration_seconds == 1.5
 
     pending = tmp_db.get_pending()
@@ -47,15 +47,20 @@ def test_update_result(tmp_db: Database) -> None:
 
 def test_summary(tmp_db: Database) -> None:
     tmp_db.insert_many([
-        MutantRow(None, "a.py", "Op1", 1, 3, "int", "str", "desc", status="killed"),
-        MutantRow(None, "a.py", "Op2", 2, 3, "str", "int", "desc", status="survived"),
-        MutantRow(None, "b.py", "Op1", 1, 3, "int", "str", "desc", status="killed"),
+        MutantRow(None, "a.py", "Op1", 1, 3, "int", "str", "desc", status=MutantStatus.KILLED),
+        MutantRow(None, "a.py", "Op2", 2, 3, "str", "int", "desc", status=MutantStatus.SURVIVED),
+        MutantRow(None, "b.py", "Op1", 1, 3, "int", "str", "desc", status=MutantStatus.KILLED),
     ])
 
     summary = tmp_db.get_summary()
     assert summary["a.py"]["killed"] == 1
     assert summary["a.py"]["survived"] == 1
     assert summary["b.py"]["killed"] == 1
+
+
+def test_pending_status_read_back(tmp_db: Database) -> None:
+    tmp_db.insert_mutant(_make_mutant())
+    assert tmp_db.get_pending()[0].status is MutantStatus.PENDING
 
 
 def test_insert_many(tmp_db: Database) -> None:
@@ -68,14 +73,14 @@ def test_update_results_batch(tmp_db: Database) -> None:
     tmp_db.insert_many([_make_mutant(line=1), _make_mutant(line=2)])
     all_m = tmp_db.get_all()
     results = [
-        replace(all_m[0], status="killed", output="error output", duration_seconds=0.5),
-        replace(all_m[1], status="survived", output=None, duration_seconds=1.0),
+        replace(all_m[0], status=MutantStatus.KILLED, output="error output", duration_seconds=0.5),
+        replace(all_m[1], status=MutantStatus.SURVIVED, output=None, duration_seconds=1.0),
     ]
     tmp_db.update_results_batch(results)
 
     updated = tmp_db.get_all()
-    assert updated[0].status == "killed"
-    assert updated[1].status == "survived"
+    assert updated[0].status is MutantStatus.KILLED
+    assert updated[1].status is MutantStatus.SURVIVED
     assert len(tmp_db.get_pending()) == 0
 
 
