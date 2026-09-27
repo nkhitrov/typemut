@@ -13,6 +13,7 @@ from typemut.db import MutantRow
 from typemut.engine import MutationTester
 from typemut.parallel import (
     DirtyWorkingTreeError,
+    FileGroupPartitioner,
     GitWorkspace,
     InlinePool,
     ProcessPool,
@@ -20,8 +21,6 @@ from typemut.parallel import (
     WorkerJob,
     WorkspaceError,
     WorktreeExecutor,
-    partition_mutants,
-    run_worker,
 )
 from typemut.runner import ShellRunner
 
@@ -67,25 +66,25 @@ def _statuses(results: list[MutantRow]) -> set[tuple[int | None, str]]:
 class TestPartitionMutants:
     def test_single_worker(self) -> None:
         mutants = [make_mutant(i, f"f{i}.py") for i in range(5)]
-        chunks = partition_mutants(mutants, 1)
+        chunks = FileGroupPartitioner().split(mutants, 1)
         assert len(chunks) == 1
         assert len(chunks[0]) == 5
 
     def test_even_split(self) -> None:
         mutants = [make_mutant(i, f"f{i}.py") for i in range(4)]
-        assert [len(chunk) for chunk in partition_mutants(mutants, 2)] == [2, 2]
+        assert [len(chunk) for chunk in FileGroupPartitioner().split(mutants, 2)] == [2, 2]
 
     def test_groups_by_file(self) -> None:
         mutants = [make_mutant(1, "a.py"), make_mutant(2, "a.py"), make_mutant(3, "b.py")]
-        chunks = partition_mutants(mutants, 2)
+        chunks = FileGroupPartitioner().split(mutants, 2)
         assert [[m.module_path for m in chunk] for chunk in chunks] == [["a.py", "a.py"], ["b.py"]]
 
     def test_more_workers_than_mutants(self) -> None:
-        chunks = partition_mutants([make_mutant(1, "a.py")], 4)
+        chunks = FileGroupPartitioner().split([make_mutant(1, "a.py")], 4)
         assert [len(chunk) for chunk in chunks] == [1, 0, 0, 0]
 
     def test_empty_mutants(self) -> None:
-        assert partition_mutants([], 3) == [[], [], []]
+        assert FileGroupPartitioner().split([], 3) == [[], [], []]
 
     def test_load_balancing(self) -> None:
         mutants: list[MutantRow] = [
@@ -95,7 +94,7 @@ class TestPartitionMutants:
             make_mutant(4, "small1.py"),
             make_mutant(5, "small2.py"),
         ]
-        assert sorted(len(c) for c in partition_mutants(mutants, 2)) == [2, 3]
+        assert sorted(len(c) for c in FileGroupPartitioner().split(mutants, 2)) == [2, 3]
 
 
 class TestGitWorkspace:
@@ -150,10 +149,10 @@ class TestPools:
         results = list(InlinePool().run(_tester("false"), jobs))
         assert [r.id for r in results] == [1, 2]
 
-    def test_run_worker_puts_results(self, tmp_path: Path) -> None:
+    def test_worker_job_puts_results(self, tmp_path: Path) -> None:
         results: Queue[MutantRow] = Queue()
         job = WorkerJob([make_mutant(1), make_mutant(2)], _project(tmp_path))
-        run_worker(_tester(), job, results)
+        job.run(_tester(), results)
         assert _statuses([results.get(), results.get()]) == {(1, "survived"), (2, "survived")}
 
     def test_process_pool(self, tmp_path: Path) -> None:

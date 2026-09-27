@@ -17,9 +17,9 @@ from typemut.engine import (
     MutationTester,
     RichProgressBar,
     SequentialExecutor,
-    apply_mutation,
-    classify,
-    run_mutants,
+    MutationApplier,
+    OutcomeClassifier,
+    ResultRecorder,
 )
 from typemut.runner import CommandResult, Outcome, ShellRunner
 
@@ -157,22 +157,22 @@ class TestMutationTesterRun:
     ],
 )
 def test_classify(result: CommandResult, expected: tuple[str, str]) -> None:
-    assert classify(result) == expected
+    assert OutcomeClassifier().classify(result) == expected
 
 
 class TestApplyMutation:
     def test_replaces_annotation(self) -> None:
-        assert apply_mutation("x: int = 5\n", make_mutant()) == "x: str = 5\n"
+        assert MutationApplier().apply("x: int = 5\n", make_mutant()) == "x: str = 5\n"
 
     def test_adds_required_import(self) -> None:
         mutant = make_mutant(line=1, mutated="Sequence[int]", original="int")
-        assert apply_mutation("x: int = 5\n", mutant) == (
+        assert MutationApplier().apply("x: int = 5\n", mutant) == (
             "from collections.abc import Sequence\nx: Sequence[int] = 5\n"
         )
 
     def test_mismatch_raises(self) -> None:
         with pytest.raises(MutationApplyError, match="expected 'int' at col 3, found 'str'"):
-            apply_mutation("x: str = 5\n", make_mutant())
+            MutationApplier().apply("x: str = 5\n", make_mutant())
 
 
 class TestCheckBaseline:
@@ -209,7 +209,7 @@ class TestRunMutants:
         tmp_db.insert_many([make_mutant(None, line=line) for line in range(51)])
         progress = RecordingProgressBar()
 
-        run_mutants(tmp_db, tmp_db.get_pending(), StubExecutor("killed"), progress)
+        ResultRecorder(tmp_db, progress).record(tmp_db.get_pending(), StubExecutor("killed"))
 
         assert {m.status for m in tmp_db.get_all()} == {"killed"}
         assert progress.totals == [51]
@@ -222,7 +222,7 @@ class TestRunMutants:
         executor = SequentialExecutor(tester, root)
 
         with pytest.raises(FileNotFoundError):
-            run_mutants(tmp_db, [missing, mutant], executor, RecordingProgressBar())
+            ResultRecorder(tmp_db, RecordingProgressBar()).record([missing, mutant], executor)
 
         assert tmp_db.get_pending() == [mutant, missing]
 

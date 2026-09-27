@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typemut.engine import classify, error_codes
+from typemut.engine import OutcomeClassifier
 from typemut.runner import CommandResult, Outcome
 
 
 def _status(output: str) -> str:
     """Status of a mutant whose type checker failed with *output*."""
-    return classify(CommandResult(Outcome.FAILED, output))[0]
+    return OutcomeClassifier().classify(CommandResult(Outcome.FAILED, output))[0]
 
 
 def test_name_defined_is_false_kill():
@@ -73,4 +73,4 @@ def test_no_error_codes():
 
 def test_error_codes():
     output = "a.py:1: error: x  [arg-type]\na.py:2: note: see [docs]\nFound 1 error\n"
-    assert error_codes(output) == {"arg-type", "docs"}
+    assert OutcomeClassifier().error_codes(output) == {"arg-type", "docs"}

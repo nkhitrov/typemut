@@ -44,6 +44,11 @@ class WorkerJob:
     mutants: Collection[MutantRow]
     root: Path
 
+    def run(self, tester: MutationTester, results: Queue[MutantRow]) -> None:
+        """Worker process body: run the mutants and put each result on *results*."""
+        for mutant in self.mutants:
+            results.put(tester.run(mutant, self.root))
+
 
 class WorkerPool(Protocol):
     """Runs worker jobs, possibly concurrently, and yields results as they arrive."""
@@ -75,7 +80,7 @@ class ProcessPool:
     def run(self, tester: MutationTester, jobs: Iterable[WorkerJob]) -> Iterable[MutantRow]:
         results: Queue[MutantRow] = Queue()
         active = [job for job in jobs if job.mutants]
-        processes = [Process(target=run_worker, args=(tester, job, results)) for job in active]
+        processes = [Process(target=job.run, args=(tester, results)) for job in active]
         for process in processes:
             process.start()
         try:
@@ -103,12 +108,6 @@ class ProcessPool:
             return results.get(timeout=self._poll_interval)
         except queue.Empty:
             return None
-
-
-def run_worker(tester: MutationTester, job: WorkerJob, results: Queue[MutantRow]) -> None:
-    """Worker process body: run *job* and put each result on *results*."""
-    for result in InlinePool().run(tester, [job]):
-        results.put(result)
 
 
 class GitWorkspace:
@@ -165,7 +164,9 @@ class WorktreeExecutor:
         workspace: GitWorkspace,
         pool: WorkerPool,
         jobs: int,
+        partitioner: FileGroupPartitioner | None = None,
     ) -> None:
+        self._partitioner = partitioner or FileGroupPartitioner()
         self._tester = tester
         self._workspace = workspace
         self._pool = pool
@@ -181,7 +182,7 @@ class WorktreeExecutor:
             jobs = [
                 WorkerJob(chunk, root)
                 for chunk, root in zip(
-                    partition_mutants(mutants, n_workers), worktrees, strict=True
+                    self._partitioner.split(mutants, n_workers), worktrees, strict=True
                 )
             ]
             yield from self._pool.run(self._tester, jobs)
@@ -189,20 +190,24 @@ class WorktreeExecutor:
             self._workspace.remove_worktrees(worktrees)
 
 
-def partition_mutants(
-    mutants: Iterable[MutantRow],
-    n_workers: int,
-) -> list[list[MutantRow]]:
-    """Split mutants across workers, grouping by file for less I/O."""
-    by_file: dict[str, list[MutantRow]] = defaultdict(list)
-    for m in mutants:
-        by_file[m.module_path].append(m)
+class FileGroupPartitioner:
+    """Splits mutants across workers, keeping the mutants of one file together."""
 
-    chunks: list[list[MutantRow]] = [[] for _ in range(n_workers)]
-    # Sort file groups by size descending for better load balancing
-    file_groups = sorted(by_file.values(), key=len, reverse=True)
-    for group in file_groups:
-        # Assign to the smallest chunk
-        smallest = min(range(n_workers), key=lambda i: len(chunks[i]))
-        chunks[smallest].extend(group)
-    return chunks
+    def split(
+        self,
+        mutants: Iterable[MutantRow],
+        n_workers: int,
+    ) -> list[list[MutantRow]]:
+        """Split mutants across workers, grouping by file for less I/O."""
+        by_file: dict[str, list[MutantRow]] = defaultdict(list)
+        for m in mutants:
+            by_file[m.module_path].append(m)
+
+        chunks: list[list[MutantRow]] = [[] for _ in range(n_workers)]
+        # Sort file groups by size descending for better load balancing
+        file_groups = sorted(by_file.values(), key=len, reverse=True)
+        for group in file_groups:
+            # Assign to the smallest chunk
+            smallest = min(range(n_workers), key=lambda i: len(chunks[i]))
+            chunks[smallest].extend(group)
+        return chunks

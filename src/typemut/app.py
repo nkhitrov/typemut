@@ -19,9 +19,9 @@ from typemut.engine import (
     MutantExecutor,
     MutationTester,
     ProgressBar,
+    ResultRecorder,
     RichProgressBar,
     SequentialExecutor,
-    run_mutants,
 )
 from typemut.errors import TypemutError
 from typemut.ignore import IgnoredTypes
@@ -118,7 +118,7 @@ class App:
 
         self.console.print(f"Running [bold]{len(mutants)}[/bold] mutations...")
         progress = self.progress or RichProgressBar(self.console)
-        run_mutants(db, mutants, self._executor(tester, jobs), progress)
+        ResultRecorder(db, progress).record(mutants, self._executor(tester, jobs))
 
     def report(self, db: Database) -> None:
         """Print the results table."""
