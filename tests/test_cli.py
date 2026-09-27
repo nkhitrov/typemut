@@ -3,23 +3,25 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 from tests.fakes import RecordingProgressBar, StubRunner
-from typemut.app import Services
+from typemut.app import App
 from typemut.cli import main
 from typemut.db import Database, MutantRow
 from typemut.parallel import InlinePool
 from typemut.runner import CommandResult, Outcome
 
 
-def _services(outcome: Outcome = Outcome.FAILED, output: str = "") -> Services:
-    """Services whose type checker always ends with *outcome*."""
-    return Services(
-        runner=StubRunner(CommandResult(outcome, output)), progress=RecordingProgressBar()
+def _app(outcome: Outcome = Outcome.FAILED, output: str = "") -> Callable[[Path], App]:
+    """An app factory whose type checker always ends with *outcome*."""
+    return partial(
+        App, runner=StubRunner(CommandResult(outcome, output)), progress=RecordingProgressBar()
     )
 
 
@@ -57,9 +59,7 @@ def test_init_with_minimal_project(tmp_path: Path) -> None:
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         td_path = Path(td)
         config = td_path / "typemut.toml"
-        config.write_text(
-            '[typemut]\nmodule-path = "src"\ntest-command = "true"\n'
-        )
+        config.write_text('[typemut]\nmodule-path = "src"\ntest-command = "true"\n')
         src_dir = td_path / "src"
         src_dir.mkdir()
         (src_dir / "app.py").write_text("x: int = 5\n")
@@ -70,9 +70,7 @@ def test_init_with_minimal_project(tmp_path: Path) -> None:
 
 def _write_project(root: Path) -> None:
     """Project whose single mutant survives: the test command never fails."""
-    (root / "typemut.toml").write_text(
-        '[typemut]\nmodule-path = "src"\ntest-command = "true"\n'
-    )
+    (root / "typemut.toml").write_text('[typemut]\nmodule-path = "src"\ntest-command = "true"\n')
     src_dir = root / "src"
     src_dir.mkdir()
     (src_dir / "app.py").write_text("class A:\n    x: int\n")
@@ -112,11 +110,19 @@ def test_run_fail_under_message(tmp_path: Path) -> None:
 def test_report_fail_under(tmp_path: Path, fail_under: str, exit_code: int) -> None:
     db_path = tmp_path / "typemut.sqlite"
     with Database(db_path) as db:
-        db.insert_many([
-            MutantRow(None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="killed"),
-            MutantRow(None, "a.py", "AddOptional", 2, 3, "int", "int | None", "", status="survived"),
-            MutantRow(None, "a.py", "AddOptional", 3, 3, "int", "int | None", "", status="error"),
-        ])
+        db.insert_many(
+            [
+                MutantRow(
+                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="killed"
+                ),
+                MutantRow(
+                    None, "a.py", "AddOptional", 2, 3, "int", "int | None", "", status="survived"
+                ),
+                MutantRow(
+                    None, "a.py", "AddOptional", 3, 3, "int", "int | None", "", status="error"
+                ),
+            ]
+        )
     result = CliRunner().invoke(main, ["report", "--db", str(db_path), "--fail-under", fail_under])
     assert result.exit_code == exit_code
 
@@ -168,12 +174,18 @@ def test_update_baseline_requires_baseline(tmp_path: Path) -> None:
 def test_report_baseline_with_fail_under(tmp_path: Path) -> None:
     db_path = tmp_path / "typemut.sqlite"
     with Database(db_path) as db:
-        db.insert_many([
-            MutantRow(None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="survived"),
-        ])
+        db.insert_many(
+            [
+                MutantRow(
+                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="survived"
+                ),
+            ]
+        )
     baseline = tmp_path / "b.json"
     runner = CliRunner()
-    runner.invoke(main, ["report", "--db", str(db_path), "--baseline", str(baseline), "--update-baseline"])
+    runner.invoke(
+        main, ["report", "--db", str(db_path), "--baseline", str(baseline), "--update-baseline"]
+    )
     result = runner.invoke(
         main, ["report", "--db", str(db_path), "--baseline", str(baseline), "--fail-under", "50"]
     )
@@ -217,19 +229,17 @@ def test_exec_without_pending_mutants(tmp_path: Path) -> None:
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
-        result = runner.invoke(main, ["exec"], obj=_services())
+        result = runner.invoke(main, ["exec"], obj=_app())
     assert result.exit_code == 0
     assert "No pending mutants" in result.output
 
 
 def test_exec_runs_pending_mutants(tmp_path: Path) -> None:
     runner = CliRunner()
-    services = _services(Outcome.FAILED, "error  [arg-type]")
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
-        runner.invoke(main, ["init"], obj=services)
-        services.runner = StubRunner(CommandResult(Outcome.PASSED, ""))
-        baseline_ok = runner.invoke(main, ["exec"], obj=services)
+        runner.invoke(main, ["init"], obj=_app())
+        baseline_ok = runner.invoke(main, ["exec"], obj=_app(Outcome.PASSED))
         with Database(Path(td) / "typemut.sqlite") as db:
             statuses = {mutant.status for mutant in db.get_all()}
     assert baseline_ok.exit_code == 0
@@ -239,11 +249,11 @@ def test_exec_runs_pending_mutants(tmp_path: Path) -> None:
 
 def test_exec_baseline_failure(tmp_path: Path) -> None:
     runner = CliRunner()
-    services = _services(Outcome.FAILED, "app.py:1: error [misc]")
+    make_app = _app(Outcome.FAILED, "app.py:1: error [misc]")
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
-        runner.invoke(main, ["init"], obj=services)
-        result = runner.invoke(main, ["exec"], obj=services)
+        runner.invoke(main, ["init"], obj=make_app)
+        result = runner.invoke(main, ["exec"], obj=make_app)
     assert result.exit_code == 1
     assert "Baseline check failed" in result.output
     assert "app.py:1: error [misc]" in result.output
@@ -254,7 +264,7 @@ def test_run_nothing_to_test(tmp_path: Path) -> None:
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
         (Path(td) / "src" / "app.py").write_text("x = 1\n")
-        result = runner.invoke(main, ["run"], obj=_services())
+        result = runner.invoke(main, ["run"], obj=_app())
     assert result.exit_code == 0
     assert "nothing to test" in result.output
 
@@ -262,20 +272,20 @@ def test_run_nothing_to_test(tmp_path: Path) -> None:
 def test_run_reports_progress(tmp_path: Path) -> None:
     runner = CliRunner()
     progress = RecordingProgressBar()
-    services = Services(runner=StubRunner(CommandResult(Outcome.PASSED, "")), progress=progress)
+    make_app = partial(App, runner=StubRunner(CommandResult(Outcome.PASSED, "")), progress=progress)
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
-        result = runner.invoke(main, ["run"], obj=services)
+        result = runner.invoke(main, ["run"], obj=make_app)
     assert result.exit_code == 0
     assert progress.totals == [1]
 
 
 def test_run_default_progress_bar(tmp_path: Path) -> None:
     runner = CliRunner()
-    services = Services(runner=StubRunner(CommandResult(Outcome.PASSED, "")))
+    make_app = partial(App, runner=StubRunner(CommandResult(Outcome.PASSED, "")))
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
-        result = runner.invoke(main, ["run"], obj=services)
+        result = runner.invoke(main, ["run"], obj=make_app)
     assert result.exit_code == 0
     assert "Running mutations..." in result.output
 
@@ -296,13 +306,13 @@ def test_run_parallel_in_worktrees(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
     _commit_project(project)
-    services = Services(worker_pool=InlinePool(), progress=RecordingProgressBar())
+    make_app = partial(App, worker_pool=InlinePool(), progress=RecordingProgressBar())
     db_path = str(tmp_path / "typemut.sqlite")
 
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(
-            main, ["-C", str(project), "run", "--jobs", "2", "--db", db_path], obj=services
+            main, ["-C", str(project), "run", "--jobs", "2", "--db", db_path], obj=make_app
         )
 
     assert result.exit_code == 0
@@ -313,23 +323,29 @@ def test_run_parallel_requires_git(tmp_path: Path) -> None:
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
-        result = runner.invoke(main, ["run", "--jobs", "2"], obj=Services(progress=RecordingProgressBar()))
+        result = runner.invoke(
+            main, ["run", "--jobs", "2"], obj=partial(App, progress=RecordingProgressBar())
+        )
     assert result.exit_code == 1
     assert "Failed to check git status" in result.output
 
 
 def _html_db(path: Path) -> None:
     with Database(path) as db:
-        db.insert_many([
-            MutantRow(None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="survived"),
-        ])
+        db.insert_many(
+            [
+                MutantRow(
+                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="survived"
+                ),
+            ]
+        )
 
 
 def test_html_default_output(tmp_path: Path) -> None:
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _html_db(Path(td) / "typemut.sqlite")
-        result = runner.invoke(main, ["html"], obj=_services())
+        result = runner.invoke(main, ["html"], obj=_app())
         report = (Path(td) / "typemut-report.html").read_text()
     assert result.exit_code == 0
     assert "Report saved to typemut-report.html" in result.output
@@ -338,13 +354,13 @@ def test_html_default_output(tmp_path: Path) -> None:
 
 def test_html_output_and_open(tmp_path: Path) -> None:
     opened: list[str] = []
-    services = Services(open_browser=opened.append)
+    make_app = partial(App, open_browser=opened.append)
     db_path = tmp_path / "typemut.sqlite"
     out_path = tmp_path / "report.html"
     _html_db(db_path)
 
     result = CliRunner().invoke(
-        main, ["html", "--db", str(db_path), "-o", str(out_path), "--open"], obj=services
+        main, ["html", "--db", str(db_path), "-o", str(out_path), "--open"], obj=make_app
     )
 
     assert result.exit_code == 0

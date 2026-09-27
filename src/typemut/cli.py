@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import click
 from rich.markup import escape
 
-from typemut.app import App, Services
+from typemut.app import App
 from typemut.db import Database
 from typemut.errors import TypemutError
 
@@ -63,13 +64,14 @@ class _TypemutGroup(click.Group):
 def main(ctx: click.Context, project_dir: str | None) -> None:
     """typemut — Mutation testing for type annotations.
 
-    ``ctx.obj`` may carry :class:`Services` to run with (tests pass stubs);
-    by default the real ones are used.
+    ``ctx.obj`` may carry a factory that builds the :class:`App` for the
+    project root (tests pass ``partial(App, runner=stub, ...)``); by default
+    the app runs with the real implementations.
     """
     if project_dir:
         os.chdir(project_dir)
-    services = ctx.obj if isinstance(ctx.obj, Services) else Services()
-    ctx.obj = App(services, Path.cwd())
+    make_app: Callable[[Path], App] = ctx.obj or App
+    ctx.obj = make_app(Path.cwd())
 
 
 @main.command()

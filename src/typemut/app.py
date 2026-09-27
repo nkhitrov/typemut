@@ -37,13 +37,14 @@ from typemut.runner import CommandRunner, ShellRunner
 
 
 @dataclass
-class Services:
-    """Everything the pipeline talks to outside plain computation.
+class App:
+    """The typemut pipeline for the project in *root*.
 
-    The defaults are the real implementations; tests replace any of them
-    with stubs instead of patching code.
+    Every collaborator that talks to the outside world is a field with the
+    real implementation as its default; tests build the app with stubs.
     """
 
+    root: Path
     console: Console = field(default_factory=Console)
     runner: CommandRunner = field(default_factory=ShellRunner)
     operators: OperatorRegistry = field(default_factory=OperatorRegistry)
@@ -52,16 +53,6 @@ class Services:
     # None draws a rich progress bar on the console.
     progress: ProgressBar | None = None
     open_browser: Callable[[str], object] = webbrowser.open
-
-
-class App:
-    """The typemut pipeline for the project in *root*."""
-
-    def __init__(self, services: Services, root: Path) -> None:
-        self.console = services.console
-        self.root = root
-        self._services = services
-        self._progress = services.progress or RichProgressBar(services.console)
 
     def load(self, config_path: str, db_path: str | None) -> tuple[Config, Database]:
         """Load the config at *config_path* and open the database it (or *db_path*) names."""
@@ -91,10 +82,10 @@ class App:
         files = discover_files(module_dir, cfg.excluded_modules)
         self.console.print(f"Found [bold]{len(files)}[/bold] Python files in {module_dir}")
 
-        plugins = self._services.plugins.get(cfg.plugins)
+        plugins = self.plugins.get(cfg.plugins)
         if plugins:
             self.console.print(f"Enabled plugins: {', '.join(plugin.name for plugin in plugins)}")
-        operators = self._services.operators.enabled(cfg.operators)
+        operators = self.operators.enabled(cfg.operators)
         operators.extend(op for plugin in plugins for op in plugin.operators())
         self.console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
 
@@ -109,7 +100,7 @@ class App:
         if len(mutants) == 0:
             self.console.print("[yellow]No pending mutants: nothing to test.[/yellow]")
             return
-        tester = MutationTester(self._services.runner, cfg.test_command, cfg.timeout)
+        tester = MutationTester(self.runner, cfg.test_command, cfg.timeout)
         self.console.print("Running baseline check...")
         ok, output = tester.check_baseline(self.root)
         if not ok:
@@ -120,7 +111,8 @@ class App:
         self.console.print("[green]Baseline clean.[/green]")
 
         self.console.print(f"Running [bold]{len(mutants)}[/bold] mutations...")
-        run_mutants(db, mutants, self._executor(tester, jobs), self._progress)
+        progress = self.progress or RichProgressBar(self.console)
+        run_mutants(db, mutants, self._executor(tester, jobs), progress)
 
     def report(self, db: Database) -> None:
         """Print the results table."""
@@ -162,7 +154,7 @@ class App:
         out_path.write_text(generate_html(db))
         self.console.print(f"Report saved to [bold]{out_path}[/bold]")
         if open_browser:
-            self._services.open_browser(out_path.resolve().as_uri())
+            self.open_browser(out_path.resolve().as_uri())
 
     def _check_survivor_baseline(self, path: Path, survivors: Collection[MutantRow]) -> bool:
         """Report survivors missing from the baseline at *path*; True if there are none."""
@@ -185,8 +177,8 @@ class App:
 
     def _executor(self, tester: MutationTester, jobs: int) -> MutantExecutor:
         if jobs > 1:
-            workspace = GitWorkspace(self.root, self._services.runner)
-            return WorktreeExecutor(tester, workspace, self._services.worker_pool, jobs)
+            workspace = GitWorkspace(self.root, self.runner)
+            return WorktreeExecutor(tester, workspace, self.worker_pool, jobs)
         return SequentialExecutor(tester, self.root)
 
 

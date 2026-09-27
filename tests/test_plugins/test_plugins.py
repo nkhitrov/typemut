@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from importlib.metadata import EntryPoint
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import pytest
 from click.testing import CliRunner
 
 from tests.fakes import StubPlugin
-from typemut.app import Services
+from typemut.app import App
 from typemut.cli import main
 from typemut.config import OperatorsConfig
 from typemut.db import Database
@@ -128,10 +129,10 @@ def test_init_unknown_plugin_warns_and_continues(
 
 def test_init_uses_injected_plugin_operators(tmp_path: Path) -> None:
     runner = CliRunner()
-    services = Services(plugins=PluginRegistry({"stub": StubPlugin}))
+    make_app = partial(App, plugins=PluginRegistry({"stub": StubPlugin}))
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         write_project(Path(td), '["stub"]')
-        result = runner.invoke(main, ["init"], obj=services)
+        result = runner.invoke(main, ["init"], obj=make_app)
     assert result.exit_code == 0
     assert "Enabled plugins: stub" in result.output
     assert "TypeVarVariance, Stub" in result.output
