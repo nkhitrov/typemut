@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from typemut.db import Database
-from typemut.discovery import AnnotationContext, discover_annotations
+from typemut.discovery import AnnotationContext, AnnotationFinder
 from typemut.registry import Registry
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -35,7 +35,7 @@ def assert_mutations(
     index: int = 0,
     annotation_filter: str | None = None,
 ) -> None:
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
     if annotation_filter:
         annotations = [a for a in annotations if annotation_filter in a.code]
 

@@ -26,7 +26,7 @@ from pathlib import Path
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationContext, AnnotationNode, discover_annotations
+from typemut.discovery import AnnotationContext, AnnotationFinder, AnnotationNode
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.plugins.base import Plugin
 from typemut.registry import Registry
@@ -52,6 +52,10 @@ FORWARD_REF_PREFIX = "_: "
 
 class SQLAlchemyPlugin(Plugin):
     name = "sqlalchemy"
+
+    def __init__(self, forward_refs: AnnotationFinder | None = None) -> None:
+        # Parses the annotation inside a quoted forward reference.
+        self._forward_refs = forward_refs or AnnotationFinder(skip_comments=())
 
     def find_mutations(
         self,
@@ -90,8 +94,8 @@ class SQLAlchemyPlugin(Plugin):
         if quote not in QUOTES or string.value.startswith(quote * 3):
             return []
         content = string.value[1:-1]
-        parsed = discover_annotations(
-            Path("<forward-ref>"), source=f"{FORWARD_REF_PREFIX}{content}\n", skip_comments=[]
+        parsed = self._forward_refs.find(
+            Path("<forward-ref>"), source=f"{FORWARD_REF_PREFIX}{content}\n"
         )
         if len(parsed) != 1:
             return []

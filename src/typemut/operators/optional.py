@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationContext, _node_code
+from typemut.discovery import AnnotationContext
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.registry import Registry
 
@@ -20,7 +20,7 @@ class RemoveOptional(TypeMutationOperator):
         registry: Registry,
     ) -> list[Mutation]:
         """Detect X | None and generate mutation removing None."""
-        members = _extract_union_members(node)
+        members = self._union_members(node)
         if len(members) < 2:
             return []
 
@@ -34,9 +34,9 @@ class RemoveOptional(TypeMutationOperator):
         if not remaining:
             return []
 
-        remaining_codes = [_node_code(m).strip() for m in remaining]
+        remaining_codes = [self._node_code(m).strip() for m in remaining]
         mutated = " | ".join(remaining_codes)
-        original = _node_code(node)
+        original = self._node_code(node)
 
         return [
             Mutation(
@@ -73,13 +73,13 @@ class AddOptional(TypeMutationOperator):
         if context in {AnnotationContext.PARAMETER, AnnotationContext.TYPEVAR}:
             return []
 
-        code = _node_code(node).strip()
+        code = self._node_code(node).strip()
 
         if code.rpartition(".")[2] == "TypeAlias":
             return []
 
         # Skip if already contains None
-        if _contains_none(node):
+        if self._contains_none(node):
             return []
 
         # Skip None itself
@@ -99,21 +99,8 @@ class AddOptional(TypeMutationOperator):
             )
         ]
 
-
-def _contains_none(node: BaseNode | Leaf) -> bool:
-    """Check if a node contains None anywhere."""
-    if isinstance(node, Leaf):
-        return node.value == "None"
-    return any(_contains_none(child) for child in node.children)
-
-
-def _extract_union_members(node: BaseNode | Leaf) -> list[BaseNode | Leaf]:
-    """Extract members from a PEP 604 union."""
-    if isinstance(node, Leaf):
-        return []
-    if node.type not in ("expr", "arith_expr"):
-        return []
-    has_pipe = any(isinstance(c, Leaf) and c.value == "|" for c in node.children)
-    if not has_pipe:
-        return []
-    return [c for c in node.children if not (isinstance(c, Leaf) and c.value == "|")]
+    def _contains_none(self, node: BaseNode | Leaf) -> bool:
+        """Check if a node contains None anywhere."""
+        if isinstance(node, Leaf):
+            return node.value == "None"
+        return any(self._contains_none(child) for child in node.children)

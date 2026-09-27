@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from typemut.config import OperatorsConfig
-from typemut.discovery import discover_annotations
+from typemut.discovery import AnnotationFinder
 from typemut.operators import OperatorRegistry
-from typemut.plugins import PluginRegistry, find_mutations
+from typemut.plugins import MutationFinder, PluginRegistry
 from typemut.registry import Registry
 
 ENDPOINT = "def endpoint(q: int | None) -> RedirectResponse: ...\n"
@@ -26,8 +26,8 @@ def mutations(file: Path, plugins: list[str]) -> set[tuple[str, str, str]]:
     loaded = PluginRegistry().get(plugins)
     return {
         (mutation.operator, mutation.original, mutation.mutated)
-        for annotation in discover_annotations(file)
-        for mutation in find_mutations(annotation, operators, Registry(), loaded)
+        for annotation in AnnotationFinder().find(file)
+        for mutation in MutationFinder(operators, Registry(), loaded).find(annotation)
     }
 
 

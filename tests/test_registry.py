@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from typemut.registry import Registry
+from typemut.registry import Registry, RegistryBuilder
 
 
 def test_hierarchy_from_fixture(fixtures_dir: Path):
     files = [fixtures_dir / "pydantic_models.py"]
-    reg = Registry.from_files(files)
+    reg = RegistryBuilder().build(files)
 
     assert "LoanState" in reg.hierarchy
     siblings = reg.get_siblings("ActiveLoan")
@@ -31,7 +31,7 @@ def test_base_import_lines(tmp_path: Path):
         "class User(BaseModel):\n"
         "    name: str\n"
     )
-    reg = Registry.from_files([src])
+    reg = RegistryBuilder().build([src])
     assert reg.get_base("User") == "BaseModel"
     assert reg.get_base_import_line("BaseModel") == "from pydantic import BaseModel"
 
@@ -45,7 +45,7 @@ def test_base_import_lines_local_class(tmp_path: Path):
         "class Child(Base):\n"
         "    pass\n"
     )
-    reg = Registry.from_files([src])
+    reg = RegistryBuilder().build([src])
     assert reg.get_base("Child") == "Base"
     assert reg.get_base_import_line("Base") is None
 
@@ -61,7 +61,7 @@ def test_base_import_lines_try_except(tmp_path: Path):
         "class Result(GenericModel):\n"
         "    value: int\n"
     )
-    reg = Registry.from_files([src])
+    reg = RegistryBuilder().build([src])
     assert reg.get_base("Result") == "GenericModel"
     assert reg.get_base_import_line("GenericModel") == "from pydantic.generics import GenericModel"
 
@@ -79,7 +79,7 @@ def test_base_import_lines_try_fallback_does_not_override(tmp_path: Path):
         "class Child(Base):\n"
         "    pass\n"
     )
-    reg = Registry.from_files([src])
+    reg = RegistryBuilder().build([src])
     assert reg.get_base_import_line("Base") == "from new_lib import Base"
 
 
@@ -96,7 +96,7 @@ def test_base_import_lines_if_type_checking(tmp_path: Path):
         "class User(BaseModel):\n"
         "    name: str\n"
     )
-    reg = Registry.from_files([src])
+    reg = RegistryBuilder().build([src])
     assert reg.get_base_import_line("BaseModel") == "from pydantic import BaseModel"
 
 
@@ -110,7 +110,7 @@ def test_base_import_lines_ignore_function_body(tmp_path: Path):
         "class User(BaseModel):\n"
         "    name: str\n"
     )
-    reg = Registry.from_files([src])
+    reg = RegistryBuilder().build([src])
     assert reg.get_base("User") == "BaseModel"
     assert reg.get_base_import_line("BaseModel") is None
 
@@ -125,5 +125,5 @@ def test_base_import_lines_ignore_class_body_in_if(tmp_path: Path):
         "class User(BaseModel):\n"
         "    name: str\n"
     )
-    reg = Registry.from_files([src])
+    reg = RegistryBuilder().build([src])
     assert reg.get_base_import_line("BaseModel") is None

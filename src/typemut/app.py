@@ -14,7 +14,7 @@ from rich.markup import escape
 from typemut.baseline import Baseline
 from typemut.config import Config, ConfigLoader
 from typemut.db import Database, MutantRow
-from typemut.discovery import discover_annotations, discover_files
+from typemut.discovery import AnnotationFinder, SourceFiles
 from typemut.engine import (
     MutantExecutor,
     MutationTester,
@@ -26,11 +26,9 @@ from typemut.engine import (
 from typemut.errors import TypemutError
 from typemut.ignore import IgnoredTypes
 from typemut.operators import OperatorRegistry
-from typemut.operators.base import TypeMutationOperator
 from typemut.parallel import GitWorkspace, ProcessPool, WorkerPool, WorktreeExecutor
-from typemut.plugins import PluginRegistry, find_mutations
-from typemut.plugins.base import Plugin
-from typemut.registry import Registry
+from typemut.plugins import MutationFinder, PluginRegistry
+from typemut.registry import RegistryBuilder
 from typemut.reporting.html import generate_html
 from typemut.reporting.terminal import print_report, total_score
 from typemut.runner import CommandRunner, ShellRunner
@@ -54,6 +52,7 @@ class App:
     progress: ProgressBar | None = None
     open_browser: Callable[[str], object] = webbrowser.open
     config_loader: ConfigLoader = field(default_factory=ConfigLoader)
+    registry_builder: RegistryBuilder = field(default_factory=RegistryBuilder)
 
     def load(self, config_path: str, db_path: str | None) -> tuple[Config, Database]:
         """Load the config at *config_path* and open the database it (or *db_path*) names."""
@@ -80,7 +79,7 @@ class App:
         if not module_dir.exists():
             raise TypemutError(f"Module path not found: {module_dir}")
 
-        files = discover_files(module_dir, cfg.excluded_modules)
+        files = SourceFiles(module_dir, cfg.excluded_modules).find()
         self.console.print(f"Found [bold]{len(files)}[/bold] Python files in {module_dir}")
 
         plugins = self.plugins.get(cfg.plugins)
@@ -90,7 +89,13 @@ class App:
         operators.extend(op for plugin in plugins for op in plugin.operators())
         self.console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
 
-        mutants = _find_mutants(files, cfg, operators, Registry.from_files(files), plugins)
+        finder = MutationFinder(
+            operators,
+            self.registry_builder.build(files),
+            plugins,
+            IgnoredTypes(cfg.ignore_types),
+        )
+        mutants = self._find_mutants(files, cfg, finder)
         db.clear()
         db.insert_many(mutants)
         self.console.print(f"[green]Found {len(mutants)} type annotation mutations[/green]")
@@ -182,31 +187,29 @@ class App:
             return WorktreeExecutor(tester, workspace, self.worker_pool, jobs)
         return SequentialExecutor(tester, self.root)
 
-
-def _find_mutants(
-    files: Iterable[Path],
-    cfg: Config,
-    operators: Collection[TypeMutationOperator],
-    registry: Registry,
-    plugins: Collection[Plugin],
-) -> Collection[MutantRow]:
-    """All mutations of the annotations in *files*, as pending database rows."""
-    ignored = IgnoredTypes(cfg.ignore_types)
-    mutants: list[MutantRow] = []
-    for py_file in files:
-        for ann in discover_annotations(py_file, skip_comments=cfg.skip_comments):
-            mutants.extend(
-                MutantRow(
-                    id=None,
-                    module_path=str(py_file),
-                    operator=mutation.operator,
-                    line=mutation.line,
-                    col=mutation.col,
-                    original_annotation=mutation.original,
-                    mutated_annotation=mutation.mutated,
-                    description=mutation.description,
-                    required_import=mutation.required_import,
+    def _find_mutants(
+        self,
+        files: Iterable[Path],
+        cfg: Config,
+        finder: MutationFinder,
+    ) -> Collection[MutantRow]:
+        """All mutations of the annotations in *files*, as pending database rows."""
+        annotations = AnnotationFinder(cfg.skip_comments)
+        mutants: list[MutantRow] = []
+        for py_file in files:
+            for ann in annotations.find(py_file):
+                mutants.extend(
+                    MutantRow(
+                        id=None,
+                        module_path=str(py_file),
+                        operator=mutation.operator,
+                        line=mutation.line,
+                        col=mutation.col,
+                        original_annotation=mutation.original,
+                        mutated_annotation=mutation.mutated,
+                        description=mutation.description,
+                        required_import=mutation.required_import,
+                    )
+                    for mutation in finder.find(ann)
                 )
-                for mutation in find_mutations(ann, operators, registry, plugins, ignored)
-            )
-    return mutants
+        return mutants

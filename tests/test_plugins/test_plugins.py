@@ -14,13 +14,13 @@ from typemut.app import App
 from typemut.cli import main
 from typemut.config import OperatorsConfig
 from typemut.db import Database
-from typemut.discovery import discover_annotations
+from typemut.discovery import AnnotationFinder
 from typemut.operators import OperatorRegistry
 from typemut.plugins import (
     BUILTIN_PLUGINS,
     ENTRY_POINT_GROUP,
     PluginRegistry,
-    find_mutations,
+    MutationFinder,
 )
 from typemut.registry import Registry
 
@@ -80,8 +80,8 @@ def test_discover_skips_broken_entry_points(
 
 
 def test_find_mutations_without_plugins_uses_core_operators() -> None:
-    annotation = discover_annotations(Path("models.py"), source="id: Mapped[int]\n")[0]
-    mutations = find_mutations(annotation, OperatorRegistry().enabled(OperatorsConfig()), Registry())
+    annotation = AnnotationFinder().find(Path("models.py"), source="id: Mapped[int]\n")[0]
+    mutations = MutationFinder(OperatorRegistry().enabled(OperatorsConfig()), Registry()).find(annotation)
     assert {(m.operator, m.original, m.mutated) for m in mutations} == {
         ("AddOptional", "Mapped[int]", "Mapped[int] | None"),
     }

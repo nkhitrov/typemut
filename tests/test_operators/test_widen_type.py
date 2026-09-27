@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from typemut.operators.widen_type import WidenType
-from typemut.registry import Registry
+from typemut.registry import Registry, RegistryBuilder
 
 from tests.conftest import assert_mutations
 
@@ -65,6 +65,6 @@ def test_no_widen_to_protocol_from_files(tmp_path: Path, protocol_base: str) -> 
         f"class Coder({protocol_base}):\n"
         "    def encode(self, value: A) -> B: ...\n"
     )
-    reg = Registry.from_files([src])
+    reg = RegistryBuilder().build([src])
 
     assert_mutations("c: Coder\n", WidenType, expected=[], registry=reg)

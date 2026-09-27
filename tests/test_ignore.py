@@ -10,11 +10,11 @@ from click.testing import CliRunner
 from typemut.cli import main
 from typemut.config import OperatorsConfig
 from typemut.db import Database
-from typemut.discovery import discover_annotations
+from typemut.discovery import AnnotationFinder
 from typemut.ignore import IgnoredTypes
 from typemut.imports import ModuleImports
 from typemut.operators import OperatorRegistry
-from typemut.plugins import PluginRegistry, find_mutations
+from typemut.plugins import MutationFinder, PluginRegistry
 from typemut.registry import Registry
 
 REGISTRY = Registry(
@@ -37,10 +37,8 @@ def mutated(
     ignored = IgnoredTypes(ignore)
     return {
         mutation.mutated
-        for annotation in discover_annotations(file, source=source)
-        for mutation in find_mutations(
-            annotation, operators, REGISTRY, PluginRegistry().get(plugins or []), ignored
-        )
+        for annotation in AnnotationFinder().find(file, source=source)
+        for mutation in MutationFinder(operators, REGISTRY, PluginRegistry().get(plugins or []), ignored).find(annotation)
     }
 
 

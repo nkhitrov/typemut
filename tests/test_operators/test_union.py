@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from typemut.discovery import AnnotationContext, discover_annotations
+from typemut.discovery import AnnotationContext, AnnotationFinder
 from typemut.operators.union import RemoveUnionMember
 from typemut.registry import Registry
 
 
 def _get_mutations(source: str):
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
     op = RemoveUnionMember()
     return op.find_mutations(annotations[0].node, AnnotationContext.VARIABLE, Registry())
 
@@ -50,7 +50,7 @@ def test_no_mutation_for_simple_type() -> None:
 
 def test_extract_union_non_expr_basenode() -> None:
     # list[int] is an atom_expr BaseNode, not expr/arith_expr
-    annotations = discover_annotations(Path("test.py"), source="x: list[int]\n")
+    annotations = AnnotationFinder().find(Path("test.py"), source="x: list[int]\n")
     op = RemoveUnionMember()
     mutations = op.find_mutations(
         annotations[0].node, AnnotationContext.VARIABLE, Registry()

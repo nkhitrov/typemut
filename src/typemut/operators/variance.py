@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationContext, _node_code
+from typemut.discovery import AnnotationContext
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.registry import Registry
 
@@ -22,12 +22,12 @@ class TypeVarVariance(TypeMutationOperator):
         if context != AnnotationContext.TYPEVAR:
             return []
 
-        original = _node_code(node)
-        args_node = _find_args_trailer(node)
+        original = self._node_code(node)
+        args_node = self._find_args_trailer(node)
         if args_node is None:
             return []
 
-        has_covariant, has_contravariant = _detect_variance(args_node)
+        has_covariant, has_contravariant = self._detect_variance(args_node)
         mutations: list[Mutation] = []
         line = node.start_pos[0]
         col = node.start_pos[1]
@@ -43,13 +43,13 @@ class TypeVarVariance(TypeMutationOperator):
                     line=line,
                     col=col,
                     original=original,
-                    mutated=_remove_kwarg(original, existing),
+                    mutated=self._remove_kwarg(original, existing),
                     description=f"Remove {existing}=True",
                 )
             )
         else:
             # No variance — add covariant=True and contravariant=True
-            mutated_co = _add_kwarg(original, "covariant=True")
+            mutated_co = self._add_kwarg(original, "covariant=True")
             mutations.append(
                 Mutation(
                     file="",
@@ -61,7 +61,7 @@ class TypeVarVariance(TypeMutationOperator):
                     description="Add covariant=True",
                 )
             )
-            mutated_contra = _add_kwarg(original, "contravariant=True")
+            mutated_contra = self._add_kwarg(original, "contravariant=True")
             mutations.append(
                 Mutation(
                     file="",
@@ -76,56 +76,52 @@ class TypeVarVariance(TypeMutationOperator):
 
         return mutations
 
+    def _find_args_trailer(self, node: BaseNode | Leaf) -> BaseNode | None:
+        """Find the trailer node containing the call arguments: '(' ... ')'."""
+        if isinstance(node, BaseNode):
+            for child in node.children:
+                if (
+                    isinstance(child, BaseNode)
+                    and child.type == "trailer"
+                    and child.children
+                    and isinstance(child.children[0], Leaf)
+                    and child.children[0].value == "("
+                ):
+                    return child
+        return None
 
-def _find_args_trailer(node: BaseNode | Leaf) -> BaseNode | None:
-    """Find the trailer node containing the call arguments: '(' ... ')'."""
-    if isinstance(node, BaseNode):
-        for child in node.children:
-            if (
-                isinstance(child, BaseNode)
-                and child.type == "trailer"
-                and child.children
-                and isinstance(child.children[0], Leaf)
-                and child.children[0].value == "("
-            ):
-                return child
-    return None
+    def _detect_variance(self, trailer: BaseNode) -> tuple[bool, bool]:
+        """Detect covariant=True and contravariant=True in a call's arguments."""
+        code = self._node_code(trailer)
+        has_covariant = "covariant=True" in code
+        has_contravariant = "contravariant=True" in code
+        return has_covariant, has_contravariant
 
+    def _remove_kwarg(self, text: str, kwarg_name: str) -> str:
+        """Remove a keyword argument like 'covariant=True' from a call string."""
+        import re
 
-def _detect_variance(trailer: BaseNode) -> tuple[bool, bool]:
-    """Detect covariant=True and contravariant=True in a call's arguments."""
-    code = _node_code(trailer)
-    has_covariant = "covariant=True" in code
-    has_contravariant = "contravariant=True" in code
-    return has_covariant, has_contravariant
-
-
-def _remove_kwarg(text: str, kwarg_name: str) -> str:
-    """Remove a keyword argument like 'covariant=True' from a call string."""
-    import re
-
-    # Remove ', kwarg=True' or 'kwarg=True, ' patterns
-    # Pattern: leading comma + spaces + kwarg=True
-    result = re.sub(r",\s*" + kwarg_name + r"=True", "", text)
-    if result != text:
+        # Remove ', kwarg=True' or 'kwarg=True, ' patterns
+        # Pattern: leading comma + spaces + kwarg=True
+        result = re.sub(r",\s*" + kwarg_name + r"=True", "", text)
+        if result != text:
+            return result
+        # Pattern: kwarg=True + trailing comma + spaces
+        result = re.sub(kwarg_name + r"=True\s*,\s*", "", text)
         return result
-    # Pattern: kwarg=True + trailing comma + spaces
-    result = re.sub(kwarg_name + r"=True\s*,\s*", "", text)
-    return result
 
-
-def _add_kwarg(text: str, kwarg: str) -> str:
-    """Add a keyword argument before the closing paren of a call."""
-    # Find the last ')' and insert before it
-    idx = text.rfind(")")
-    if idx == -1:
-        return text
-    # Check if there are existing args (non-empty parens)
-    open_idx = text.find("(")
-    if open_idx == -1:
-        return text
-    inner = text[open_idx + 1 : idx].strip()
-    if inner:
-        return text[:idx] + ", " + kwarg + text[idx:]
-    else:
-        return text[:idx] + kwarg + text[idx:]
+    def _add_kwarg(self, text: str, kwarg: str) -> str:
+        """Add a keyword argument before the closing paren of a call."""
+        # Find the last ')' and insert before it
+        idx = text.rfind(")")
+        if idx == -1:
+            return text
+        # Check if there are existing args (non-empty parens)
+        open_idx = text.find("(")
+        if open_idx == -1:
+            return text
+        inner = text[open_idx + 1 : idx].strip()
+        if inner:
+            return text[:idx] + ", " + kwarg + text[idx:]
+        else:
+            return text[:idx] + kwarg + text[idx:]

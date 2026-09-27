@@ -143,6 +143,7 @@ no_implicit_reexport = false
 module = [
     "typemut.discovery",
     "typemut.imports",
+    "typemut.nodes",
     "typemut.registry",
     "typemut.symbols",
     "typemut.operators.*",
