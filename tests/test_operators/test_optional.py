@@ -88,3 +88,14 @@ def test_add_optional_skips_typevar() -> None:
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
     mutations = AddOptional().find_mutations(tvars[0].node, AnnotationContext.TYPEVAR, Registry())
     assert mutations == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("from typing import TypeAlias\nX: TypeAlias = int\n", id="bare"),
+        pytest.param("import typing\nX: typing.TypeAlias = int\n", id="dotted"),
+    ],
+)
+def test_add_optional_skips_type_alias(source: str) -> None:
+    assert_mutations(source, AddOptional, expected=[])

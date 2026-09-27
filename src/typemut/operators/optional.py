@@ -67,11 +67,16 @@ class AddOptional(TypeMutationOperator):
         parameters has low value since callers simply won't pass None.
         TypeVar declarations are skipped: ``TypeVar("T") | None`` is not a
         type annotation, and the checker error it causes is not a real kill.
+        ``TypeAlias`` annotations are skipped for the same reason:
+        ``TypeAlias | None`` is not a valid type.
         """
         if context in {AnnotationContext.PARAMETER, AnnotationContext.TYPEVAR}:
             return []
 
         code = _node_code(node).strip()
+
+        if code.rpartition(".")[2] == "TypeAlias":
+            return []
 
         # Skip if already contains None
         if _contains_none(node):
