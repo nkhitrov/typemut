@@ -126,21 +126,6 @@ class Database:
         )
         self.conn.commit()
 
-    def update_result(
-        self,
-        mutant_id: int,
-        status: MutantStatus,
-        output: str | None = None,
-        duration: float | None = None,
-    ) -> None:
-        self.conn.execute(
-            """UPDATE mutants
-               SET status = ?, output = ?, duration_seconds = ?
-               WHERE id = ?""",
-            (status, output, duration, mutant_id),
-        )
-        self.conn.commit()
-
     def get_pending(self) -> Collection[MutantRow]:
         rows = self.conn.execute(
             "SELECT * FROM mutants WHERE status = ? ORDER BY id", (MutantStatus.PENDING,)

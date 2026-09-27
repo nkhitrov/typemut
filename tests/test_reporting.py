@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 
@@ -84,10 +85,11 @@ class TestHtmlDiff:
         assert '<div class="diff-add-block"><code>int | None</code></div>' in html
 
     def test_output_shown(self, tmp_db: Database) -> None:
-        mutant_id = tmp_db.insert_mutant(
-            MutantRow(None, "a.py", "AddOptional", 1, 3, "int", "int | None", "")
+        mutant = MutantRow(None, "a.py", "AddOptional", 1, 3, "int", "int | None", "")
+        mutant_id = tmp_db.insert_mutant(mutant)
+        tmp_db.update_results_batch(
+            [replace(mutant, id=mutant_id, status=MutantStatus.KILLED, output="error <here>", duration_seconds=0.5)]
         )
-        tmp_db.update_result(mutant_id, "killed", "error <here>", 0.5)
         html = HtmlReport(StubSourceReader({})).render(tmp_db)
         assert "<pre>error &lt;here&gt;</pre>" in html
 

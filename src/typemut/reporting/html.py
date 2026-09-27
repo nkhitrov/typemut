@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import difflib
-from collections.abc import Container, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from html import escape
 from pathlib import Path
 from typing import Protocol
@@ -77,9 +77,9 @@ class HtmlReport:
         total_score = (total_killed / testable * 100) if testable > 0 else 0
 
         module_rows = self._build_module_rows(summary)
-        survived_cards = self._build_mutant_cards(all_mutants, {MutantStatus.SURVIVED})
-        error_cards = self._build_mutant_cards(all_mutants, {MutantStatus.ERROR})
-        killed_cards = self._build_mutant_cards(all_mutants, {MutantStatus.KILLED})
+        survived_cards = self._build_mutant_cards(all_mutants, MutantStatus.SURVIVED)
+        error_cards = self._build_mutant_cards(all_mutants, MutantStatus.ERROR)
+        killed_cards = self._build_mutant_cards(all_mutants, MutantStatus.KILLED)
 
         sc = self._score_class(total_score)
 
@@ -364,15 +364,15 @@ class HtmlReport:
     def _build_mutant_cards(
         self,
         mutants: Iterable[MutantRow],
-        statuses: Container[MutantStatus],
+        status: MutantStatus,
     ) -> str:
-        """Build card-based HTML for mutants matching given statuses."""
+        """Build card-based HTML for the mutants with *status*."""
         cards: list[str] = []
         for m in mutants:
-            if m.status not in statuses:
+            if m.status is not status:
                 continue
 
-            header_bg = HEADER_COLORS[m.status]
+            header_bg = HEADER_COLORS[status]
             duration_str = f"{m.duration_seconds:.1f}s" if m.duration_seconds else ""
             duration_html = (
                 f'<span class="mutant-duration">{duration_str}</span>' if duration_str else ""
@@ -406,7 +406,8 @@ class HtmlReport:
                 f'<span class="mutant-id">#{m.id}</span>'
                 f'<span class="mutant-operator">{escape(m.operator)}</span>'
                 f'<span class="mutant-location">{escape(m.module_path)}:{m.line}</span>'
-                f"{self._status_badge(m.status)}"
+                f'<span class="badge" style="background:{STATUS_COLORS[status]}">'
+                f"{STATUS_LABELS[status]}</span>"
                 f"{duration_html}"
                 f'<span class="chevron">&#x25B6;</span>'
                 f"</div>"
@@ -436,11 +437,6 @@ class HtmlReport:
         if score >= 50:
             return "mid"
         return "bad"
-
-    def _status_badge(self, status: MutantStatus) -> str:
-        color = STATUS_COLORS[status]
-        label = STATUS_LABELS[status]
-        return f'<span class="badge" style="background:{color}">{label}</span>'
 
     def _generate_diff(
         self, mutant: MutantRow, source: str | None, context_lines: int = 3

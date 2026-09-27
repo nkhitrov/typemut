@@ -32,19 +32,6 @@ def test_insert_and_retrieve(tmp_db: Database) -> None:
     assert pending[0].operator == "RemoveUnionMember"
 
 
-def test_update_result(tmp_db: Database) -> None:
-    mutant = _make_mutant(operator="RemoveOptional", original_annotation="int | None", mutated_annotation="int")
-    mid = tmp_db.insert_mutant(mutant)
-    tmp_db.update_result(mid, MutantStatus.KILLED, "type error found", 1.5)
-
-    all_m = tmp_db.get_all()
-    assert all_m[0].status is MutantStatus.KILLED
-    assert all_m[0].duration_seconds == 1.5
-
-    pending = tmp_db.get_pending()
-    assert len(pending) == 0
-
-
 def test_summary(tmp_db: Database) -> None:
     tmp_db.insert_many([
         MutantRow(None, "a.py", "Op1", 1, 3, "int", "str", "desc", status=MutantStatus.KILLED),
