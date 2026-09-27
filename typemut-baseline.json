@@ -50,20 +50,6 @@
   },
   {
     "file": "src/typemut/cli.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "def _check_survivor_baseline(path: Path, survivors: Collection[MutantRow]) -> bool:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "AddOptional",
-    "original": "int",
-    "mutated": "int | None",
-    "source": ") -> int:"
-  },
-  {
-    "file": "src/typemut/cli.py",
     "operator": "RemoveOptional",
     "original": "float | None",
     "mutated": "float",
@@ -102,35 +88,7 @@
     "operator": "RemoveOptional",
     "original": "str | None",
     "mutated": "str",
-    "source": "def exec_cmd(config_path: str, db_path: str | None, jobs: int) -> None:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "RemoveOptional",
-    "original": "str | None",
-    "mutated": "str",
-    "source": "def html(db_path: str, out_path: str | None, open_browser: bool) -> None:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "RemoveOptional",
-    "original": "str | None",
-    "mutated": "str",
-    "source": "def init(config_path: str, db_path: str | None) -> None:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "RemoveOptional",
-    "original": "str | None",
-    "mutated": "str",
     "source": "def main(ctx: click.Context, project_dir: str | None) -> None:"
-  },
-  {
-    "file": "src/typemut/cli.py",
-    "operator": "WidenContainerType",
-    "original": "list[Plugin]",
-    "mutated": "Sequence[Plugin]",
-    "source": "def _load_plugins(cfg: Config) -> list[Plugin]:"
   },
   {
     "file": "src/typemut/config.py",
@@ -197,13 +155,6 @@
   },
   {
     "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "list[str]",
-    "mutated": "list[str] | None",
-    "source": "excluded_modules: list[str] = field(default_factory=list)"
-  },
-  {
-    "file": "src/typemut/config.py",
     "operator": "WidenContainerType",
     "original": "dict[str, list[str]]",
     "mutated": "Mapping[str, list[str]]",
@@ -232,20 +183,6 @@
   },
   {
     "file": "src/typemut/db.py",
-    "operator": "AddOptional",
-    "original": "Database",
-    "mutated": "Database | None",
-    "source": "def __enter__(self) -> Database:"
-  },
-  {
-    "file": "src/typemut/db.py",
-    "operator": "AddOptional",
-    "original": "str",
-    "mutated": "str | None",
-    "source": "status: str = \"pending\""
-  },
-  {
-    "file": "src/typemut/db.py",
     "operator": "WidenContainerType",
     "original": "dict[str, dict[str, int]]",
     "mutated": "Mapping[str, dict[str, int]]",
@@ -263,14 +200,14 @@
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def _is_any(node: BaseNode | Leaf) -> bool:"
+    "source": "def _is_any(self, node: BaseNode | Leaf) -> bool:"
   },
   {
     "file": "src/typemut/discovery.py",
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def _should_skip_line(line_text: str, skip_comments: Collection[str]) -> bool:"
+    "source": "def _should_skip_line(self, line_text: str) -> bool:"
   },
   {
     "file": "src/typemut/discovery.py",
@@ -298,98 +235,42 @@
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "BaseNode",
-    "source": "def _extract_typevar_power(node: BaseNode | Leaf, bare: bool, qualified: bool) -> BaseNode | None:"
+    "source": "def _visit(self, node: BaseNode | Leaf, scan: _Scan) -> None:"
   },
   {
     "file": "src/typemut/discovery.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "BaseNode",
-    "source": "def visit(node: BaseNode | Leaf) -> None:"
+    "source": "self, node: BaseNode | Leaf, bare: bool, qualified: bool"
   },
   {
     "file": "src/typemut/discovery.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "Leaf",
-    "source": "def _extract_typevar_power(node: BaseNode | Leaf, bare: bool, qualified: bool) -> BaseNode | None:"
+    "source": "def _visit(self, node: BaseNode | Leaf, scan: _Scan) -> None:"
   },
   {
     "file": "src/typemut/discovery.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "Leaf",
-    "source": "def visit(node: BaseNode | Leaf) -> None:"
-  },
-  {
-    "file": "src/typemut/discovery.py",
-    "operator": "RemoveUnionMember",
-    "original": "BaseNode | Leaf | None",
-    "mutated": "BaseNode | None",
-    "source": "def _get_annotation_from_tfpdef(node: BaseNode) -> BaseNode | Leaf | None:"
-  },
-  {
-    "file": "src/typemut/discovery.py",
-    "operator": "RemoveUnionMember",
-    "original": "BaseNode | Leaf | None",
-    "mutated": "BaseNode | None",
-    "source": "def _get_return_annotation(funcdef: BaseNode) -> BaseNode | Leaf | None:"
-  },
-  {
-    "file": "src/typemut/discovery.py",
-    "operator": "RemoveUnionMember",
-    "original": "BaseNode | Leaf | None",
-    "mutated": "Leaf | None",
-    "source": "def _get_annotation_from_tfpdef(node: BaseNode) -> BaseNode | Leaf | None:"
-  },
-  {
-    "file": "src/typemut/discovery.py",
-    "operator": "RemoveUnionMember",
-    "original": "BaseNode | Leaf | None",
-    "mutated": "Leaf | None",
-    "source": "def _get_return_annotation(funcdef: BaseNode) -> BaseNode | Leaf | None:"
-  },
-  {
-    "file": "src/typemut/discovery.py",
-    "operator": "WidenContainerType",
-    "original": "Collection[str]",
-    "mutated": "Iterable[str]",
-    "source": "def _should_skip_line(line_text: str, skip_comments: Collection[str]) -> bool:"
-  },
-  {
-    "file": "src/typemut/discovery.py",
-    "operator": "WidenContainerType",
-    "original": "Collection[str]",
-    "mutated": "Iterable[str]",
-    "source": "excluded_modules: Collection[str] | None = None,"
+    "source": "self, node: BaseNode | Leaf, bare: bool, qualified: bool"
   },
   {
     "file": "src/typemut/discovery.py",
     "operator": "WidenContainerType",
     "original": "list[AnnotationNode]",
     "mutated": "Sequence[AnnotationNode]",
-    "source": ") -> list[AnnotationNode]:"
+    "source": "def find(self, file: Path, source: str | None = None) -> list[AnnotationNode]:"
   },
   {
     "file": "src/typemut/discovery.py",
     "operator": "WidenContainerType",
     "original": "list[Path]",
     "mutated": "Sequence[Path]",
-    "source": ") -> list[Path]:"
-  },
-  {
-    "file": "src/typemut/discovery.py",
-    "operator": "WidenContainerType",
-    "original": "list[str]",
-    "mutated": "Sequence[str]",
-    "source": "skip_comments: list[str] | None = None,"
-  },
-  {
-    "file": "src/typemut/engine.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "def _is_false_kill(output: str) -> bool:"
+    "source": "def find(self) -> list[Path]:"
   },
   {
     "file": "src/typemut/ignore.py",
@@ -410,21 +291,21 @@
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "BaseNode",
-    "source": "def _attribute_name(node: BaseNode | Leaf) -> str | None:"
+    "source": "def _attribute_name(self, node: BaseNode | Leaf) -> str | None:"
   },
   {
     "file": "src/typemut/ignore.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "Leaf",
-    "source": "def _attribute_name(node: BaseNode | Leaf) -> str | None:"
+    "source": "def _attribute_name(self, node: BaseNode | Leaf) -> str | None:"
   },
   {
     "file": "src/typemut/ignore.py",
     "operator": "SwapIteratorGenerator",
     "original": "Iterator[str]",
     "mutated": "Iterable[str]",
-    "source": "def _dotted_names(node: BaseNode | Leaf) -> Iterator[str]:"
+    "source": "def _dotted_names(self, node: BaseNode | Leaf) -> Iterator[str]:"
   },
   {
     "file": "src/typemut/ignore.py",
@@ -438,7 +319,7 @@
     "operator": "WidenContainerType",
     "original": "list[str]",
     "mutated": "Sequence[str]",
-    "source": "def _dotted_head(node: BaseNode) -> list[str] | None:"
+    "source": "def _dotted_head(self, node: BaseNode) -> list[str] | None:"
   },
   {
     "file": "src/typemut/ignore.py",
@@ -452,35 +333,35 @@
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def _is_imported(source: str, type_name: str) -> bool:"
+    "source": "def _is_imported(self, source: str, type_name: str) -> bool:"
   },
   {
     "file": "src/typemut/imports.py",
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def needs_import(source: str, type_name: str) -> bool:"
+    "source": "def needs_import(self, source: str, type_name: str) -> bool:"
   },
   {
     "file": "src/typemut/imports.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "BaseNode",
-    "source": "def _iter_imports(node: BaseNode | Leaf) -> Iterator[ImportFrom | ImportName]:"
+    "source": "def _iter_imports(self, node: BaseNode | Leaf) -> Iterator[ImportFrom | ImportName]:"
   },
   {
     "file": "src/typemut/imports.py",
     "operator": "SwapIteratorGenerator",
     "original": "Iterator[ImportFrom | ImportName]",
     "mutated": "Iterable[ImportFrom | ImportName]",
-    "source": "def _iter_imports(node: BaseNode | Leaf) -> Iterator[ImportFrom | ImportName]:"
+    "source": "def _iter_imports(self, node: BaseNode | Leaf) -> Iterator[ImportFrom | ImportName]:"
   },
   {
     "file": "src/typemut/operators/base.py",
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def is_qualified_name(leaf: Leaf) -> bool:"
+    "source": "def _is_qualified_name(self, leaf: Leaf) -> bool:"
   },
   {
     "file": "src/typemut/operators/base.py",
@@ -498,13 +379,6 @@
   },
   {
     "file": "src/typemut/operators/iterator_generator.py",
-    "operator": "WidenContainerType",
-    "original": "list[str]",
-    "mutated": "Sequence[str]",
-    "source": "def _extract_params(trailer: BaseNode) -> list[str]:"
-  },
-  {
-    "file": "src/typemut/operators/iterator_generator.py",
     "operator": "WidenType",
     "original": "AnnotationContext",
     "mutated": "Enum",
@@ -515,56 +389,56 @@
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def _is_comma(node: BaseNode | Leaf) -> bool:"
+    "source": "def _is_comma(self, node: BaseNode | Leaf) -> bool:"
   },
   {
     "file": "src/typemut/operators/literal.py",
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def _is_literal_name(node: BaseNode | Leaf) -> bool:"
+    "source": "def _is_literal_name(self, node: BaseNode | Leaf) -> bool:"
   },
   {
     "file": "src/typemut/operators/literal.py",
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def _is_subscript_trailer(node: BaseNode) -> bool:"
+    "source": "def _is_subscript_trailer(self, node: BaseNode) -> bool:"
   },
   {
     "file": "src/typemut/operators/literal.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "BaseNode",
-    "source": "def _is_comma(node: BaseNode | Leaf) -> bool:"
+    "source": "def _is_comma(self, node: BaseNode | Leaf) -> bool:"
   },
   {
     "file": "src/typemut/operators/literal.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "BaseNode",
-    "source": "def _is_literal_name(node: BaseNode | Leaf) -> bool:"
+    "source": "def _is_literal_name(self, node: BaseNode | Leaf) -> bool:"
   },
   {
     "file": "src/typemut/operators/literal.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "Leaf",
-    "source": "def _is_comma(node: BaseNode | Leaf) -> bool:"
+    "source": "def _is_comma(self, node: BaseNode | Leaf) -> bool:"
   },
   {
     "file": "src/typemut/operators/literal.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "Leaf",
-    "source": "def _is_literal_name(node: BaseNode | Leaf) -> bool:"
+    "source": "def _is_literal_name(self, node: BaseNode | Leaf) -> bool:"
   },
   {
     "file": "src/typemut/operators/literal.py",
     "operator": "WidenContainerType",
     "original": "list[BaseNode]",
     "mutated": "Sequence[BaseNode]",
-    "source": "def _find_literal_subscriptlists(node: BaseNode | Leaf) -> list[BaseNode]:"
+    "source": "def _find_literal_subscriptlists(self, node: BaseNode | Leaf) -> list[BaseNode]:"
   },
   {
     "file": "src/typemut/operators/literal.py",
@@ -578,14 +452,7 @@
     "operator": "AddOptional",
     "original": "bool",
     "mutated": "bool | None",
-    "source": "def _contains_none(node: BaseNode | Leaf) -> bool:"
-  },
-  {
-    "file": "src/typemut/operators/optional.py",
-    "operator": "WidenContainerType",
-    "original": "list[BaseNode | Leaf]",
-    "mutated": "Sequence[BaseNode | Leaf]",
-    "source": "def _extract_union_members(node: BaseNode | Leaf) -> list[BaseNode | Leaf]:"
+    "source": "def _contains_none(self, node: BaseNode | Leaf) -> bool:"
   },
   {
     "file": "src/typemut/operators/optional.py",
@@ -600,13 +467,6 @@
     "original": "AnnotationContext",
     "mutated": "Enum",
     "source": "context: AnnotationContext,"
-  },
-  {
-    "file": "src/typemut/operators/union.py",
-    "operator": "WidenContainerType",
-    "original": "list[BaseNode | Leaf]",
-    "mutated": "Sequence[BaseNode | Leaf]",
-    "source": "def _extract_union_members(node: BaseNode | Leaf) -> list[BaseNode | Leaf]:"
   },
   {
     "file": "src/typemut/operators/union.py",
@@ -646,13 +506,6 @@
   {
     "file": "src/typemut/parallel.py",
     "operator": "WidenContainerType",
-    "original": "list[MutantRow]",
-    "mutated": "Sequence[MutantRow]",
-    "source": "mutants: list[MutantRow],"
-  },
-  {
-    "file": "src/typemut/parallel.py",
-    "operator": "WidenContainerType",
     "original": "list[list[MutantRow]]",
     "mutated": "Sequence[list[MutantRow]]",
     "source": ") -> list[list[MutantRow]]:"
@@ -667,16 +520,9 @@
   {
     "file": "src/typemut/plugins/__init__.py",
     "operator": "WidenContainerType",
-    "original": "Collection[str]",
-    "mutated": "Iterable[str]",
-    "source": "def get_plugins(names: Collection[str]) -> list[Plugin]:"
-  },
-  {
-    "file": "src/typemut/plugins/__init__.py",
-    "operator": "WidenContainerType",
     "original": "list[Mutation]",
     "mutated": "Sequence[Mutation]",
-    "source": ") -> list[Mutation]:"
+    "source": "def find(self, annotation: AnnotationNode) -> list[Mutation]:"
   },
   {
     "file": "src/typemut/plugins/base.py",
@@ -695,16 +541,9 @@
   {
     "file": "src/typemut/plugins/fastapi.py",
     "operator": "WidenContainerType",
-    "original": "Collection[TypeMutationOperator]",
-    "mutated": "Iterable[TypeMutationOperator]",
-    "source": "operators: Collection[TypeMutationOperator],"
-  },
-  {
-    "file": "src/typemut/plugins/fastapi.py",
-    "operator": "WidenContainerType",
     "original": "list[BaseNode]",
     "mutated": "Sequence[BaseNode]",
-    "source": "def _decorators(annotation: BaseNode | Leaf) -> list[BaseNode]:"
+    "source": "def _decorators(self, annotation: BaseNode | Leaf) -> list[BaseNode]:"
   },
   {
     "file": "src/typemut/plugins/sqlalchemy.py",
@@ -718,7 +557,7 @@
     "operator": "AddOptional",
     "original": "list[Mutation]",
     "mutated": "list[Mutation] | None",
-    "source": "def _forward_ref_mutations(string: BaseNode | Leaf, rules: _Rules) -> list[Mutation]:"
+    "source": "def _forward_ref_mutations(self, string: BaseNode | Leaf, rules: _Rules) -> list[Mutation]:"
   },
   {
     "file": "src/typemut/plugins/sqlalchemy.py",
@@ -753,7 +592,7 @@
     "operator": "WidenContainerType",
     "original": "dict[str, str]",
     "mutated": "Mapping[str, str]",
-    "source": "file_imports: dict[str, str],"
+    "source": "def _extract_imports(self, tree: BaseNode) -> dict[str, str]:"
   },
   {
     "file": "src/typemut/registry.py",
@@ -767,56 +606,56 @@
     "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",
-    "source": "def _build_module_rows(summary: Mapping[str, Mapping[str, int]]) -> str:"
+    "source": "def _build_module_rows(self, summary: Mapping[str, Mapping[str, int]]) -> str:"
   },
   {
     "file": "src/typemut/reporting/html.py",
     "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",
-    "source": "def _detail_cards(cards_html: str, count: int) -> str:"
+    "source": "def _detail_cards(self, cards_html: str, count: int) -> str:"
   },
   {
     "file": "src/typemut/reporting/html.py",
     "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",
-    "source": "def _format_diff_html(diff_text: str) -> str:"
+    "source": "def _format_diff_html(self, diff_text: str) -> str:"
   },
   {
     "file": "src/typemut/reporting/html.py",
     "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",
-    "source": "def _score_class(score: float) -> str:"
+    "source": "def _score_class(self, score: float) -> str:"
   },
   {
     "file": "src/typemut/reporting/html.py",
     "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",
-    "source": "def _status_badge(status: str) -> str:"
+    "source": "def _status_badge(self, status: str) -> str:"
   },
   {
     "file": "src/typemut/symbols.py",
     "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",
-    "source": "def _module_name(file: Path) -> str:"
-  },
-  {
-    "file": "src/typemut/symbols.py",
-    "operator": "RemoveUnionMember",
-    "original": "BaseNode | Leaf",
-    "mutated": "BaseNode",
-    "source": "def _called_class(node: BaseNode | Leaf) -> str | None:"
+    "source": "def _module_name(self, file: Path) -> str:"
   },
   {
     "file": "src/typemut/symbols.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "BaseNode",
-    "source": "def _expression_name(node: BaseNode | Leaf) -> str | None:"
+    "source": "def _called_class(self, node: BaseNode | Leaf) -> str | None:"
+  },
+  {
+    "file": "src/typemut/symbols.py",
+    "operator": "RemoveUnionMember",
+    "original": "BaseNode | Leaf",
+    "mutated": "BaseNode",
+    "source": "def _expression_name(self, node: BaseNode | Leaf) -> str | None:"
   },
   {
     "file": "src/typemut/symbols.py",
@@ -830,28 +669,28 @@
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "Leaf",
-    "source": "def _called_class(node: BaseNode | Leaf) -> str | None:"
+    "source": "def _called_class(self, node: BaseNode | Leaf) -> str | None:"
   },
   {
     "file": "src/typemut/symbols.py",
     "operator": "RemoveUnionMember",
     "original": "BaseNode | Leaf",
     "mutated": "Leaf",
-    "source": "def _expression_name(node: BaseNode | Leaf) -> str | None:"
+    "source": "def _expression_name(self, node: BaseNode | Leaf) -> str | None:"
   },
   {
     "file": "src/typemut/symbols.py",
     "operator": "SwapIteratorGenerator",
     "original": "Iterator[BaseNode]",
     "mutated": "Iterable[BaseNode]",
-    "source": "def _function_scopes(node: BaseNode | Leaf) -> Iterator[BaseNode]:"
+    "source": "def _scope_nodes(self, scope: BaseNode) -> Iterator[BaseNode]:"
   },
   {
     "file": "src/typemut/symbols.py",
     "operator": "SwapIteratorGenerator",
     "original": "Iterator[BaseNode]",
     "mutated": "Iterable[BaseNode]",
-    "source": "def _scope_nodes(scope: BaseNode) -> Iterator[BaseNode]:"
+    "source": "def function_scopes(self, node: BaseNode | Leaf) -> Iterator[BaseNode]:"
   },
   {
     "file": "src/typemut/symbols.py",
@@ -865,6 +704,6 @@
     "operator": "WidenContainerType",
     "original": "list[str]",
     "mutated": "Sequence[str]",
-    "source": "def _bases(classdef: BaseNode) -> list[str]:"
+    "source": "def bases(self, classdef: BaseNode) -> list[str]:"
   }
 ]

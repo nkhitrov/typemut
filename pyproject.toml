@@ -63,6 +63,9 @@ dev = [
 [tool.coverage.run]
 source = ["typemut", "tests"]
 branch = true
+# Worker processes (typemut.parallel.ProcessPool) record coverage too.
+concurrency = ["multiprocessing"]
+parallel = true
 
 [tool.coverage.report]
 show_missing = true
@@ -140,6 +143,7 @@ no_implicit_reexport = false
 module = [
     "typemut.discovery",
     "typemut.imports",
+    "typemut.nodes",
     "typemut.registry",
     "typemut.symbols",
     "typemut.operators.*",

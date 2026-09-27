@@ -10,75 +10,87 @@ from rich.table import Table
 from typemut.db import Database
 
 
-def print_report(db: Database, console: Console) -> None:
-    """Print mutation testing results as a rich table."""
-    summary = db.get_summary()
-    if not summary:
-        console.print("[yellow]No results found.[/yellow]")
-        return
+class MutationScore:
+    """Mutation scores of a results summary (``{module: {status: count}}``)."""
 
-    table = Table(title="Type Mutation Testing Report")
-    table.add_column("Module", style="cyan")
-    table.add_column("Mutants", justify="right")
-    table.add_column("Killed", justify="right", style="green")
-    table.add_column("Survived", justify="right", style="red")
-    table.add_column("Score", justify="right", style="bold")
+    def __init__(self, summary: Mapping[str, Mapping[str, int]]) -> None:
+        self._summary = summary
 
-    total_killed = 0
-    total_survived = 0
-    total_all = 0
+    def total(self) -> float | None:
+        """Return the overall mutation score in percent, or None if nothing was scored.
 
-    for module, statuses in sorted(summary.items()):
-        killed = statuses.get("killed", 0)
-        survived = statuses.get("survived", 0)
-        pending = statuses.get("pending", 0)
-        skipped = statuses.get("skipped", 0)
-        error = statuses.get("error", 0)
-        module_total = killed + survived + pending + skipped + error
-        score = (killed / (killed + survived) * 100) if (killed + survived) > 0 else 0
+        Only killed and survived mutants count; pending, skipped and error ones don't.
+        """
+        killed = sum(statuses.get("killed", 0) for statuses in self._summary.values())
+        survived = sum(statuses.get("survived", 0) for statuses in self._summary.values())
+        if killed + survived == 0:
+            return None
+        return killed / (killed + survived) * 100
 
-        table.add_row(
-            module,
-            str(module_total),
-            str(killed),
-            str(survived),
-            f"{score:.1f}%",
-        )
-        total_killed += killed
-        total_survived += survived
-        total_all += module_total
 
-    score_total = total_score(summary) or 0
-    table.add_section()
-    table.add_row(
-        "TOTAL",
-        str(total_all),
-        str(total_killed),
-        str(total_survived),
-        f"{score_total:.1f}%",
-    )
+class TerminalReport:
+    """Results table printed on a rich *console*."""
 
-    console.print(table)
+    def __init__(self, console: Console) -> None:
+        self._console = console
 
-    # Show survived mutants
-    all_mutants = db.get_all()
-    survived_mutants = [m for m in all_mutants if m.status == "survived"]
-    if survived_mutants:
-        console.print("\n[bold red]Survived mutants:[/bold red]")
-        for m in survived_mutants:
-            console.print(
-                f"  {m.module_path}:{m.line}  {m.operator}  "
-                f"{m.original_annotation} → {m.mutated_annotation}"
+    def print(self, db: Database) -> None:
+        """Print mutation testing results as a rich table."""
+        summary = db.get_summary()
+        if not summary:
+            self._console.print("[yellow]No results found.[/yellow]")
+            return
+
+        table = Table(title="Type Mutation Testing Report")
+        table.add_column("Module", style="cyan")
+        table.add_column("Mutants", justify="right")
+        table.add_column("Killed", justify="right", style="green")
+        table.add_column("Survived", justify="right", style="red")
+        table.add_column("Score", justify="right", style="bold")
+
+        total_killed = 0
+        total_survived = 0
+        total_all = 0
+
+        for module, statuses in sorted(summary.items()):
+            killed = statuses.get("killed", 0)
+            survived = statuses.get("survived", 0)
+            pending = statuses.get("pending", 0)
+            skipped = statuses.get("skipped", 0)
+            error = statuses.get("error", 0)
+            module_total = killed + survived + pending + skipped + error
+            score = (killed / (killed + survived) * 100) if (killed + survived) > 0 else 0
+
+            table.add_row(
+                module,
+                str(module_total),
+                str(killed),
+                str(survived),
+                f"{score:.1f}%",
             )
+            total_killed += killed
+            total_survived += survived
+            total_all += module_total
 
+        score_total = MutationScore(summary).total() or 0
+        table.add_section()
+        table.add_row(
+            "TOTAL",
+            str(total_all),
+            str(total_killed),
+            str(total_survived),
+            f"{score_total:.1f}%",
+        )
 
-def total_score(summary: Mapping[str, Mapping[str, int]]) -> float | None:
-    """Return the overall mutation score in percent, or None if nothing was scored.
+        self._console.print(table)
 
-    Only killed and survived mutants count; pending, skipped and error ones don't.
-    """
-    killed = sum(statuses.get("killed", 0) for statuses in summary.values())
-    survived = sum(statuses.get("survived", 0) for statuses in summary.values())
-    if killed + survived == 0:
-        return None
-    return killed / (killed + survived) * 100
+        # Show survived mutants
+        all_mutants = db.get_all()
+        survived_mutants = [m for m in all_mutants if m.status == "survived"]
+        if survived_mutants:
+            self._console.print("\n[bold red]Survived mutants:[/bold red]")
+            for m in survived_mutants:
+                self._console.print(
+                    f"  {m.module_path}:{m.line}  {m.operator}  "
+                    f"{m.original_annotation} → {m.mutated_annotation}"
+                )

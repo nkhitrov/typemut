@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from typemut.db import Database, MutantRow
 
 
@@ -66,8 +68,8 @@ def test_update_results_batch(tmp_db: Database) -> None:
     tmp_db.insert_many([_make_mutant(line=1), _make_mutant(line=2)])
     all_m = tmp_db.get_all()
     results = [
-        (all_m[0].id, "killed", "error output", 0.5),
-        (all_m[1].id, "survived", None, 1.0),
+        replace(all_m[0], status="killed", output="error output", duration_seconds=0.5),
+        replace(all_m[1], status="survived", output=None, duration_seconds=1.0),
     ]
     tmp_db.update_results_batch(results)
 

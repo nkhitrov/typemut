@@ -2,60 +2,52 @@
 
 from __future__ import annotations
 
-from typemut.imports import (
-    add_import,
-    add_import_line,
-    detect_preferred_module,
-    extract_type_name,
-    find_last_import_line,
-    needs_import,
-    resolve_import,
-)
+from typemut.imports import ImportInjector
 
 
 # --- extract_type_name ---
 
 
 def test_extract_subscripted():
-    assert extract_type_name("Sequence[int]") == "Sequence"
+    assert ImportInjector().type_name("Sequence[int]") == "Sequence"
 
 
 def test_extract_multi_param():
-    assert extract_type_name("Generator[int, None, None]") == "Generator"
+    assert ImportInjector().type_name("Generator[int, None, None]") == "Generator"
 
 
 def test_extract_plain():
-    assert extract_type_name("int") == "int"
+    assert ImportInjector().type_name("int") == "int"
 
 
 def test_extract_with_spaces():
-    assert extract_type_name("  Mapping[str, int]  ") == "Mapping"
+    assert ImportInjector().type_name("  Mapping[str, int]  ") == "Mapping"
 
 
 # --- needs_import ---
 
 
 def test_builtin_no_import():
-    assert needs_import("x: list\n", "list") is False
+    assert ImportInjector().needs_import("x: list\n", "list") is False
 
 
 def test_unknown_type_no_import():
-    assert needs_import("x: MyClass\n", "MyClass") is False
+    assert ImportInjector().needs_import("x: MyClass\n", "MyClass") is False
 
 
 def test_already_imported():
     source = "from collections.abc import Sequence\n\nx: list\n"
-    assert needs_import(source, "Sequence") is False
+    assert ImportInjector().needs_import(source, "Sequence") is False
 
 
 def test_already_imported_typing():
     source = "from typing import Sequence\n\nx: list\n"
-    assert needs_import(source, "Sequence") is False
+    assert ImportInjector().needs_import(source, "Sequence") is False
 
 
 def test_already_imported_multi_name():
     source = "from collections.abc import Iterable, Sequence, Mapping\n"
-    assert needs_import(source, "Sequence") is False
+    assert ImportInjector().needs_import(source, "Sequence") is False
 
 
 def test_already_imported_parenthesized():
@@ -65,17 +57,17 @@ def test_already_imported_parenthesized():
         "    Sequence,\n"
         ")\n"
     )
-    assert needs_import(source, "Sequence") is False
+    assert ImportInjector().needs_import(source, "Sequence") is False
 
 
 def test_needs_import_not_present():
     source = "from typing import List\n\nx: list[int]\n"
-    assert needs_import(source, "Sequence") is True
+    assert ImportInjector().needs_import(source, "Sequence") is True
 
 
 def test_needs_import_iterator():
     source = "x: Iterator[int]\n"
-    assert needs_import(source, "Iterator") is True
+    assert ImportInjector().needs_import(source, "Iterator") is True
 
 
 # --- detect_preferred_module ---
@@ -83,17 +75,17 @@ def test_needs_import_iterator():
 
 def test_prefer_typing_when_used():
     source = "from typing import List\n\nx: List[int]\n"
-    assert detect_preferred_module(source, "Sequence") == "typing"
+    assert ImportInjector().preferred_module(source, "Sequence") == "typing"
 
 
 def test_prefer_collections_abc_when_used():
     source = "from collections.abc import Iterable\n\nx: Iterable[int]\n"
-    assert detect_preferred_module(source, "Sequence") == "collections.abc"
+    assert ImportInjector().preferred_module(source, "Sequence") == "collections.abc"
 
 
 def test_default_to_collections_abc():
     source = "x: list[int]\n"
-    assert detect_preferred_module(source, "Sequence") == "collections.abc"
+    assert ImportInjector().preferred_module(source, "Sequence") == "collections.abc"
 
 
 # --- find_last_import_line ---
@@ -107,7 +99,7 @@ def test_find_last_import_simple():
         "\n",
         "x = 1\n",
     ]
-    assert find_last_import_line(lines) == 2
+    assert ImportInjector().last_import_line(lines) == 2
 
 
 def test_find_last_import_parenthesized():
@@ -119,12 +111,12 @@ def test_find_last_import_parenthesized():
         "\n",
         "x = 1\n",
     ]
-    assert find_last_import_line(lines) == 3
+    assert ImportInjector().last_import_line(lines) == 3
 
 
 def test_find_last_import_none():
     lines = ["x = 1\n", "y = 2\n"]
-    assert find_last_import_line(lines) == -1
+    assert ImportInjector().last_import_line(lines) == -1
 
 
 def test_find_last_import_ignores_docstrings():
@@ -137,7 +129,7 @@ def test_find_last_import_ignores_docstrings():
         '    """\n',
         '    pass\n',
     ]
-    assert find_last_import_line(lines) == 0
+    assert ImportInjector().last_import_line(lines) == 0
 
 
 def test_find_last_import_ignores_indented():
@@ -148,7 +140,7 @@ def test_find_last_import_ignores_indented():
         "    from bar import baz\n",
         "    pass\n",
     ]
-    assert find_last_import_line(lines) == 0
+    assert ImportInjector().last_import_line(lines) == 0
 
 
 # --- add_import ---
@@ -156,7 +148,7 @@ def test_find_last_import_ignores_indented():
 
 def test_add_import_new_line():
     source = "import os\n\nx: list[int]\n"
-    new_source, inserted_at = add_import(source, "Sequence", "collections.abc")
+    new_source, inserted_at = ImportInjector().add(source, "Sequence", "collections.abc")
     assert "from collections.abc import Sequence\n" in new_source
     assert inserted_at == 1
     # Original content still present
@@ -165,14 +157,14 @@ def test_add_import_new_line():
 
 def test_add_import_appends_to_existing():
     source = "from collections.abc import Iterable\n\nx: list[int]\n"
-    new_source, inserted_at = add_import(source, "Sequence", "collections.abc")
+    new_source, inserted_at = ImportInjector().add(source, "Sequence", "collections.abc")
     assert "from collections.abc import Iterable, Sequence\n" in new_source
     assert inserted_at is None  # no new line inserted
 
 
 def test_add_import_after_future():
     source = "from __future__ import annotations\n\nx: list[int]\n"
-    new_source, inserted_at = add_import(source, "Sequence", "collections.abc")
+    new_source, inserted_at = ImportInjector().add(source, "Sequence", "collections.abc")
     lines = new_source.splitlines()
     assert lines[0] == "from __future__ import annotations"
     assert lines[1] == "from collections.abc import Sequence"
@@ -181,7 +173,7 @@ def test_add_import_after_future():
 
 def test_add_import_no_existing_imports():
     source = "x: list[int]\n"
-    new_source, inserted_at = add_import(source, "Sequence", "collections.abc")
+    new_source, inserted_at = ImportInjector().add(source, "Sequence", "collections.abc")
     lines = new_source.splitlines()
     assert lines[0] == "from collections.abc import Sequence"
     assert inserted_at == 0
@@ -189,7 +181,7 @@ def test_add_import_no_existing_imports():
 
 def test_add_import_typing():
     source = "from typing import List\n\nx: List[int]\n"
-    new_source, inserted_at = add_import(source, "Sequence", "typing")
+    new_source, inserted_at = ImportInjector().add(source, "Sequence", "typing")
     assert "from typing import List, Sequence\n" in new_source
     assert inserted_at is None
 
@@ -199,14 +191,14 @@ def test_add_import_typing():
 
 def test_add_import_line_parses_and_merges():
     source = "from pydantic import Field\n\nx: int\n"
-    new_source, inserted_at = add_import_line(source, "from pydantic import BaseModel")
+    new_source, inserted_at = ImportInjector().add_line(source, "from pydantic import BaseModel")
     assert "from pydantic import Field, BaseModel\n" in new_source
     assert inserted_at is None
 
 
 def test_add_import_line_new_module():
     source = "import os\n\nx: int\n"
-    new_source, inserted_at = add_import_line(source, "from abc import ABC")
+    new_source, inserted_at = ImportInjector().add_line(source, "from abc import ABC")
     assert "from abc import ABC\n" in new_source
     assert inserted_at == 1
 
@@ -216,27 +208,27 @@ def test_add_import_line_new_module():
 
 def test_resolve_with_required_import():
     source = "import os\n\nx: MyClass\n"
-    new_source, inserted_at = resolve_import(source, "BaseModel", "from pydantic import BaseModel")
+    new_source, inserted_at = ImportInjector().resolve(source, "BaseModel", "from pydantic import BaseModel")
     assert "from pydantic import BaseModel\n" in new_source
     assert inserted_at == 1
 
 
 def test_resolve_required_import_already_present():
     source = "from pydantic import BaseModel\n\nx: MyClass\n"
-    new_source, inserted_at = resolve_import(source, "BaseModel", "from pydantic import BaseModel")
+    new_source, inserted_at = ImportInjector().resolve(source, "BaseModel", "from pydantic import BaseModel")
     assert new_source == source
     assert inserted_at is None
 
 
 def test_resolve_falls_back_to_import_sources():
     source = "import os\n\nx: list\n"
-    new_source, inserted_at = resolve_import(source, "Sequence[int]", None)
+    new_source, inserted_at = ImportInjector().resolve(source, "Sequence[int]", None)
     assert "import Sequence" in new_source
     assert inserted_at is not None
 
 
 def test_resolve_no_import_needed():
     source = "import os\n\nx: list\n"
-    new_source, inserted_at = resolve_import(source, "list", None)
+    new_source, inserted_at = ImportInjector().resolve(source, "list", None)
     assert new_source == source
     assert inserted_at is None

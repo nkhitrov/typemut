@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from typemut.discovery import AnnotationContext, discover_annotations
+from typemut.discovery import AnnotationContext, AnnotationFinder
 from typemut.operators.variance import TypeVarVariance
 from typemut.registry import Registry
 
 
 def _get_typevar_mutations(source: str):
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
     assert len(tvars) == 1
     op = TypeVarVariance()
@@ -55,14 +55,14 @@ def test_typevar_with_bound_preserves_bound() -> None:
 
 def test_no_typing_import_no_typevar_discovery() -> None:
     source = 'T = TypeVar("T", covariant=True)\n'
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
     assert len(tvars) == 0
 
 
 def test_regular_annotations_alongside_typevar() -> None:
     source = 'from typing import TypeVar\nT = TypeVar("T")\nx: int = 5\n'
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
     variables = [a for a in annotations if a.context == AnnotationContext.VARIABLE]
     assert len(tvars) == 1
@@ -72,7 +72,7 @@ def test_regular_annotations_alongside_typevar() -> None:
 
 def test_operator_ignores_non_typevar_context() -> None:
     source = "x: int = 5\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
     op = TypeVarVariance()
     mutations = op.find_mutations(
         annotations[0].node, AnnotationContext.VARIABLE, Registry()

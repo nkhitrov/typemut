@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import pytest
 
-from typemut.discovery import AnnotationContext, discover_annotations
+from typemut.discovery import AnnotationContext, AnnotationFinder
 from typemut.operators.optional import AddOptional, RemoveOptional
 from typemut.registry import Registry
 
@@ -43,7 +43,7 @@ def test_add_optional_skips_already_optional() -> None:
 
 def test_add_optional_skips_parameters() -> None:
     source = "def f(x: int) -> str:\n    pass\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
 
     op = AddOptional()
     param_ann = [a for a in annotations if a.context == AnnotationContext.PARAMETER]
@@ -74,7 +74,7 @@ def test_remove_optional_all_none() -> None:
 
 def test_add_optional_skips_self() -> None:
     source = "class Foo:\n    def bar(self) -> None:\n        pass\n"
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
     param_anns = [a for a in annotations if a.context == AnnotationContext.PARAMETER]
     op = AddOptional()
     for ann in param_anns:
@@ -84,7 +84,7 @@ def test_add_optional_skips_self() -> None:
 
 def test_add_optional_skips_typevar() -> None:
     source = 'from typing import TypeVar\nT = TypeVar("T")\n'
-    annotations = discover_annotations(Path("test.py"), source=source)
+    annotations = AnnotationFinder().find(Path("test.py"), source=source)
     tvars = [a for a in annotations if a.context == AnnotationContext.TYPEVAR]
     mutations = AddOptional().find_mutations(tvars[0].node, AnnotationContext.TYPEVAR, Registry())
     assert mutations == []

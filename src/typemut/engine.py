@@ -1,23 +1,27 @@
-"""Mutation execution loop."""
+"""Mutation execution: apply a mutant, run the test command, record the result."""
 
 from __future__ import annotations
 
 import hashlib
 import os
 import re
-import subprocess
 import time
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
+from collections.abc import Set as AbstractSet
+from dataclasses import replace
 from pathlib import Path
+from typing import Final, Protocol
 
-from rich.progress import Progress
+from rich.console import Console
+from rich.progress import track
 
 from typemut.db import Database, MutantRow
-from typemut.imports import resolve_import
+from typemut.imports import ImportInjector
+from typemut.runner import CommandResult, CommandRunner, Outcome
 
 # mypy error codes that indicate the mutated code is broken (missing import,
 # syntax error, invalid type) rather than a genuine type-system kill.
-FALSE_KILL_CODES: frozenset[str] = frozenset(
+FALSE_KILL_CODES: AbstractSet[str] = frozenset(
     {
         "name-defined",  # Name "Sequence" is not defined
         "syntax",  # Syntax error in mutated code
@@ -34,149 +38,216 @@ _ERROR_CODE_RE = re.compile(r"\[(\w[\w-]*)\]\s*$")
 _MTIME_SPREAD_SECONDS = 2**24
 _NS_PER_SECOND = 10**9
 
+DB_FLUSH_BATCH_SIZE = 50
 
-def check_baseline(test_command: str, timeout: int) -> tuple[bool, str]:
-    """Run test command on unmodified code. Returns (ok, output)."""
-    try:
-        result = subprocess.run(
-            test_command,
-            shell=True,
-            timeout=timeout,
-            capture_output=True,
+
+# Mutant status by test-command outcome, before false-kill detection.
+_STATUS_BY_OUTCOME: Final = {
+    Outcome.PASSED: "survived",  # no type errors: the mutant went unnoticed
+    Outcome.FAILED: "killed",
+    Outcome.TIMED_OUT: "killed",
+}
+
+
+class MutationApplyError(ValueError):
+    """The mutant does not match the current source, so it cannot be applied."""
+
+
+class MutantExecutor(Protocol):
+    """Runs mutants and yields them finished (with status, output, duration), in any order."""
+
+    def execute(self, mutants: Collection[MutantRow]) -> Iterable[MutantRow]:
+        """Run every mutant in *mutants*."""
+        ...
+
+
+class ProgressBar(Protocol):
+    """Reports progress while results arrive."""
+
+    def track(self, results: Iterable[MutantRow], total: int) -> Iterable[MutantRow]:
+        """Yield *results* unchanged, reporting progress towards *total*."""
+        ...
+
+
+class RichProgressBar:
+    """Progress bar drawn on a rich console."""
+
+    def __init__(self, console: Console) -> None:
+        self._console = console
+
+    def track(self, results: Iterable[MutantRow], total: int) -> Iterable[MutantRow]:
+        return track(
+            results,
+            total=total,
+            description="Running mutations...",
+            console=self._console,
         )
-        output = result.stderr.decode(errors="replace")
-        if not output:
-            output = result.stdout.decode(errors="replace")
-        return result.returncode == 0, output
-    except subprocess.TimeoutExpired:
-        return False, "Baseline check timed out"
 
 
-def run_all_mutants(
-    db: Database,
-    mutants: Collection[MutantRow],
-    test_command: str,
-    timeout: int,
-) -> None:
-    """Run all pending mutants sequentially with progress bar."""
-    with Progress() as progress:
-        task = progress.add_task("Running mutations...", total=len(mutants))
+class MutationTester:
+    """Applies one mutant at a time under a project root and runs the test command."""
 
+    def __init__(
+        self,
+        runner: CommandRunner,
+        test_command: str,
+        timeout: int,
+        applier: MutationApplier | None = None,
+        classifier: OutcomeClassifier | None = None,
+    ) -> None:
+        self.runner = runner
+        self.test_command = test_command
+        self.timeout = timeout
+        self.applier = applier or MutationApplier()
+        self.classifier = classifier or OutcomeClassifier()
+
+    def check_baseline(self, root: Path) -> tuple[bool, str]:
+        """Run the test command on unmodified code. Returns (ok, output)."""
+        result = self.runner.run(self.test_command, timeout=self.timeout, cwd=root)
+        if result.outcome is Outcome.TIMED_OUT:
+            return False, "Baseline check timed out"
+        return result.outcome is Outcome.PASSED, result.output
+
+    def run(self, mutant: MutantRow, root: Path) -> MutantRow:
+        """Apply *mutant* to its file under *root*, run the test command, restore the file.
+
+        Returns the mutant with its status, output and duration set.
+        """
+        file_path = root / mutant.module_path
+        original_source = file_path.read_text()
+        try:
+            mutated_source = self.applier.apply(original_source, mutant)
+        except MutationApplyError as exc:
+            return replace(mutant, status="error", output=str(exc), duration_seconds=0.0)
+
+        original_stat = file_path.stat()
+        try:
+            file_path.write_text(mutated_source)
+        except OSError as exc:
+            output = f"Failed to write mutation: {exc}"
+            return replace(mutant, status="error", output=output, duration_seconds=0.0)
+        os.utime(
+            file_path,
+            ns=(
+                original_stat.st_atime_ns,
+                self._content_mtime_ns(mutated_source, original_stat.st_mtime_ns),
+            ),
+        )
+
+        start = time.monotonic()
+        try:
+            result = self.runner.run(self.test_command, timeout=self.timeout, cwd=root)
+            duration = time.monotonic() - start
+        finally:
+            file_path.write_text(original_source)
+            os.utime(file_path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+        status, output = self.classifier.classify(result)
+        return replace(mutant, status=status, output=output, duration_seconds=duration)
+
+    def _content_mtime_ns(self, source: str, original_mtime_ns: int) -> int:
+        """A whole-second mtime before *original_mtime_ns* that depends only on *source*."""
+        digest = hashlib.sha256(source.encode()).digest()
+        offset = 1 + int.from_bytes(digest[:8]) % _MTIME_SPREAD_SECONDS
+        return (original_mtime_ns // _NS_PER_SECOND - offset) * _NS_PER_SECOND
+
+
+class SequentialExecutor:
+    """Runs mutants one by one in the project itself."""
+
+    def __init__(self, tester: MutationTester, root: Path) -> None:
+        self._tester = tester
+        self._root = root
+
+    def execute(self, mutants: Iterable[MutantRow]) -> Iterable[MutantRow]:
         for mutant in mutants:
-            assert mutant.id is not None
-            status, output, duration = run_single_mutant(mutant, test_command, timeout)
-            db.update_result(mutant.id, status, output, duration)
-            progress.advance(task)
+            yield self._tester.run(mutant, self._root)
 
 
-def run_single_mutant(
-    mutant: MutantRow,
-    test_command: str,
-    timeout: int,
-    project_root: Path | None = None,
-) -> tuple[str, str | None, float]:
-    """Run a single mutation, return (status, output, duration)."""
-    base = project_root or Path()
-    file_path = base / mutant.module_path
-    original_source = file_path.read_text()
+class MutationApplier:
+    """Rewrites a module's source with a mutant applied."""
 
-    # --- Import injection: add import for the mutated type if needed --------
-    source_for_mutation, inserted_at = resolve_import(
-        original_source,
-        mutant.mutated_annotation,
-        mutant.required_import,
-    )
-    line_offset = 1 if inserted_at is not None and inserted_at < mutant.line - 1 else 0
+    def __init__(self, imports: ImportInjector | None = None) -> None:
+        self._imports = imports or ImportInjector()
 
-    # Find and replace the annotation at the correct position
-    lines = source_for_mutation.splitlines(keepends=True)
-    line_idx = mutant.line - 1 + line_offset
-
-    if line_idx >= len(lines):
-        return "error", "Line number out of range", 0.0
-
-    # Replace at exact offset in the whole source (annotation may span lines)
-    col = mutant.col
-    orig = mutant.original_annotation
-    offset = sum(len(line) for line in lines[:line_idx]) + col
-    end = offset + len(orig)
-    found = source_for_mutation[offset:end]
-    if found != orig:
-        return (
-            "error",
-            f"Could not apply mutation — expected '{orig}' at col {col}, found '{found}'",
-            0.0,
+    def apply(self, source: str, mutant: MutantRow) -> str:
+        """Return *source* with *mutant* applied, adding the import its type needs."""
+        source_for_mutation, inserted_at = self._imports.resolve(
+            source,
+            mutant.mutated_annotation,
+            mutant.required_import,
         )
-    mutated_source = (
-        source_for_mutation[:offset] + mutant.mutated_annotation + source_for_mutation[end:]
-    )
+        line_offset = 1 if inserted_at is not None and inserted_at <= mutant.line - 1 else 0
 
-    original_stat = file_path.stat()
-    try:
-        file_path.write_text(mutated_source)
-    except OSError as exc:
-        return "error", f"Failed to write mutation: {exc}", 0.0
-    os.utime(
-        file_path,
-        ns=(
-            original_stat.st_atime_ns,
-            _content_mtime_ns(mutated_source, original_stat.st_mtime_ns),
-        ),
-    )
+        lines = source_for_mutation.splitlines(keepends=True)
+        line_idx = mutant.line - 1 + line_offset
+        if line_idx >= len(lines):
+            raise MutationApplyError("Line number out of range")
 
-    start = time.monotonic()
-
-    try:
-        result = subprocess.run(
-            test_command,
-            shell=True,
-            timeout=timeout,
-            capture_output=True,
-            cwd=str(project_root) if project_root else None,
-        )
-        duration = time.monotonic() - start
-        # exit 0 = no type errors = mutant SURVIVED (bad)
-        # exit != 0 = type errors = mutant KILLED (good)
-        killed = result.returncode != 0
-        status = "killed" if killed else "survived"
-        output = result.stderr.decode(errors="replace")
-        if not output:
-            output = result.stdout.decode(errors="replace")
-        if status == "killed" and output and _is_false_kill(output):
-            status = "error"
-        return status, output, duration
-    except subprocess.TimeoutExpired:
-        duration = time.monotonic() - start
-        return "killed", "timeout", duration
-    finally:
-        file_path.write_text(original_source)
-        os.utime(file_path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+        # Replace at exact offset in the whole source (annotation may span lines)
+        col = mutant.col
+        orig = mutant.original_annotation
+        offset = sum(len(line) for line in lines[:line_idx]) + col
+        end = offset + len(orig)
+        found = source_for_mutation[offset:end]
+        if found != orig:
+            raise MutationApplyError(
+                f"Could not apply mutation — expected '{orig}' at col {col}, found '{found}'"
+            )
+        return source_for_mutation[:offset] + mutant.mutated_annotation + source_for_mutation[end:]
 
 
-def _content_mtime_ns(source: str, original_mtime_ns: int) -> int:
-    """A whole-second mtime before *original_mtime_ns* that depends only on *source*."""
-    digest = hashlib.sha256(source.encode()).digest()
-    offset = 1 + int.from_bytes(digest[:8]) % _MTIME_SPREAD_SECONDS
-    return (original_mtime_ns // _NS_PER_SECOND - offset) * _NS_PER_SECOND
+class OutcomeClassifier:
+    """Turns a test command result into a mutant status.
 
-
-def _is_false_kill(output: str) -> bool:
-    """Check if type-checker output indicates a false kill.
-
-    A false kill happens when the mutated code is broken (e.g. missing import,
-    syntax error) rather than genuinely caught by the type system.
-
-    Returns True if ALL error codes found in the output belong to
-    FALSE_KILL_CODES — meaning there are no real type errors, only
-    infrastructure failures.
+    *false_kill_codes* are mypy error codes that mean the mutated code is
+    broken rather than caught by the type checker.
     """
-    found_codes: set[str] = set()
-    for line in output.splitlines():
-        m = _ERROR_CODE_RE.search(line)
-        if m:
-            found_codes.add(m.group(1))
 
-    if not found_codes:
-        return False
+    def __init__(self, false_kill_codes: AbstractSet[str] = FALSE_KILL_CODES) -> None:
+        self._false_kill_codes = false_kill_codes
 
-    return found_codes.issubset(FALSE_KILL_CODES)
+    def classify(self, result: CommandResult) -> tuple[str, str]:
+        """Mutant status and output for the test command's *result*.
+
+        A failure whose error codes are all false-kill codes comes from
+        broken mutated code (missing import, syntax error), not from the type
+        system: it is an error, not a kill.
+        """
+        if result.outcome is Outcome.TIMED_OUT:
+            return "killed", "timeout"
+        status = _STATUS_BY_OUTCOME[result.outcome]
+        codes = self.error_codes(result.output)
+        if status == "killed" and codes <= self._false_kill_codes and codes:
+            return "error", result.output
+        return status, result.output
+
+    def error_codes(self, output: str) -> AbstractSet[str]:
+        """mypy error codes (``[arg-type]``, ...) that end lines of *output*."""
+        return {
+            match.group(1)
+            for line in output.splitlines()
+            if (match := _ERROR_CODE_RE.search(line)) is not None
+        }
+
+
+class ResultRecorder:
+    """Stores mutant results in *db* as they arrive, in batches of *batch_size*."""
+
+    def __init__(
+        self, db: Database, progress: ProgressBar, batch_size: int = DB_FLUSH_BATCH_SIZE
+    ) -> None:
+        self._db = db
+        self._progress = progress
+        self._batch_size = batch_size
+
+    def record(self, mutants: Collection[MutantRow], executor: MutantExecutor) -> None:
+        """Execute *mutants* and store their results, flushing to the database in batches."""
+        batch: list[MutantRow] = []
+        try:
+            for result in self._progress.track(executor.execute(mutants), total=len(mutants)):
+                batch.append(result)
+                if len(batch) >= self._batch_size:
+                    self._db.update_results_batch(batch)
+                    batch.clear()
+        finally:
+            self._db.update_results_batch(batch)

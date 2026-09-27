@@ -23,9 +23,8 @@ from parso.python.tree import BaseNode, Leaf
 from typemut.discovery import AnnotationContext, AnnotationNode
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.plugins.base import Plugin
-from typemut.plugins.nodes import trailer_target
 from typemut.registry import Registry
-from typemut.symbols import SymbolResolver, dotted_name
+from typemut.symbols import ScopeReader, SymbolResolver
 
 # Classes whose instances register endpoints, under every name fastapi exports them.
 APP_CLASSES = frozenset(
@@ -62,19 +61,23 @@ SIGNATURE = frozenset((AnnotationContext.PARAMETER, AnnotationContext.RETURN))
 class FastAPIPlugin(Plugin):
     name = "fastapi"
 
-    def __init__(self) -> None:
-        self._resolver = SymbolResolver()
+    def __init__(
+        self, resolver: SymbolResolver | None = None, scopes: ScopeReader | None = None
+    ) -> None:
+        self._scopes = scopes or ScopeReader()
+        self._resolver = resolver or SymbolResolver(scopes=self._scopes)
 
     def find_mutations(
         self,
         annotation: AnnotationNode,
-        operators: Collection[TypeMutationOperator],
+        # Unused: the signature mirrors Plugin.find_mutations.
+        operators: Collection[TypeMutationOperator],  # pragma: no mutate
         registry: Registry,
     ) -> list[Mutation] | None:
         """No mutations for endpoint signatures; leave other annotations to the core."""
         if annotation.context not in SIGNATURE:
             return None
-        decorators = _decorators(annotation.node)
+        decorators = self._decorators(annotation.node)
         if any(self._is_route(decorator, annotation.file) for decorator in decorators):
             return []
         return None
@@ -82,11 +85,11 @@ class FastAPIPlugin(Plugin):
     def _is_route(self, decorator: BaseNode, file: Path) -> bool:
         """Whether a decorator is ``@<FastAPI or APIRouter instance>.<route method>(...)``."""
         expression = decorator.children[1]
-        target = trailer_target(expression, "(")
+        target = self._trailer_target(expression, "(")
         if target is None or target[0] not in ROUTE_METHODS:
             return False
         # Drop the `.method` and `(...)` trailers.
-        receiver = dotted_name(expression.children[:-2])
+        receiver = self._scopes.dotted_name(expression.children[:-2])
         if receiver is None:
             return False
         class_name = self._resolver.instance_class(receiver, decorator, file)
@@ -94,18 +97,17 @@ class FastAPIPlugin(Plugin):
             class_name, APP_CLASSES, file
         )
 
-
-def _decorators(annotation: BaseNode | Leaf) -> list[BaseNode]:
-    """Decorators of the function whose signature holds the annotation."""
-    # Parameter and return annotations only occur in function signatures.
-    funcdef = annotation.search_ancestor("funcdef")
-    assert funcdef is not None
-    decorated = funcdef.parent
-    if decorated is not None and decorated.type == "async_funcdef":
-        decorated = decorated.parent
-    if decorated is None or decorated.type != "decorated":
-        return []
-    decorators = decorated.children[0]
-    if decorators.type == "decorator":
-        return [decorators]
-    return list(decorators.children)
+    def _decorators(self, annotation: BaseNode | Leaf) -> list[BaseNode]:
+        """Decorators of the function whose signature holds the annotation."""
+        # Parameter and return annotations only occur in function signatures.
+        funcdef = annotation.search_ancestor("funcdef")
+        assert funcdef is not None
+        decorated = funcdef.parent
+        if decorated is not None and decorated.type == "async_funcdef":
+            decorated = decorated.parent
+        if decorated is None or decorated.type != "decorated":
+            return []
+        decorators = decorated.children[0]
+        if decorators.type == "decorator":
+            return [decorators]
+        return list(decorators.children)

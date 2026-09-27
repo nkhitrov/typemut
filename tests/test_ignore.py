@@ -10,11 +10,11 @@ from click.testing import CliRunner
 from typemut.cli import main
 from typemut.config import OperatorsConfig
 from typemut.db import Database
-from typemut.discovery import discover_annotations
+from typemut.discovery import AnnotationFinder
 from typemut.ignore import IgnoredTypes
-from typemut.imports import package_of
-from typemut.operators import get_enabled_operators
-from typemut.plugins import find_mutations, get_plugins
+from typemut.imports import ModuleImports
+from typemut.operators import OperatorRegistry
+from typemut.plugins import MutationFinder, PluginRegistry
 from typemut.registry import Registry
 
 REGISTRY = Registry(
@@ -33,14 +33,12 @@ def mutated(
     plugins: list[str] | None = None,
 ) -> set[str]:
     """Mutated annotations of every annotation in *source* with the given ignore rules."""
-    operators = get_enabled_operators(OperatorsConfig())
+    operators = OperatorRegistry().enabled(OperatorsConfig())
     ignored = IgnoredTypes(ignore)
     return {
         mutation.mutated
-        for annotation in discover_annotations(file, source=source)
-        for mutation in find_mutations(
-            annotation, operators, REGISTRY, get_plugins(plugins or []), ignored
-        )
+        for annotation in AnnotationFinder().find(file, source=source)
+        for mutation in MutationFinder(operators, REGISTRY, PluginRegistry().get(plugins or []), ignored).find(annotation)
     }
 
 
@@ -176,11 +174,11 @@ def test_package_of_nested_package(tmp_path: Path) -> None:
     (tmp_path / "app" / "sub").mkdir(parents=True)
     (tmp_path / "app" / "__init__.py").write_text("")
     (tmp_path / "app" / "sub" / "__init__.py").write_text("")
-    assert package_of(tmp_path / "app" / "sub" / "module.py") == "app.sub"
+    assert ModuleImports().package_of(tmp_path / "app" / "sub" / "module.py") == "app.sub"
 
 
 def test_package_of_outside_package(tmp_path: Path) -> None:
-    assert package_of(tmp_path / "module.py") == ""
+    assert ModuleImports().package_of(tmp_path / "module.py") == ""
 
 
 def test_plugin_still_mutates_ignored_types() -> None:

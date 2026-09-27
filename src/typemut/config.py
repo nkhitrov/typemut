@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tomllib
+from collections.abc import Container
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -36,6 +37,10 @@ class OperatorsConfig:
     swap_iterator_generator: bool = True
     typevar_variance: bool = True
 
+    def disabled_operators(self) -> Container[str]:
+        """Config keys of the operators switched off."""
+        return {key for key in OPERATOR_KEYS if not getattr(self, key.replace("-", "_"))}
+
 
 @dataclass
 class Config:
@@ -51,60 +56,63 @@ class Config:
     db_path: str = "typemut.sqlite"
 
 
-def load_config(path: Path) -> Config:
-    """Load config from a TOML file."""
-    text = path.read_text()
-    raw = tomllib.loads(text)
+class ConfigLoader:
+    """Reads a :class:`Config` from the ``[typemut]`` table of a TOML file.
 
-    section = raw.get("typemut", {})
-    ops_raw = section.pop("operators", {})
+    Invalid option values are logged and replaced by their defaults.
+    """
 
-    operators = OperatorsConfig(
-        **{key.replace("-", "_"): ops_raw.get(key, True) for key in OPERATOR_KEYS}
-    )
+    def load(self, path: Path) -> Config:
+        """Load config from a TOML file."""
+        text = path.read_text()
+        raw = tomllib.loads(text)
 
-    return Config(
-        module_path=section.get("module-path", "src"),
-        test_command=section.get("test-command", "mypy src/"),
-        timeout=section.get("timeout", 30),
-        excluded_modules=section.get("excluded-modules", []),
-        skip_comments=section.get("skip-comments", ["type: ignore", "pragma: no mutate"]),
-        operators=operators,
-        plugins=_parse_plugins(section.get("plugins", [])),
-        ignore_types=_parse_ignore_types(section.get("ignore-types", {})),
-        db_path=section.get("db", "typemut.sqlite"),
-    )
+        section = raw.get("typemut", {})
+        ops_raw = section.pop("operators", {})
 
+        operators = OperatorsConfig(
+            **{key.replace("-", "_"): ops_raw.get(key, True) for key in OPERATOR_KEYS}
+        )
 
-def _parse_plugins(raw: object) -> list[str]:
-    """Validate the ``plugins`` option; warn and ignore invalid values."""
-    return _string_list(raw, "plugins") or []
+        return Config(
+            module_path=section.get("module-path", "src"),
+            test_command=section.get("test-command", "mypy src/"),
+            timeout=section.get("timeout", 30),
+            excluded_modules=section.get("excluded-modules", []),
+            skip_comments=section.get("skip-comments", ["type: ignore", "pragma: no mutate"]),
+            operators=operators,
+            plugins=self._parse_plugins(section.get("plugins", [])),
+            ignore_types=self._parse_ignore_types(section.get("ignore-types", {})),
+            db_path=section.get("db", "typemut.sqlite"),
+        )
 
+    def _parse_plugins(self, raw: object) -> list[str]:
+        """Validate the ``plugins`` option; warn and ignore invalid values."""
+        return self._string_list(raw, "plugins") or []
 
-def _parse_ignore_types(raw: object) -> dict[str, list[str]]:
-    """Validate ``[typemut.ignore-types]``; warn about and skip invalid entries."""
-    if not isinstance(raw, dict):
-        logger.warning("Ignoring invalid 'ignore-types' option %r: expected a table", raw)
-        return {}
-    valid_keys = (ALL_OPERATORS, *OPERATOR_KEYS)
-    ignore_types: dict[str, list[str]] = {}
-    for key, value in raw.items():
-        if key not in valid_keys:
-            logger.warning(
-                "Ignoring unknown operator %r in 'ignore-types'. Valid keys: %s",
-                key,
-                ", ".join(valid_keys),
-            )
-            continue
-        patterns = _string_list(value, f"ignore-types.{key}")
-        if patterns is not None:
-            ignore_types[key] = patterns
-    return ignore_types
+    def _parse_ignore_types(self, raw: object) -> dict[str, list[str]]:
+        """Validate ``[typemut.ignore-types]``; warn about and skip invalid entries."""
+        if not isinstance(raw, dict):
+            logger.warning("Ignoring invalid 'ignore-types' option %r: expected a table", raw)
+            return {}
+        valid_keys = (ALL_OPERATORS, *OPERATOR_KEYS)
+        ignore_types: dict[str, list[str]] = {}
+        for key, value in raw.items():
+            if key not in valid_keys:
+                logger.warning(
+                    "Ignoring unknown operator %r in 'ignore-types'. Valid keys: %s",
+                    key,
+                    ", ".join(valid_keys),
+                )
+                continue
+            patterns = self._string_list(value, f"ignore-types.{key}")
+            if patterns is not None:
+                ignore_types[key] = patterns
+        return ignore_types
 
-
-def _string_list(raw: object, option: str) -> list[str] | None:
-    """Return *raw* if it is a list of strings, else warn and return None."""
-    if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
-        return raw
-    logger.warning("Ignoring invalid %r option %r: expected a list of strings", option, raw)
-    return None
+    def _string_list(self, raw: object, option: str) -> list[str] | None:
+        """Return *raw* if it is a list of strings, else warn and return None."""
+        if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
+            return raw
+        logger.warning("Ignoring invalid %r option %r: expected a list of strings", option, raw)
+        return None

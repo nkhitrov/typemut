@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -130,7 +130,7 @@ class Database:
         )
         self.conn.commit()
 
-    def get_pending(self) -> list[MutantRow]:
+    def get_pending(self) -> Collection[MutantRow]:
         rows = self.conn.execute(
             "SELECT * FROM mutants WHERE status = 'pending' ORDER BY id"
         ).fetchall()
@@ -156,14 +156,14 @@ class Database:
 
     def update_results_batch(
         self,
-        results: Iterable[tuple[int, str, str | None, float]],
+        results: Iterable[MutantRow],
     ) -> None:
-        """Batch-update mutation results."""
+        """Store the status, output and duration of finished mutants."""
         self.conn.executemany(
             """UPDATE mutants
                SET status = ?, output = ?, duration_seconds = ?
                WHERE id = ?""",
-            [(status, output, dur, mid) for mid, status, output, dur in results],
+            [(m.status, m.output, m.duration_seconds, m.id) for m in results],
         )
         self.conn.commit()
 
