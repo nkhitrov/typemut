@@ -244,7 +244,10 @@ class AnnotationFinder(NodeSource):
         # Handle atom case: just name + trailer at expr_stmt level
         return None
 
-    def _get_annotation_from_annassign(self, node: BaseNode) -> BaseNode | Leaf | None:
+    # parso's children are untyped, so a narrower return type would pass mypy too.
+    def _get_annotation_from_annassign(
+        self, node: BaseNode
+    ) -> BaseNode | Leaf | None:  # pragma: no mutate
         """Extract annotation node from an annassign (e.g. `x: int = 5`).
 
         annassign structure: ':', annotation [, '=', value]
@@ -256,7 +259,10 @@ class AnnotationFinder(NodeSource):
             return children[1]
         return None
 
-    def _get_annotation_from_tfpdef(self, node: BaseNode) -> BaseNode | Leaf | None:
+    # parso's children are untyped, so a narrower return type would pass mypy too.
+    def _get_annotation_from_tfpdef(
+        self, node: BaseNode
+    ) -> BaseNode | Leaf | None:  # pragma: no mutate
         """Extract annotation node from a tfpdef (e.g. `x: int` in function params).
 
         tfpdef structure: name, ':', annotation
@@ -266,7 +272,10 @@ class AnnotationFinder(NodeSource):
             return children[2]
         return None
 
-    def _get_return_annotation(self, funcdef: BaseNode) -> BaseNode | Leaf | None:
+    # parso's children are untyped, so a narrower return type would pass mypy too.
+    def _get_return_annotation(
+        self, funcdef: BaseNode
+    ) -> BaseNode | Leaf | None:  # pragma: no mutate
         """Extract return annotation from funcdef.
 
         Look for '->' operator and take the next sibling.
