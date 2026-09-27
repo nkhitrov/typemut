@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from typemut.baseline import Baseline
-from typemut.config import Config, ConfigLoader
+from typemut.config import DEFAULT_DB_PATH, Config, ConfigLoader
 from typemut.db import Database, MutantRow
 from typemut.discovery import AnnotationFinder, SourceFiles
 from typemut.engine import (
@@ -72,7 +72,11 @@ class App:
             raise TypemutError(
                 f"Invalid TOML in {path}: {exc}", "Please fix the syntax and try again."
             ) from None
-        return cfg, Database(Path(db_path or cfg.db_path))
+        return cfg, self.open_db(db_path or cfg.db_path)
+
+    def open_db(self, db_path: str | None) -> Database:
+        """Open the results database at *db_path*, or at the default path."""
+        return Database(Path(db_path or DEFAULT_DB_PATH))
 
     def discover(self, cfg: Config, db: Database) -> None:
         """Replace the mutants in *db* with all mutations of the configured module."""

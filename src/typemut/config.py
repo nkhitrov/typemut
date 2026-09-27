@@ -22,6 +22,9 @@ OPERATOR_KEYS: tuple[str, ...] = (
     "typevar-variance",
 )
 
+# Results database, relative to the project root.
+DEFAULT_DB_PATH = "typemut.sqlite"
+
 # Key under [typemut.ignore-types] that applies to every operator.
 ALL_OPERATORS = "all"
 
@@ -53,7 +56,7 @@ class Config:
     plugins: list[str] = field(default_factory=list)
     # {operator key or "all": [qualified type name patterns]}
     ignore_types: dict[str, list[str]] = field(default_factory=dict)
-    db_path: str = "typemut.sqlite"
+    db_path: str = DEFAULT_DB_PATH
 
 
 class ConfigLoader:
@@ -83,7 +86,7 @@ class ConfigLoader:
             operators=operators,
             plugins=self._parse_plugins(section.get("plugins", [])),
             ignore_types=self._parse_ignore_types(section.get("ignore-types", {})),
-            db_path=section.get("db", "typemut.sqlite"),
+            db_path=section.get("db", DEFAULT_DB_PATH),
         )
 
     def _parse_plugins(self, raw: object) -> list[str]:
