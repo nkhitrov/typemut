@@ -67,7 +67,7 @@ class HtmlReport:
     def render(self, db: Database) -> str:
         """Generate the report for the results in *db*."""
         summary = db.get_summary()
-        by_status: dict[MutantStatus, list[MutantRow]] = defaultdict(list)
+        by_status = defaultdict[MutantStatus, list[MutantRow]](list)
         for mutant in db.get_all():
             by_status[mutant.status].append(mutant)
 
