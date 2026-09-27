@@ -29,8 +29,8 @@ from typemut.operators import OperatorRegistry
 from typemut.parallel import GitWorkspace, ProcessPool, WorkerPool, WorktreeExecutor
 from typemut.plugins import MutationFinder, PluginRegistry
 from typemut.registry import RegistryBuilder
-from typemut.reporting.html import generate_html
-from typemut.reporting.terminal import print_report, total_score
+from typemut.reporting.html import HtmlReport
+from typemut.reporting.terminal import MutationScore, TerminalReport
 from typemut.runner import CommandRunner, ShellRunner
 
 
@@ -53,6 +53,7 @@ class App:
     open_browser: Callable[[str], object] = webbrowser.open
     config_loader: ConfigLoader = field(default_factory=ConfigLoader)
     registry_builder: RegistryBuilder = field(default_factory=RegistryBuilder)
+    html_report: HtmlReport = field(default_factory=HtmlReport)
 
     def load(self, config_path: str, db_path: str | None) -> tuple[Config, Database]:
         """Load the config at *config_path* and open the database it (or *db_path*) names."""
@@ -122,7 +123,7 @@ class App:
 
     def report(self, db: Database) -> None:
         """Print the results table."""
-        print_report(db, self.console)
+        TerminalReport(self.console).print(db)
 
     def check_results(
         self,
@@ -135,7 +136,7 @@ class App:
 
         Returns False if the run must fail.
         """
-        score = total_score(db.get_summary())
+        score = MutationScore(db.get_summary()).total()
         survivors = [mutant for mutant in db.get_all() if mutant.status == "survived"]
 
         if update_baseline and baseline_path is not None:
@@ -157,7 +158,7 @@ class App:
 
     def write_html(self, db: Database, out_path: Path, open_browser: bool) -> None:
         """Write the HTML report to *out_path*, optionally opening it in a browser."""
-        out_path.write_text(generate_html(db))
+        out_path.write_text(self.html_report.render(db))
         self.console.print(f"Report saved to [bold]{out_path}[/bold]")
         if open_browser:
             self.open_browser(out_path.resolve().as_uri())

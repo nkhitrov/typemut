@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -107,3 +107,13 @@ class StubOperator(TypeMutationOperator):
         registry: Registry,
     ) -> list[Mutation]:
         return []
+
+
+class StubSourceReader:
+    """SourceReader serving module sources from memory."""
+
+    def __init__(self, sources: Mapping[str, str]) -> None:
+        self._sources = sources
+
+    def read(self, module_path: str) -> str | None:
+        return self._sources.get(module_path)
