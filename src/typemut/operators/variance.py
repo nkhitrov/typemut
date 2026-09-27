@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationContext
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.model import AnnotationContext, Mutation
+from typemut.operators.base import TypeMutationOperator
 from typemut.registry import Registry
 
 

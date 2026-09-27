@@ -6,9 +6,9 @@ import logging
 from collections.abc import Collection, Iterable, Mapping
 from importlib import metadata
 
-from typemut.discovery import AnnotationNode
 from typemut.ignore import IgnoredTypes
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.model import AnnotationNode, Mutation
+from typemut.operators.base import TypeMutationOperator
 from typemut.plugins.base import Plugin
 from typemut.plugins.fastapi import FastAPIPlugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
