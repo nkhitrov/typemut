@@ -11,8 +11,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.markup import escape
 
-from typemut.baseline import compare, load_baseline, save_baseline
-from typemut.config import Config, load_config
+from typemut.baseline import Baseline
+from typemut.config import Config, ConfigLoader
 from typemut.db import Database, MutantRow
 from typemut.discovery import discover_annotations, discover_files
 from typemut.engine import (
@@ -53,6 +53,7 @@ class App:
     # None draws a rich progress bar on the console.
     progress: ProgressBar | None = None
     open_browser: Callable[[str], object] = webbrowser.open
+    config_loader: ConfigLoader = field(default_factory=ConfigLoader)
 
     def load(self, config_path: str, db_path: str | None) -> tuple[Config, Database]:
         """Load the config at *config_path* and open the database it (or *db_path*) names."""
@@ -66,7 +67,7 @@ class App:
                 '  test-command = "mypy src/"',
             )
         try:
-            cfg = load_config(path)
+            cfg = self.config_loader.load(path)
         except tomllib.TOMLDecodeError as exc:
             raise TypemutError(
                 f"Invalid TOML in {path}: {exc}", "Please fix the syntax and try again."
@@ -133,7 +134,7 @@ class App:
         survivors = [mutant for mutant in db.get_all() if mutant.status == "survived"]
 
         if update_baseline and baseline_path is not None:
-            save_baseline(Path(baseline_path), survivors)
+            Baseline(Path(baseline_path)).save(survivors)
             self.console.print(
                 f"Baseline {baseline_path} updated: {len(survivors)} survived mutants"
             )
@@ -158,7 +159,7 @@ class App:
 
     def _check_survivor_baseline(self, path: Path, survivors: Collection[MutantRow]) -> bool:
         """Report survivors missing from the baseline at *path*; True if there are none."""
-        diff = compare(survivors, load_baseline(path))
+        diff = Baseline(path).compare(survivors)
         accepted = len(survivors) - len(diff.new)
         self.console.print(
             f"Baseline {path}: {accepted} accepted, {len(diff.new)} new survived mutants"

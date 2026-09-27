@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from typemut.config import Config, load_config
+from typemut.config import Config, ConfigLoader
 
 
 def test_load_config_defaults():
@@ -15,7 +15,7 @@ def test_load_config_defaults():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(toml)
         f.flush()
-        cfg = load_config(Path(f.name))
+        cfg = ConfigLoader().load(Path(f.name))
 
     assert cfg.module_path == "src/myproject"
     assert cfg.test_command == "mypy src/"
@@ -35,7 +35,7 @@ remove-union-member = false
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(toml)
         f.flush()
-        cfg = load_config(Path(f.name))
+        cfg = ConfigLoader().load(Path(f.name))
 
     assert cfg.operators.remove_union_member is False
     assert cfg.operators.remove_literal_member is True
@@ -46,7 +46,7 @@ def test_load_config_plugins_default_empty():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(toml)
         f.flush()
-        cfg = load_config(Path(f.name))
+        cfg = ConfigLoader().load(Path(f.name))
 
     assert cfg.plugins == []
 
@@ -56,7 +56,7 @@ def test_load_config_plugins():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(toml)
         f.flush()
-        cfg = load_config(Path(f.name))
+        cfg = ConfigLoader().load(Path(f.name))
 
     assert cfg.plugins == ["sqlalchemy"]
 
@@ -73,7 +73,7 @@ def test_load_config_invalid_plugins_warns(value: str, caplog: pytest.LogCapture
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(toml)
         f.flush()
-        cfg = load_config(Path(f.name))
+        cfg = ConfigLoader().load(Path(f.name))
 
     assert cfg.plugins == []
     assert "Ignoring invalid 'plugins' option" in caplog.text
@@ -83,7 +83,7 @@ def test_load_config_invalid_plugins_warns(value: str, caplog: pytest.LogCapture
 def load_toml(toml: str, tmp_path: Path) -> Config:
     path = tmp_path / "typemut.toml"
     path.write_text(toml)
-    return load_config(path)
+    return ConfigLoader().load(path)
 
 
 def test_load_config_ignore_types(tmp_path: Path) -> None:
