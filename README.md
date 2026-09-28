@@ -243,6 +243,9 @@ a plugin returns from `operators()` subclass `TypeMutationOperator`, which
 provides `_node_code`, `_is_qualified_name`, `_union_members` and `_type_params`.
 The data types plugins and operators work with (`AnnotationNode`,
 `AnnotationContext`, `Mutation`) live in `typemut.model`.
+A plugin operator's `config_key` can be used in `[typemut.operators]` and
+`[typemut.ignore-types]` like a built-in operator key. Keys that no available
+operator has are reported as a warning and have no effect.
 
 ### sqlalchemy
 

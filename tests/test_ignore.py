@@ -8,7 +8,6 @@ import pytest
 from click.testing import CliRunner
 
 from typemut.cli import main
-from typemut.config import OperatorsConfig
 from typemut.db import Database
 from typemut.discovery import AnnotationFinder
 from typemut.ignore import IgnoredTypes
@@ -34,7 +33,7 @@ def mutated(
     plugins: list[str] | None = None,
 ) -> set[str]:
     """Mutated annotations of every annotation in *source* with the given ignore rules."""
-    operators = OperatorRegistry().enabled(OperatorsConfig())
+    operators = OperatorRegistry().enabled()
     ignored = IgnoredTypes(ignore)
     return {
         mutation.mutated

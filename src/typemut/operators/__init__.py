@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Container, Iterable
+from collections.abc import Set as AbstractSet
 from typing import Final
 
-from typemut.config import OperatorsConfig
 from typemut.operators.base import TypeMutationOperator
 from typemut.operators.iterator_generator import SwapIteratorGenerator
 from typemut.operators.literal import RemoveLiteralMember
@@ -36,7 +36,10 @@ class OperatorRegistry:
     ) -> None:
         self._operators = tuple(operators)
 
-    def enabled(self, config: OperatorsConfig) -> list[TypeMutationOperator]:
-        """Instantiate the operators *config* enables, in registration order."""
-        disabled = config.disabled_operators()
+    def config_keys(self) -> AbstractSet[str]:
+        """Keys of the registered operators in ``[typemut.operators]`` and ``[typemut.ignore-types]``."""
+        return frozenset(operator.config_key for operator in self._operators)
+
+    def enabled(self, disabled: Container[str] = ()) -> list[TypeMutationOperator]:
+        """Instantiate the operators whose config key is not in *disabled*, in registration order."""
         return [operator() for operator in self._operators if operator.config_key not in disabled]

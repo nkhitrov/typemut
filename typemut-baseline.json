@@ -92,69 +92,6 @@
   },
   {
     "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "add_optional: bool = True"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "remove_literal_member: bool = True"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "remove_optional: bool = True"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "remove_union_member: bool = True"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "swap_iterator_generator: bool = True"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "typevar_variance: bool = True"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "widen_container_type: bool = True"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "bool",
-    "mutated": "bool | None",
-    "source": "widen_type: bool = True"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "AddOptional",
-    "original": "dict[str, list[str]]",
-    "mutated": "dict[str, list[str]] | None",
-    "source": "ignore_types: dict[str, list[str]] = field(default_factory=dict)"
-  },
-  {
-    "file": "src/typemut/config.py",
     "operator": "WidenContainerType",
     "original": "dict[str, list[str]]",
     "mutated": "Mapping[str, list[str]]",
@@ -173,13 +110,6 @@
     "original": "list[str]",
     "mutated": "Sequence[str]",
     "source": "plugins: list[str] = field(default_factory=list)"
-  },
-  {
-    "file": "src/typemut/config.py",
-    "operator": "WidenContainerType",
-    "original": "tuple[str, ...]",
-    "mutated": "Sequence[str]",
-    "source": "OPERATOR_KEYS: tuple[str, ...] = ("
   },
   {
     "file": "src/typemut/db.py",

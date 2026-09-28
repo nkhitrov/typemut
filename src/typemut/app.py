@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import tomllib
 import webbrowser
 from collections.abc import Callable, Collection, Iterable
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -12,7 +14,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from typemut.baseline import Baseline
-from typemut.config import Config, ConfigLoader
+from typemut.config import ALL_OPERATORS, Config, ConfigLoader
 from typemut.db import Database, MutantRow
 from typemut.discovery import AnnotationFinder, SourceFiles
 from typemut.engine import (
@@ -33,6 +35,8 @@ from typemut.registry import RegistryBuilder
 from typemut.reporting.html import HtmlReport
 from typemut.reporting.terminal import MutationScore, TerminalReport
 from typemut.runner import CommandRunner, ShellRunner
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -87,8 +91,14 @@ class App:
         plugins = self.plugins.get(cfg.plugins)
         if plugins:
             self.console.print(f"Enabled plugins: {', '.join(plugin.name for plugin in plugins)}")
-        operators = self.operators.enabled(cfg.operators)
-        operators.extend(op for plugin in plugins for op in plugin.operators())
+        plugin_operators = [op for plugin in plugins for op in plugin.operators()]
+        # An operator without a config key cannot be switched off or given ignored types.
+        plugin_keys = {op.config_key for op in plugin_operators} - {""}
+        known_keys = self.operators.config_keys() | plugin_keys
+        self._warn_unknown_operator_keys(cfg, known_keys)
+        disabled = {key for key, enabled in cfg.operators.items() if not enabled}
+        operators = self.operators.enabled(disabled)
+        operators.extend(op for op in plugin_operators if op.config_key not in disabled)
         self.console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
 
         finder = MutationFinder(
@@ -182,6 +192,24 @@ class App:
                 f"{escape(mutant.original_annotation)} → {escape(mutant.mutated_annotation)}"
             )
         return not diff.new
+
+    def _warn_unknown_operator_keys(self, cfg: Config, known: AbstractSet[str]) -> None:
+        """Warn about ``[typemut.operators]`` / ``[typemut.ignore-types]`` keys no operator has.
+
+        Such keys stay in the config, where they match no operator.
+        """
+        ignore_keys = known | {ALL_OPERATORS}
+        for key in cfg.operators:
+            if key not in known:
+                self._warn_unknown_operator(key, "operators", sorted(known))
+        for key in cfg.ignore_types:
+            if key not in ignore_keys:
+                self._warn_unknown_operator(key, "ignore-types", sorted(ignore_keys))
+
+    def _warn_unknown_operator(self, key: str, section: str, valid: Iterable[str]) -> None:
+        logger.warning(
+            "Ignoring unknown operator %r in %r. Valid keys: %s", key, section, ", ".join(valid)
+        )
 
     def _executor(self, tester: MutationTester, jobs: int) -> MutantExecutor:
         if jobs > 1:

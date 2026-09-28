@@ -20,7 +20,7 @@ def test_load_config_defaults():
     assert cfg.module_path == "src/myproject"
     assert cfg.test_command == "mypy src/"
     assert cfg.timeout == 30
-    assert cfg.operators.remove_union_member is True
+    assert cfg.operators == {}
 
 
 def test_load_config_disable_operator():
@@ -37,8 +37,7 @@ remove-union-member = false
         f.flush()
         cfg = ConfigLoader().load(Path(f.name))
 
-    assert cfg.operators.remove_union_member is False
-    assert cfg.operators.remove_literal_member is True
+    assert cfg.operators == {"remove-union-member": False}
 
 
 def test_load_config_plugins_default_empty():
@@ -114,12 +113,6 @@ def test_load_config_ignore_types_default_empty(tmp_path: Path) -> None:
             id="not-a-table",
         ),
         pytest.param(
-            'ignore-types = { add-optionl = ["x.Y"], add-optional = ["x.Z"] }',
-            {"add-optional": ["x.Z"]},
-            "Ignoring unknown operator 'add-optionl' in 'ignore-types'",
-            id="unknown-operator-key",
-        ),
-        pytest.param(
             'ignore-types = { add-optional = "x.Y", all = ["x.Z"] }',
             {"all": ["x.Z"]},
             "Ignoring invalid 'ignore-types.add-optional' option",
@@ -138,3 +131,43 @@ def test_load_config_invalid_ignore_types_warns(
     assert cfg.ignore_types == expected
     assert message in caplog.text
     assert cfg.module_path == "src"
+
+
+def test_load_config_keeps_unknown_operator_keys(tmp_path: Path) -> None:
+    """Operator keys are checked by the app, which also knows plugin operators."""
+    cfg = load_toml(
+        '[typemut]\nmodule-path = "src"\n'
+        'ignore-types = { my-op = ["x.Y"] }\n\n'
+        "[typemut.operators]\nmy-op = false\n",
+        tmp_path,
+    )
+    assert cfg.operators == {"my-op": False}
+    assert cfg.ignore_types == {"my-op": ["x.Y"]}
+
+
+@pytest.mark.parametrize(
+    "toml,expected,message",
+    [
+        pytest.param(
+            '[typemut]\noperators = ["add-optional"]\n',
+            {},
+            "Ignoring invalid 'operators' option",
+            id="not-a-table",
+        ),
+        pytest.param(
+            '[typemut.operators]\nadd-optional = "no"\nwiden-type = false\n',
+            {"widen-type": False},
+            "Ignoring invalid 'operators.add-optional' option 'no': expected true or false",
+            id="value-not-a-bool",
+        ),
+    ],
+)
+def test_load_config_invalid_operators_warns(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    toml: str,
+    expected: dict[str, bool],
+    message: str,
+) -> None:
+    assert load_toml(toml, tmp_path).operators == expected
+    assert message in caplog.text

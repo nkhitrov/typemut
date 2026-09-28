@@ -4,42 +4,14 @@ from __future__ import annotations
 
 import logging
 import tomllib
-from collections.abc import Container
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Operator keys under [typemut.operators] and [typemut.ignore-types].
-OPERATOR_KEYS: tuple[str, ...] = (
-    "remove-union-member",
-    "remove-literal-member",
-    "widen-type",
-    "remove-optional",
-    "add-optional",
-    "widen-container-type",
-    "swap-iterator-generator",
-    "typevar-variance",
-)
-
 # Key under [typemut.ignore-types] that applies to every operator.
 ALL_OPERATORS = "all"
-
-
-@dataclass
-class OperatorsConfig:
-    remove_union_member: bool = True
-    remove_literal_member: bool = True
-    widen_type: bool = True
-    remove_optional: bool = True
-    add_optional: bool = True
-    widen_container_type: bool = True
-    swap_iterator_generator: bool = True
-    typevar_variance: bool = True
-
-    def disabled_operators(self) -> Container[str]:
-        """Config keys of the operators switched off."""
-        return {key for key in OPERATOR_KEYS if not getattr(self, key.replace("-", "_"))}
 
 
 @dataclass
@@ -49,7 +21,8 @@ class Config:
     timeout: int = 30
     excluded_modules: list[str] = field(default_factory=list)
     skip_comments: list[str] = field(default_factory=lambda: ["type: ignore", "pragma: no mutate"])
-    operators: OperatorsConfig = field(default_factory=OperatorsConfig)
+    # {operator key: enabled}; operators not listed are enabled.
+    operators: Mapping[str, bool] = field(default_factory=dict)
     plugins: list[str] = field(default_factory=list)
     # {operator key or "all": [qualified type name patterns]}
     ignore_types: dict[str, list[str]] = field(default_factory=dict)
@@ -68,19 +41,13 @@ class ConfigLoader:
         raw = tomllib.loads(text)
 
         section = raw.get("typemut", {})
-        ops_raw = section.pop("operators", {})
-
-        operators = OperatorsConfig(
-            **{key.replace("-", "_"): ops_raw.get(key, True) for key in OPERATOR_KEYS}
-        )
-
         return Config(
             module_path=section.get("module-path", "src"),
             test_command=section.get("test-command", "mypy src/"),
             timeout=section.get("timeout", 30),
             excluded_modules=section.get("excluded-modules", []),
             skip_comments=section.get("skip-comments", ["type: ignore", "pragma: no mutate"]),
-            operators=operators,
+            operators=self._parse_operators(section.get("operators", {})),
             plugins=self._parse_plugins(section.get("plugins", [])),
             ignore_types=self._parse_ignore_types(section.get("ignore-types", {})),
             db_path=section.get("db", "typemut.sqlite"),
@@ -90,21 +57,35 @@ class ConfigLoader:
         """Validate the ``plugins`` option; warn and ignore invalid values."""
         return self._string_list(raw, "plugins") or []
 
+    def _parse_operators(self, raw: object) -> Mapping[str, bool]:
+        """Validate ``[typemut.operators]``; warn about and skip values that are not booleans.
+
+        Operator keys are checked later, against the operators that are
+        actually available (built-in and from plugins).
+        """
+        if not isinstance(raw, dict):
+            logger.warning("Ignoring invalid 'operators' option %r: expected a table", raw)
+            return {}
+        operators: dict[str, bool] = {}
+        for key, value in raw.items():
+            if isinstance(value, bool):
+                operators[key] = value
+            else:
+                logger.warning(
+                    "Ignoring invalid 'operators.%s' option %r: expected true or false", key, value
+                )
+        return operators
+
     def _parse_ignore_types(self, raw: object) -> dict[str, list[str]]:
-        """Validate ``[typemut.ignore-types]``; warn about and skip invalid entries."""
+        """Validate ``[typemut.ignore-types]``; warn about and skip invalid entries.
+
+        Operator keys are checked later, like those of ``[typemut.operators]``.
+        """
         if not isinstance(raw, dict):
             logger.warning("Ignoring invalid 'ignore-types' option %r: expected a table", raw)
             return {}
-        valid_keys = (ALL_OPERATORS, *OPERATOR_KEYS)
         ignore_types: dict[str, list[str]] = {}
         for key, value in raw.items():
-            if key not in valid_keys:
-                logger.warning(
-                    "Ignoring unknown operator %r in 'ignore-types'. Valid keys: %s",
-                    key,
-                    ", ".join(valid_keys),
-                )
-                continue
             patterns = self._string_list(value, f"ignore-types.{key}")
             if patterns is not None:
                 ignore_types[key] = patterns
