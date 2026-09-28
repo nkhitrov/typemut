@@ -11,7 +11,6 @@ import click
 from rich.markup import escape
 
 from typemut.app import App
-from typemut.db import Database
 from typemut.errors import TypemutError
 
 _fail_under_option = click.option(
@@ -109,34 +108,39 @@ def exec_cmd(
 
 
 @main.command()
-@click.option("--db", "db_path", default="typemut.sqlite", help="Database file.")
+@click.option("--db", "db_path", default=None, help="Database file [default: typemut.sqlite].")
 @_fail_under_option
 @_baseline_option
 @_update_baseline_option
 @click.pass_obj
 def report(
     app: App,
-    db_path: str,
+    db_path: str | None,  # pragma: no mutate  (click passes None when --db is omitted)
     fail_under: float | None,
     baseline_path: str | None,
     update_baseline: bool,
 ) -> None:
     """Show mutation testing results."""
     _require_baseline_path(baseline_path, update_baseline)
-    with Database(Path(db_path)) as db:
+    with app.open_db(db_path) as db:
         app.report(db)
         passed = app.check_results(db, fail_under, baseline_path, update_baseline)
     _exit_unless(passed)
 
 
 @main.command()
-@click.option("--db", "db_path", default="typemut.sqlite", help="Database file.")
+@click.option("--db", "db_path", default=None, help="Database file [default: typemut.sqlite].")
 @click.option("-o", "--output", "out_path", default="typemut-report.html", help="Output file.")
 @click.option("--open", "open_browser", is_flag=True, help="Open report in browser.")
 @click.pass_obj
-def html(app: App, db_path: str, out_path: str, open_browser: bool) -> None:
+def html(
+    app: App,
+    db_path: str | None,  # pragma: no mutate  (click passes None when --db is omitted)
+    out_path: str,
+    open_browser: bool,
+) -> None:
     """Generate HTML report."""
-    with Database(Path(db_path)) as db:
+    with app.open_db(db_path) as db:
         app.write_html(db, Path(out_path), open_browser)
 
 
