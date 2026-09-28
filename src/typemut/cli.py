@@ -53,6 +53,7 @@ class _TypemutGroup(click.Group):
 
 
 @click.group(cls=_TypemutGroup)
+@click.version_option(package_name="typemut", prog_name="typemut")
 @click.option(
     "-C",
     "--project-dir",
