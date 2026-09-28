@@ -198,14 +198,13 @@ class App:
 
         Such keys stay in the config, where they match no operator.
         """
-        operator_keys = sorted(known)
-        ignore_keys = [ALL_OPERATORS, *operator_keys]
+        ignore_keys = known | {ALL_OPERATORS}
         for key in cfg.operators:
             if key not in known:
-                self._warn_unknown_operator(key, "operators", operator_keys)
+                self._warn_unknown_operator(key, "operators", sorted(known))
         for key in cfg.ignore_types:
             if key not in ignore_keys:
-                self._warn_unknown_operator(key, "ignore-types", ignore_keys)
+                self._warn_unknown_operator(key, "ignore-types", sorted(ignore_keys))
 
     def _warn_unknown_operator(self, key: str, section: str, valid: Iterable[str]) -> None:
         logger.warning(

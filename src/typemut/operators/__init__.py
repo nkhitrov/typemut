@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Container, Iterable
+from collections.abc import Set as AbstractSet
 from typing import Final
 
 from typemut.operators.base import TypeMutationOperator
@@ -35,7 +36,7 @@ class OperatorRegistry:
     ) -> None:
         self._operators = tuple(operators)
 
-    def config_keys(self) -> frozenset[str]:
+    def config_keys(self) -> AbstractSet[str]:
         """Keys of the registered operators in ``[typemut.operators]`` and ``[typemut.ignore-types]``."""
         return frozenset(operator.config_key for operator in self._operators)
 

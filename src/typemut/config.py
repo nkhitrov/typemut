@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,7 +22,7 @@ class Config:
     excluded_modules: list[str] = field(default_factory=list)
     skip_comments: list[str] = field(default_factory=lambda: ["type: ignore", "pragma: no mutate"])
     # {operator key: enabled}; operators not listed are enabled.
-    operators: dict[str, bool] = field(default_factory=dict)
+    operators: Mapping[str, bool] = field(default_factory=dict)
     plugins: list[str] = field(default_factory=list)
     # {operator key or "all": [qualified type name patterns]}
     ignore_types: dict[str, list[str]] = field(default_factory=dict)
