@@ -49,15 +49,97 @@ Or from another directory:
 typemut -C /path/to/project run
 ```
 
+3. Run on several workers. Each mutant is a full type checker run, so a single
+   worker is slow on a real project. `--jobs N` runs mutants on N workers in parallel:
+
+```bash
+git status --porcelain               # must print nothing: workers only see committed code
+typemut run --jobs 8                 # 8 type checker processes at once
+```
+
+With `--jobs` greater than 1, typemut creates N temporary `git worktree`s of the
+current commit, splits the mutants between them (all mutants of one file go to
+the same worker), runs each worker in its own process and removes the worktrees
+at the end. What this means for your project:
+
+- **The working tree must be clean.** Uncommitted or untracked files would not
+  be in the worktrees, so typemut refuses to start and lists them. Commit or
+  stash them first.
+- **`test-command` runs inside each worktree**, not in your project directory.
+  Keep `module-path` and paths in `test-command` relative to the project root.
+  Git-ignored files (`.venv`, `.mypy_cache`, generated code) are not copied:
+  the type checker must be callable without them — e.g. installed in an
+  activated virtualenv or on `PATH` — and each worker starts with a cold cache.
+- **Pick N by CPU cores and memory**: every worker runs its own type checker
+  process (mypy on a large project can take gigabytes of RAM). The number of
+  CPU cores is a good start.
+- The baseline check (type checker on unmodified code) runs once, in the
+  project itself, before the workers start.
+
+`--jobs` is also available on `typemut exec`. Without it (or with `--jobs 1`)
+mutants run one by one directly in your project, which needs neither git nor a
+clean tree.
+
 ## Commands
+
+Global option: `-C, --project-dir PATH` — change to this directory before running
+(the target project's root, where `typemut.toml` lives).
 
 | Command | Description |
 |---------|-------------|
-| `typemut run` | Full pipeline: discover mutations, run type checker, show report |
-| `typemut init` | Discover mutations and store in SQLite |
-| `typemut exec` | Run type checker against each pending mutation |
-| `typemut report` | Show terminal report |
-| `typemut html` | Generate HTML report with diffs |
+| `typemut run` | Full pipeline: discover mutations, run the type checker on each, show the report |
+| `typemut init` | Discover mutations and store them in SQLite (replaces previous results) |
+| `typemut exec` | Run the type checker against each **pending** mutation |
+| `typemut report` | Show the terminal report |
+| `typemut html` | Generate the HTML report with diffs |
+
+`init` + `exec` + `report` are the steps of `run`. Running them separately lets
+you resume: results are saved as they arrive, so after an interrupted `exec`
+(Ctrl+C, CI timeout) run `typemut exec` again and it continues with the
+mutants that are still pending.
+
+### `typemut run`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--config PATH` | `typemut.toml` | Config file |
+| `--db PATH` | `db` from config (`typemut.sqlite`) | Database file |
+| `--jobs N` | `1` | Number of parallel workers (see [Quick Start](#quick-start)) |
+| `--fail-under PERCENT` | — | Exit with code 1 if the mutation score is below this value |
+| `--baseline PATH` | — | JSON file of accepted survivors; exit with code 1 on any other survivor |
+| `--update-baseline` | — | Write the current survivors to the `--baseline` file instead of checking it |
+
+### `typemut init`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--config PATH` | `typemut.toml` | Config file |
+| `--db PATH` | `db` from config (`typemut.sqlite`) | Database file |
+
+### `typemut exec`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--config PATH` | `typemut.toml` | Config file |
+| `--db PATH` | `db` from config (`typemut.sqlite`) | Database file |
+| `--jobs N` | `1` | Number of parallel workers |
+
+### `typemut report`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--db PATH` | `typemut.sqlite` | Database file |
+| `--fail-under PERCENT` | — | Exit with code 1 if the mutation score is below this value |
+| `--baseline PATH` | — | JSON file of accepted survivors; exit with code 1 on any other survivor |
+| `--update-baseline` | — | Write the current survivors to the `--baseline` file instead of checking it |
+
+### `typemut html`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--db PATH` | `typemut.sqlite` | Database file |
+| `-o, --output PATH` | `typemut-report.html` | Output file |
+| `--open` | — | Open the report in a browser |
 
 ## Using in CI
 
@@ -78,7 +160,8 @@ text of the source line — not its number, so edits elsewhere in a file keep th
 baseline valid. Entries that no longer survive are reported; rerun with
 `--update-baseline` to drop them.
 
-Mutation testing is slow, so use `--jobs N` in CI (it needs a clean git working tree).
+Mutation testing is slow, so use `--jobs N` in CI (it needs a clean git working tree,
+see [Quick Start](#quick-start)).
 typemut runs this on itself — see `make mutate` and `.github/workflows/ci.yml`.
 
 ## What It Finds
