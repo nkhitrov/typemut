@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "typemut"
-dynamic = ["version"]
+version = "0.0.0"
 description = "Mutation testing for type annotations"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,11 +39,14 @@ Issues = "https://github.com/nkhitrov/typemut/issues"
 [project.scripts]
 typemut = "typemut.cli:main"
 
-[tool.hatch.version]
-path = "src/typemut/__init__.py"
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/typemut"]
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -32,6 +32,12 @@ def test_help() -> None:
     assert "typemut" in result.output
 
 
+def test_version() -> None:
+    result = CliRunner().invoke(main, ["--version"])
+    assert result.exit_code == 0
+    assert "typemut, version" in result.output
+
+
 def test_init_help() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["init", "--help"])

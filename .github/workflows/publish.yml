@@ -2,70 +2,75 @@ name: Publish
 
 on:
   release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      target:
-        description: "Publish target"
-        required: true
-        type: choice
-        options:
-          - testpypi
-          - pypi
+    types:
+      - released
 
-permissions:
-  id-token: write
+# Each job asks for exactly what it needs.
+permissions: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Build package
-        run: uv build
-
-      - name: Upload dist
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false  # a release is built from nothing a PR could have cached
+      - name: Build
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          uv version "$VERSION"
+          uv build
+      # A wheel that does not install, or carries the wrong version, stops here —
+      # before anything is published.
+      - name: Smoke-test the wheel
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          out="$(uv run --isolated --no-project --with dist/*.whl typemut --version)"
+          echo "$out"
+          test "$out" = "typemut, version $VERSION"
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
 
-  publish-testpypi:
+  testpypi:
     needs: build
     runs-on: ubuntu-latest
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'testpypi') ||
-      (github.event_name == 'release' && github.event.release.prerelease)
-    environment: testpypi
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/typemut
+    permissions:
+      id-token: write  # trusted publishing
     steps:
-      - name: Download dist
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
-
-      - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          # A rerun after PyPI failed must not fail here on the version already uploaded.
+          skip-existing: true
 
-  publish-pypi:
-    needs: build
+  pypi:
+    needs: testpypi
     runs-on: ubuntu-latest
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi') ||
-      (github.event_name == 'release' && !github.event.release.prerelease)
-    environment: pypi
+    environment:
+      name: pypi
+      url: https://pypi.org/p/typemut
+    permissions:
+      id-token: write  # trusted publishing
     steps:
-      - name: Download dist
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@release/v1
