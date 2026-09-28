@@ -57,7 +57,7 @@ class ConfigLoader:
         """Validate the ``plugins`` option; warn and ignore invalid values."""
         return self._string_list(raw, "plugins") or []
 
-    def _parse_operators(self, raw: object) -> dict[str, bool]:
+    def _parse_operators(self, raw: object) -> Mapping[str, bool]:
         """Validate ``[typemut.operators]``; warn about and skip values that are not booleans.
 
         Operator keys are checked later, against the operators that are
