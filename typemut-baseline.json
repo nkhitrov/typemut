@@ -210,21 +210,21 @@
     "source": "def _should_skip_line(self, line_text: str) -> bool:"
   },
   {
-    "file": "src/typemut/discovery.py",
+    "file": "src/typemut/model.py",
     "operator": "AddOptional",
     "original": "int",
     "mutated": "int | None",
     "source": "col: int"
   },
   {
-    "file": "src/typemut/discovery.py",
+    "file": "src/typemut/model.py",
     "operator": "AddOptional",
     "original": "int",
     "mutated": "int | None",
     "source": "line: int"
   },
   {
-    "file": "src/typemut/discovery.py",
+    "file": "src/typemut/model.py",
     "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",
@@ -364,7 +364,7 @@
     "source": "def _is_qualified_name(self, leaf: Leaf) -> bool:"
   },
   {
-    "file": "src/typemut/operators/base.py",
+    "file": "src/typemut/model.py",
     "operator": "AddOptional",
     "original": "str",
     "mutated": "str | None",

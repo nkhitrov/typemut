@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from typemut.discovery import AnnotationContext, AnnotationFinder
+from typemut.discovery import AnnotationFinder
+from typemut.model import AnnotationContext
 from typemut.operators.variance import TypeVarVariance
 from typemut.registry import Registry
 

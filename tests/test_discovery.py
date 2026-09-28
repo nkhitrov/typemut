@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from typemut.discovery import AnnotationContext, AnnotationFinder, SourceFiles
+from typemut.discovery import AnnotationFinder, SourceFiles
+from typemut.model import AnnotationContext
 
 
 def test_discover_variable_annotation():

@@ -5,7 +5,6 @@ from __future__ import annotations
 import fnmatch
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 from typing import Final
 
@@ -16,25 +15,8 @@ from parso.python.tree import (
     Module,
 )
 
+from typemut.model import AnnotationContext, AnnotationNode
 from typemut.nodes import NodeSource
-
-
-class AnnotationContext(Enum):
-    VARIABLE = "variable"
-    PARAMETER = "parameter"
-    RETURN = "return"
-    TYPEVAR = "typevar"
-
-
-@dataclass
-class AnnotationNode:
-    file: Path
-    node: BaseNode | Leaf
-    context: AnnotationContext
-    line: int
-    col: int
-    code: str
-
 
 # Lines with one of these comments are not mutated.
 DEFAULT_SKIP_COMMENTS: tuple[str, ...] = ("type: ignore", "pragma: no mutate")

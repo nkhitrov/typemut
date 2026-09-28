@@ -26,8 +26,9 @@ from pathlib import Path
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationContext, AnnotationFinder, AnnotationNode
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.discovery import AnnotationFinder
+from typemut.model import AnnotationContext, AnnotationNode, Mutation
+from typemut.operators.base import TypeMutationOperator
 from typemut.plugins.base import Plugin
 from typemut.registry import Registry
 
