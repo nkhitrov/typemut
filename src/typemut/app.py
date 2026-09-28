@@ -25,9 +25,10 @@ from typemut.engine import (
 )
 from typemut.errors import TypemutError
 from typemut.ignore import IgnoredTypes
+from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
 from typemut.parallel import GitWorkspace, ProcessPool, WorkerPool, WorktreeExecutor
-from typemut.plugins import MutationFinder, PluginRegistry
+from typemut.plugins import PluginRegistry
 from typemut.registry import RegistryBuilder
 from typemut.reporting.html import HtmlReport
 from typemut.reporting.terminal import MutationScore, TerminalReport

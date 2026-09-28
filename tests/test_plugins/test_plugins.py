@@ -15,12 +15,12 @@ from typemut.cli import main
 from typemut.config import OperatorsConfig
 from typemut.db import Database
 from typemut.discovery import AnnotationFinder
+from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
 from typemut.plugins import (
     BUILTIN_PLUGINS,
     ENTRY_POINT_GROUP,
     PluginRegistry,
-    MutationFinder,
 )
 from typemut.registry import Registry
 

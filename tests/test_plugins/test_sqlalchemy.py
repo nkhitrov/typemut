@@ -10,8 +10,9 @@ from typemut.config import OperatorsConfig
 from typemut.db import MutantRow
 from typemut.discovery import AnnotationFinder
 from typemut.engine import MutationTester
+from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
-from typemut.plugins import MutationFinder, PluginRegistry
+from typemut.plugins import PluginRegistry
 from typemut.registry import Registry
 from typemut.runner import ShellRunner
 
