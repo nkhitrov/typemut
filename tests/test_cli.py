@@ -403,3 +403,13 @@ def test_run_classifies_output_with_checker(
             statuses = {mutant.status for mutant in db.get_all()}
     assert f"Type checker: {checker}" in result.output
     assert statuses == {status}
+
+
+def test_run_describes_checker(tmp_path: Path) -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _write_project(Path(td))
+        (Path(td) / "typemut.toml").write_text('[typemut]\nmodule-path = "src"\ntest-command = "mypy src"\n')
+        (Path(td) / "mypy.ini").write_text("[mypy]\n")
+        result = runner.invoke(main, ["run"], obj=_app(Outcome.PASSED))
+    assert "Type checker: mypy (config: mypy.ini; cache: .mypy_cache)" in result.output

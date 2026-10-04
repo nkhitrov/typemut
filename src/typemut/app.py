@@ -13,6 +13,7 @@ from rich.markup import escape
 
 from typemut.baseline import Baseline
 from typemut.checkers import CheckerRegistry
+from typemut.checkers.base import TypeChecker
 from typemut.config import Config, ConfigLoader
 from typemut.db import Database, MutantRow
 from typemut.discovery import AnnotationFinder, SourceFiles
@@ -113,7 +114,7 @@ class App:
         checker = self.checkers.get(
             cfg.checker, cfg.test_command, cfg.checker_version_command, self.runner
         )
-        self.console.print(f"Type checker: {checker.name}")
+        self.console.print(f"Type checker: {self._describe(checker)}")
         tester = MutationTester(
             self.runner, cfg.test_command, cfg.timeout, classifier=OutcomeClassifier(checker)
         )
@@ -190,6 +191,18 @@ class App:
                 f"{escape(mutant.original_annotation)} → {escape(mutant.mutated_annotation)}"
             )
         return not diff.new
+
+    def _describe(self, checker: TypeChecker) -> str:
+        """The checker's name with the config files and caches it uses in the project."""
+        details = [
+            f"{label}: {', '.join(path.name for path in paths)}"
+            for label, paths in (
+                ("config", list(checker.config_files(self.root))),
+                ("cache", list(checker.cache_paths(self.root))),
+            )
+            if paths
+        ]
+        return f"{checker.name} ({'; '.join(details)})" if details else checker.name
 
     def _executor(self, tester: MutationTester, jobs: int) -> MutantExecutor:
         if jobs > 1:

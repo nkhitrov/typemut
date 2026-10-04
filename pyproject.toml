@@ -86,6 +86,9 @@ file_line_coverage_min = 100
 [tool.coverage-threshold.modules."src/typemut/checkers/base.py"]
 file_line_coverage_min = 100
 
+[tool.coverage-threshold.modules."src/typemut/checkers/command.py"]
+file_line_coverage_min = 100
+
 [tool.coverage-threshold.modules."src/typemut/checkers/generic.py"]
 file_line_coverage_min = 100
 

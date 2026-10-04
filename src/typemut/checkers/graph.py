@@ -22,7 +22,7 @@ class ImportGraph:
         self._imports = imports or ModuleImports()
         self._resolver = resolver or SymbolResolver(self._imports)
 
-    def closure(self, files: Iterable[str], root: Path) -> set[str]:
+    def closure(self, files: Iterable[str], root: Path) -> Iterable[str]:
         """*files* and every project file they import, directly or not.
 
         Paths are relative to *root*, in and out. Imports of modules outside
@@ -41,7 +41,7 @@ class ImportGraph:
             file.relative_to(project).as_posix() for file in seen if file.is_relative_to(project)
         }
 
-    def _imported_files(self, file: Path) -> list[Path]:
+    def _imported_files(self, file: Path) -> Iterable[Path]:
         """Project files the imports of *file* load."""
         try:
             source = file.read_text()

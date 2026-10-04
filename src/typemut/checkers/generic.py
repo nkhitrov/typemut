@@ -26,7 +26,7 @@ class GenericChecker(TypeChecker):
     name = "generic"
     false_kill_codes = FALSE_KILL_CODES
 
-    def parse_output(self, output: str) -> list[Diagnostic]:
+    def parse_output(self, output: str) -> Iterable[Diagnostic]:
         """One diagnostic per line ending with ``[code]``; the file is unknown."""
         return [
             Diagnostic("", match.group(1))
@@ -38,6 +38,6 @@ class GenericChecker(TypeChecker):
         """None known: the output format is not known."""
         return ErrorFiles(frozenset())
 
-    def dependencies(self, files: Iterable[str], root: Path) -> set[str] | None:
+    def dependencies(self, files: Iterable[str], root: Path) -> Iterable[str] | None:
         """Unknown, so no result may be reused."""
         return None

@@ -7,7 +7,7 @@ import logging
 import os
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
@@ -74,18 +74,18 @@ class MypyChecker(TypeChecker):
         super().__init__(test_command, version_command, runner, graph)
         self._environ = environ
 
-    def parse_output(self, output: str) -> list[Diagnostic]:
+    def parse_output(self, output: str) -> Iterable[Diagnostic]:
         """Errors (not notes) in mypy's output, also with ``--pretty`` wrapping."""
         return [
             diagnostic for message in self._messages(output) for diagnostic in self._errors(message)
         ]
 
-    def config_files(self, root: Path) -> list[Path]:
+    def config_files(self, root: Path) -> Iterable[Path]:
         """``--config-file`` and the config files mypy looks for in *root*."""
         files = [*self._explicit_config(root), *(root / name for name in CONFIG_FILES)]
         return [file for file in dict.fromkeys(files) if file.is_file()]
 
-    def cache_paths(self, root: Path) -> list[Path]:
+    def cache_paths(self, root: Path) -> Iterable[Path]:
         """mypy's cache directory, if it is inside *root*.
 
         Taken from ``--cache-dir``, ``MYPY_CACHE_DIR``, ``cache_dir`` in the
@@ -93,7 +93,7 @@ class MypyChecker(TypeChecker):
         """
         environ = os.environ if self._environ is None else self._environ
         cache_dir = (
-            self._option(("--cache-dir",))
+            self._command.option(("--cache-dir",))
             or environ.get("MYPY_CACHE_DIR")
             or self._configured_cache_dir(root)
             or DEFAULT_CACHE_DIR
@@ -105,7 +105,7 @@ class MypyChecker(TypeChecker):
             return []
         return [root / path.relative_to(project)]
 
-    def _messages(self, output: str) -> list[_Message]:
+    def _messages(self, output: str) -> Iterable[_Message]:
         """The messages in *output*, with the lines they were wrapped onto."""
         messages: list[_Message] = []
         continues = False
@@ -120,7 +120,7 @@ class MypyChecker(TypeChecker):
                 continues = False
         return messages
 
-    def _errors(self, message: _Message) -> list[Diagnostic]:
+    def _errors(self, message: _Message) -> Iterable[Diagnostic]:
         """The message as an error with its code, or nothing if it is a note."""
         header = message.header
         if header["severity"] != "error":
@@ -131,7 +131,7 @@ class MypyChecker(TypeChecker):
         return [Diagnostic(header["path"], code)]
 
     def _explicit_config(self, root: Path) -> list[Path]:
-        config = self._option(("--config-file",))
+        config = self._command.option(("--config-file",))
         return [] if config is None else [root / config]
 
     def _configured_cache_dir(self, root: Path) -> str | None:

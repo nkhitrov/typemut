@@ -8,6 +8,7 @@ from importlib import metadata
 from typing import Final
 
 from typemut.checkers.base import TypeChecker
+from typemut.checkers.command import CommandLine
 from typemut.checkers.generic import GenericChecker
 from typemut.checkers.mypy import MypyChecker
 from typemut.checkers.pyright import BasedPyrightChecker, PyrightChecker
@@ -85,8 +86,9 @@ class CheckerRegistry:
         return checker
 
     def _detect(self, test_command: str) -> type[TypeChecker]:
+        command = CommandLine(test_command)
         for checker in self._checkers.values():
-            if checker.runs(test_command):
+            if command.executable_index(checker.executables) is not None:
                 return checker
         logger.warning(
             "Could not detect the type checker in test-command %r, using %r: "

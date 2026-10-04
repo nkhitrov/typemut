@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import Final
@@ -37,7 +38,7 @@ class PyrightChecker(TypeChecker):
     executables = frozenset({"pyright"})
     false_kill_codes = FALSE_KILL_RULES
 
-    def parse_output(self, output: str) -> list[Diagnostic]:
+    def parse_output(self, output: str) -> Iterable[Diagnostic]:
         """Errors (not warnings or information) in pyright's output, by rule."""
         diagnostics: list[Diagnostic] = []
         # (path, severity, last line) of the diagnostic being read
@@ -54,19 +55,19 @@ class PyrightChecker(TypeChecker):
             diagnostics.extend(self._errors(*current))
         return diagnostics
 
-    def config_files(self, root: Path) -> list[Path]:
+    def config_files(self, root: Path) -> Iterable[Path]:
         """``--project`` and the config files pyright looks for in *root*."""
         files = [*self._explicit_config(root), *(root / name for name in CONFIG_FILES)]
         return [file for file in dict.fromkeys(files) if file.is_file()]
 
     def _explicit_config(self, root: Path) -> list[Path]:
-        project = self._option(("-p", "--project"))
+        project = self._command.option(("-p", "--project"))
         if project is None:
             return []
         path = root / project
         return [path / "pyrightconfig.json" if path.is_dir() else path]
 
-    def _errors(self, path: str, severity: str, last_line: str) -> list[Diagnostic]:
+    def _errors(self, path: str, severity: str, last_line: str) -> Iterable[Diagnostic]:
         """The diagnostic as an error with its rule, or nothing if it is not an error."""
         if severity != "error":
             return []

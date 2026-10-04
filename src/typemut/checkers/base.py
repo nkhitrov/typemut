@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 import re
-import shlex
 from collections.abc import Collection, Iterable
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar, Final
 
+from typemut.checkers.command import CommandLine
 from typemut.checkers.graph import ImportGraph
 from typemut.runner import CommandRunner, Outcome, ShellRunner
 
@@ -20,9 +20,6 @@ VERSION_RE: Final = re.compile(r"\d+\.\d+\.\d+\S*")
 
 # Seconds to wait for the version command.
 VERSION_TIMEOUT: Final = 60
-
-# Shell operators that start a new command in a test command line.
-_COMMAND_SEPARATORS: Final = frozenset({"&&", "||", ";", "|", "&"})
 
 
 @dataclass(frozen=True)
@@ -37,12 +34,12 @@ class Diagnostic:
 class ErrorFiles:
     """Files a type checker reported errors in.
 
-    *paths* are project files relative to the project root; *external* is
-    set when some errors are in files outside the project root.
+    *paths* are project files relative to the project root; *outside* are
+    the files with errors outside the project root, as reported.
     """
 
-    paths: frozenset[str]
-    external: bool = False
+    paths: Collection[str]
+    outside: Collection[str] = frozenset()
 
 
 class TypeChecker:
@@ -59,7 +56,7 @@ class TypeChecker:
     name: ClassVar[str] = "base"
     # File names of the checker's executable, used to detect it in
     # ``test-command`` and to derive the version command.
-    executables: ClassVar[AbstractSet[str]] = frozenset()
+    executables: ClassVar[Iterable[str]] = frozenset()
     # Error codes that mean the mutated code is broken (a missing import, a
     # syntax error) rather than caught by the type system.
     false_kill_codes: ClassVar[AbstractSet[str]] = frozenset()
@@ -75,11 +72,7 @@ class TypeChecker:
         self.version_command = version_command
         self._runner = runner or ShellRunner()
         self._graph = graph or ImportGraph()
-
-    @classmethod
-    def runs(cls, test_command: str) -> bool:
-        """Whether *test_command* starts this checker."""
-        return cls._executable_index(cls._tokens(test_command)) is not None
+        self._command = CommandLine(test_command)
 
     def version(self, root: Path) -> str | None:
         """The checker's version (``1.15.0``), or None if it cannot be found.
@@ -88,7 +81,7 @@ class TypeChecker:
         ``test-command`` up to the checker's executable plus ``--version``
         (``uv run mypy --version``).
         """
-        command = self.version_command or self._default_version_command()
+        command = self.version_command or self._command.version_command(self.executables)
         if command is None:
             return None
         result = self._runner.run(command, timeout=VERSION_TIMEOUT, cwd=root)
@@ -101,16 +94,17 @@ class TypeChecker:
             return None
         return match.group()
 
-    def is_false_kill(self, stdout: str, stderr: str) -> bool:
+    def is_false_kill(self, stdout: str, stderr: str) -> bool:  # pragma: no mutate (truth-tested)
         """Whether a failed run reports errors, all of them from broken mutated code."""
-        codes = {diagnostic.code for diagnostic in self.diagnostics(stdout, stderr)}
-        return bool(codes) and codes <= self.false_kill_codes
+        return self._only_false_kills(
+            {diagnostic.code for diagnostic in self.diagnostics(stdout, stderr)}
+        )
 
-    def diagnostics(self, stdout: str, stderr: str) -> list[Diagnostic]:
+    def diagnostics(self, stdout: str, stderr: str) -> Iterable[Diagnostic]:
         """Errors in the output of a run, from both streams."""
         return [*self.parse_output(stdout), *self.parse_output(stderr)]
 
-    def parse_output(self, output: str) -> list[Diagnostic]:
+    def parse_output(self, output: str) -> Iterable[Diagnostic]:
         """Errors in one output stream; the base class knows no format."""
         return []
 
@@ -118,55 +112,45 @@ class TypeChecker:
         """Files with errors in the output of a run in *root*."""
         project = root.resolve()
         paths: set[str] = set()
-        external = False
+        outside: set[str] = set()
         for diagnostic in self.diagnostics(stdout, stderr):
             path = self._project_path(diagnostic.path, project)
             if path is None:
-                external = True
+                outside.add(diagnostic.path)
             else:
                 paths.add(path)
-        return ErrorFiles(frozenset(paths), external)
+        return ErrorFiles(frozenset(paths), frozenset(outside))
 
-    def config_files(self, root: Path) -> list[Path]:
+    def result_dependencies(self, stdout: str, stderr: str, root: Path) -> Iterable[str] | None:
+        """Project files the errors of a failed run in *root* depend on.
+
+        The files with errors and the project files they import; None when
+        that is unknown: no errors in project files, errors outside *root*,
+        or a checker that cannot tell dependencies.
+        """
+        files = self.error_files(stdout, stderr, root)
+        if len(files.outside) or not len(files.paths):
+            return None
+        return self.dependencies(files.paths, root)
+
+    def config_files(self, root: Path) -> Iterable[Path]:
         """Existing checker config files in *root* that can change its results."""
         return []
 
-    def cache_paths(self, root: Path) -> list[Path]:
+    def cache_paths(self, root: Path) -> Iterable[Path]:
         """Checker cache directories inside *root* worth giving to workers."""
         return []
 
-    def dependencies(self, files: Iterable[str], root: Path) -> set[str] | None:
+    def dependencies(self, files: Iterable[str], root: Path) -> Iterable[str] | None:
         """*files* and the project files they import, relative to *root*.
 
         None means the checker cannot tell, so no result may be reused.
         """
-        return self._graph.closure(files, root)
+        return frozenset(self._graph.closure(files, root))
 
-    def _default_version_command(self) -> str | None:
-        """``test-command`` up to the checker's executable, plus ``--version``."""
-        tokens = self._tokens(self.test_command)
-        end = self._executable_index(tokens)
-        if end is None:
-            return None
-        start = max(
-            (index + 1 for index, token in enumerate(tokens[:end]) if token in _COMMAND_SEPARATORS),
-            default=0,
-        )
-        return shlex.join([*tokens[start : end + 1], "--version"])
-
-    def _option(self, names: Collection[str]) -> str | None:
-        """The last value of a ``--name value`` or ``--name=value`` option of ``test-command``."""
-        tokens = self._tokens(self.test_command)
-        value: str | None = None
-        for index, token in enumerate(tokens):
-            name, equals, inline = token.partition("=")
-            if name not in names:
-                continue
-            if equals:
-                value = inline
-            elif index + 1 < len(tokens):
-                value = tokens[index + 1]
-        return value
+    def _only_false_kills(self, codes: AbstractSet[str]) -> bool:
+        """Whether there are *codes* and all of them are false-kill codes."""
+        return bool(codes) and codes <= self.false_kill_codes
 
     def _project_path(self, path: str, project: Path) -> str | None:
         """*path* relative to the resolved *project* root, or None if outside it."""
@@ -177,21 +161,3 @@ class TypeChecker:
         if not file.is_relative_to(project):
             return None
         return file.relative_to(project).as_posix()
-
-    @classmethod
-    def _executable_index(cls, tokens: list[str]) -> int | None:
-        """Position of the checker's executable in the command's tokens."""
-        for index, token in enumerate(tokens):
-            if Path(token).name in cls.executables:
-                return index
-        return None
-
-    @staticmethod
-    def _tokens(command: str) -> list[str]:
-        """Shell words of *command*, with operators such as ``&&`` as separate words."""
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        try:
-            return list(lexer)
-        except ValueError:
-            return []

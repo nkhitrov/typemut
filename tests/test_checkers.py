@@ -9,6 +9,7 @@ import pytest
 
 from tests.fakes import ScriptedRunner, StubChecker
 from typemut.checkers import AUTO, BUILTIN_CHECKERS, ENTRY_POINT_GROUP, CheckerRegistry
+from typemut.checkers.command import CommandLine
 from typemut.checkers.base import VERSION_TIMEOUT, Diagnostic, ErrorFiles, TypeChecker
 from typemut.checkers.generic import GenericChecker
 from typemut.checkers.graph import ImportGraph
@@ -350,7 +351,7 @@ def test_error_files_through_symlinked_root(tmp_path: Path) -> None:
 def test_error_files_outside_root(outside: str, tmp_path: Path) -> None:
     output = f"a.py:1: error: x  [misc]\n{outside}:9: error: y  [override]\n"
     assert MypyChecker().error_files(output, "", tmp_path) == ErrorFiles(
-        frozenset({"a.py"}), external=True
+        frozenset({"a.py"}), frozenset({outside})
     )
 
 
@@ -551,6 +552,73 @@ def test_dependencies_through_symlinked_root(project: Path, tmp_path_factory: py
     link = tmp_path_factory.mktemp("links") / "project"
     link.symlink_to(project)
     assert ImportGraph().closure(["src/app/api.py"], link) >= {"src/app/models.py"}
+
+
+@pytest.mark.parametrize(
+    ("checker", "output", "expected"),
+    [
+        pytest.param(
+            MypyChecker(),
+            "src/app/types.py:1: error: x  [misc]\n",
+            {"src/app/__init__.py", "src/app/base.py", "src/app/types.py", "src/app/util.py"},
+            id="mypy",
+        ),
+        pytest.param(
+            PyrightChecker(),
+            "  {root}/src/app/util.py:1:1 - error: x (reportX)\n",
+            {"src/app/util.py"},
+            id="pyright-absolute",
+        ),
+    ],
+)
+def test_result_dependencies(
+    checker: TypeChecker, output: str, expected: set[str], project: Path
+) -> None:
+    stdout = output.format(root=project.resolve())
+    assert set(checker.result_dependencies(stdout, "", project)) == expected
+
+
+@pytest.mark.parametrize(
+    ("checker", "output"),
+    [
+        pytest.param(MypyChecker(), "Success: no issues found\n", id="no-errors"),
+        pytest.param(
+            MypyChecker(),
+            "src/app/util.py:1: error: x  [misc]\n/usr/lib/site-packages/m.py:2: error: y  [misc]\n",
+            id="error-outside-root",
+        ),
+        pytest.param(GenericChecker(), "src/app/util.py:1: error: x  [misc]\n", id="generic"),
+    ],
+)
+def test_no_result_dependencies(checker: TypeChecker, output: str, project: Path) -> None:
+    assert checker.result_dependencies(output, "", project) is None
+
+
+# --- command line ---
+
+
+@pytest.mark.parametrize(
+    ("command", "words"),
+    [
+        pytest.param("uv run mypy 'my src'", ["uv", "run", "mypy", "my src"], id="quoted"),
+        pytest.param("cd src&&mypy .", ["cd", "src", "&&", "mypy", "."], id="operator"),
+        pytest.param('mypy "src', [], id="unbalanced"),
+    ],
+)
+def test_command_line_words(command: str, words: list[str]) -> None:
+    assert list(CommandLine(command).words()) == words
+
+
+@pytest.mark.parametrize(
+    ("command", "value"),
+    [
+        pytest.param("mypy --cache-dir a --cache-dir=b .", "b", id="last-wins"),
+        pytest.param("mypy --cache-dir", None, id="no-value"),
+        pytest.param("mypy --cache-directory x", None, id="other-option"),
+    ],
+)
+def test_command_line_option(command: str, value: str | None) -> None:
+    assert CommandLine(command).option(["--cache-dir"]) == value
 
 
 # --- registry ---
