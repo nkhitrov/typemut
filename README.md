@@ -23,6 +23,7 @@ uv add typemut
 [typemut]
 module-path = "src/myproject"
 test-command = "make typecheck"  # must exit non-zero on type errors
+checker = "mypy"  # or pyright/basedpyright; needed when test-command is a wrapper like make
 timeout = 30
 
 [typemut.operators]
@@ -169,9 +170,11 @@ typemut runs this on itself — see `make mutate` and `.github/workflows/ci.yml`
 typemut runs `test-command` as is, but it reads the output with a plugin for the
 type checker that command runs. The plugin tells a real kill from a mutant that
 merely broke the code: a failure whose only errors are a missing name, a syntax
-error or an invalid type is recorded as `error`, not `killed`. It also knows the
-checker's version, the files with errors, the checker's config files and cache
-directory, and which project files a file imports.
+error or an invalid type is recorded as `error`, not `killed`. It also finds the
+checker's config files and cache directory. The checker's version, the files
+with errors and which project files a file imports are known to the plugin
+too; they are for incremental runs that reuse earlier results, which are not
+released yet.
 
 | `checker` | Recognised executables | Errors counted as broken code |
 |-----------|------------------------|-------------------------------|
@@ -185,7 +188,9 @@ a recognised executable counts when it is the command itself, possibly after
 environment assignments, `env`/`exec`/`time`, or a runner (`uv run`,
 `poetry run`, `pipx run`, `pdm run`, `hatch run`, `rye run`, `pnpm exec`,
 `uvx`, `npx`, `bunx`, `python -m`), in any command of a chain
-(`uv run mypy src`, `python -m mypy -p app`, `cd src && npx pyright`). An
+(`uv run mypy src`, `python -m mypy -p app`, `cd src && npx pyright`).
+Runner options are skipped, with their values (`uv run --group dev mypy`,
+`npx -p pyright pyright`). An
 executable name passed to another tool (`tox -e mypy`,
 `pre-commit run mypy --all-files`) is not detected. A command that runs none
 of them (`make typecheck`, a script, a wrapper like `tox`), or more than one
@@ -202,18 +207,21 @@ The run prints the checker it uses, with the config files it found and the
 cache directory it would use, relative to the project root
 (`Type checker: mypy (config: pyproject.toml; cache: .mypy_cache)`); the cache
 is listed even before mypy has created it. mypy's cache directory comes from
-`--cache-dir`, `MYPY_CACHE_DIR`, `cache_dir` in its config, or `.mypy_cache`.
+`--cache-dir`, `MYPY_CACHE_DIR`, `cache_dir` in its config, or `.mypy_cache`,
+with `~` and `$VAR` expanded as mypy does.
 An unknown `checker` name is logged as a warning and `generic` is used. mypy's
 `--pretty`, `--show-column-numbers` and `--show-error-end` output is understood;
 only errors count (mypy notes, pyright warnings and information are ignored).
 Both stdout and stderr are parsed, so noise from wrappers such as `uv run` on
 stderr does not hide the checker's errors.
 
-The version is read from `test-command` up to the checker executable plus
-`--version` (`uv run mypy --version`). If the command does not run the
-executable directly (`tox -e mypy`, `make typecheck`), the version is unknown
-and a warning is logged. If that does not work for your setup, set
-`checker-version-command`, e.g. `checker-version-command = "npx pyright --version"`;
+The checker's version will be used by incremental runs (not released yet) to
+tell whether an earlier result can be reused; this release does not read it.
+It is taken from `test-command` up to the checker executable plus `--version`,
+as written there (`cd backend && uv run mypy .` -> `cd backend && uv run mypy --version`:
+of the commands before the checker only `cd` and `pushd` are kept). If the
+command does not run the executable directly (`tox -e mypy`, `make typecheck`),
+set `checker-version-command`, e.g. `checker-version-command = "npx pyright --version"`;
 the first `X.Y.Z` in its output is the version. `generic` only has a version
 when `checker-version-command` is set.
 
@@ -541,7 +549,8 @@ db = "typemut.sqlite"                   # database file
 plugins = ["sqlalchemy"]                # library plugins, none by default
 checker = "mypy"                        # mypy, pyright, basedpyright, generic; default "auto" detects it
                                         # from test-command (set it when test-command is a wrapper like make)
-# checker-version-command = "mypy --version"  # optional; default: test-command up to the checker + --version
+# checker-version-command = "mypy --version"  # optional; for incremental runs (not released yet);
+                                        # default: test-command up to the checker + --version
 
 [typemut.operators]
 # all enabled by default, disable selectively

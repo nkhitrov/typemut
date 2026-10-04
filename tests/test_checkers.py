@@ -100,7 +100,52 @@ def _passing(stdout: str = "", stderr: str = "") -> ScriptedRunner:
         pytest.param(PyrightChecker, "poetry run pyright", "poetry run pyright --version", id="poetry"),
         pytest.param(MypyChecker, "python -m mypy -p app", "python -m mypy --version", id="module"),
         pytest.param(MypyChecker, ".venv/bin/mypy .", ".venv/bin/mypy --version", id="path"),
-        pytest.param(MypyChecker, "cd src && mypy .", "mypy --version", id="chained"),
+        pytest.param(MypyChecker, "cd src && mypy .", "cd src && mypy --version", id="chained"),
+        pytest.param(
+            MypyChecker,
+            "cd backend && uv run mypy .",
+            "cd backend && uv run mypy --version",
+            id="cd-then-runner",
+        ),
+        pytest.param(
+            MypyChecker,
+            "cd a; tox -e lint && pushd b&&mypy .",
+            "cd a && pushd b && mypy --version",
+            id="keeps-only-directory-changes",
+        ),
+        pytest.param(MypyChecker, "; mypy .", "mypy --version", id="empty-command-before"),
+        pytest.param(
+            PyrightChecker,
+            "PATH=$PWD/node_modules/.bin:$PATH pyright src",
+            "PATH=$PWD/node_modules/.bin:$PATH pyright --version",
+            id="assignment-with-variables",
+        ),
+        pytest.param(
+            MypyChecker, '"$VIRTUAL_ENV/bin/mypy" src', '"$VIRTUAL_ENV/bin/mypy" --version', id="quoted-variable"
+        ),
+        pytest.param(MypyChecker, "~/.venv/bin/mypy src", "~/.venv/bin/mypy --version", id="home"),
+        pytest.param(
+            MypyChecker, "uv run --group dev mypy src", "uv run --group dev mypy --version", id="uv-group"
+        ),
+        pytest.param(
+            MypyChecker,
+            "uv run --with types-requests --python 3.12 mypy",
+            "uv run --with types-requests --python 3.12 mypy --version",
+            id="uv-options-with-values",
+        ),
+        pytest.param(
+            MypyChecker,
+            "uv run --group=dev --frozen mypy",
+            "uv run --group=dev --frozen mypy --version",
+            id="uv-inline-value",
+        ),
+        pytest.param(
+            MypyChecker,
+            "poetry run -C backend mypy .",
+            "poetry run -C backend mypy --version",
+            id="poetry-directory",
+        ),
+        pytest.param(PyrightChecker, "npx -p pyright pyright src", "npx -p pyright pyright --version", id="npx-package"),
         pytest.param(MypyChecker, "dmypy run -- src", "dmypy --version", id="dmypy"),
         pytest.param(BasedPyrightChecker, "basedpyright src", "basedpyright --version", id="based"),
         pytest.param(
@@ -168,6 +213,7 @@ def test_no_version_without_command(test_command: str, tmp_path: Path) -> None:
         pytest.param("uv run tox -e mypy", id="runner-then-wrapper"),
         pytest.param("poetry show mypy", id="runner-other-subcommand"),
         pytest.param("python -c mypy", id="python-without-module"),
+        pytest.param("uv run --group mypy", id="option-value-is-the-name"),
     ],
 )
 def test_no_version_from_wrapper_command(
@@ -529,6 +575,29 @@ def test_mypy_cache_outside_root_is_not_used(
     cache_dir: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     checker = MypyChecker(f"mypy --cache-dir {cache_dir} .", environ={})
+    assert checker.cache_paths(tmp_path) == []
+    assert "is outside the project" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("cache_dir", "expected"),
+    [
+        pytest.param("$CACHE/mypy", "build/mypy", id="variable"),
+        pytest.param("${CACHE}/mypy", "build/mypy", id="braced-variable"),
+        pytest.param("$UNSET/mypy", "$UNSET/mypy", id="unset-variable"),
+        pytest.param("~/mypy", "home/mypy", id="home"),
+        pytest.param("~", "home", id="bare-home"),
+        pytest.param("~nosuchuser-typemut/mypy", "~nosuchuser-typemut/mypy", id="other-user"),
+    ],
+)
+def test_mypy_cache_dir_is_expanded(cache_dir: str, expected: str, tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(f'[tool.mypy]\ncache_dir = "{cache_dir}"\n')
+    environ = {"CACHE": str(tmp_path / "build"), "HOME": str(tmp_path / "home")}
+    assert MypyChecker("mypy .", environ=environ).cache_paths(tmp_path) == [tmp_path / expected]
+
+
+def test_mypy_cache_in_home_is_outside_project(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    checker = MypyChecker("mypy .", environ={"MYPY_CACHE_DIR": "~/.cache/mypy"})
     assert checker.cache_paths(tmp_path) == []
     assert "is outside the project" in caplog.text
 

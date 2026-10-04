@@ -39,6 +39,8 @@ _WRAPPED_CODE_RE: Final = re.compile(r"(?:^|  )\[(?P<code>[\w-]+)\]\s*$")
 # Config files in the order mypy looks for them.
 CONFIG_FILES: Final = ("mypy.ini", ".mypy.ini", "pyproject.toml", "setup.cfg")
 DEFAULT_CACHE_DIR: Final = ".mypy_cache"
+# ``$NAME`` or ``${NAME}`` in a path, expanded like ``os.path.expandvars``.
+_VARIABLE_RE: Final = re.compile(r"\$(?:(?P<name>\w+)|\{(?P<braced>[^}]*)\})")
 
 
 @dataclass
@@ -67,13 +69,14 @@ class MypyChecker(TypeChecker):
         """mypy's cache directory, if it is inside *root*.
 
         Taken from ``--cache-dir``, ``MYPY_CACHE_DIR``, ``cache_dir`` in the
-        config file, or the default ``.mypy_cache``, in that order.
+        config file, or the default ``.mypy_cache``, in that order, with
+        ``~`` and ``$VAR`` expanded in the checker's environment, as mypy does.
         """
-        cache_dir = (
+        cache_dir = self._expand_path(
             self._command.option(("--cache-dir",))
             or self._environment().get("MYPY_CACHE_DIR")
             or self._configured_cache_dir(root)
-            or DEFAULT_CACHE_DIR
+            or DEFAULT_CACHE_DIR,
         )
         project = root.resolve()
         path = (root / cache_dir).resolve()
@@ -81,6 +84,23 @@ class MypyChecker(TypeChecker):
             logger.warning("mypy cache %s is outside the project %s; not using it", path, project)
             return []
         return [root / path.relative_to(project)]
+
+    def _expand_path(self, path: str) -> str:
+        """*path* with ``~`` and then ``$VAR`` expanded in the checker's environment."""
+        home = self._environment().get("HOME")
+        if home is not None and (path == "~" or path.startswith("~/")):
+            expanded = home + path[1:]
+        else:
+            try:
+                expanded = str(Path(path).expanduser())
+            except RuntimeError:  # an unknown user (``~nobody``)
+                expanded = path
+        return _VARIABLE_RE.sub(self._variable, expanded)
+
+    def _variable(self, match: re.Match[str]) -> str:
+        """The value of the variable *match* names; the match itself if it is not set."""
+        name = match["name"] or match["braced"]
+        return self._environment().get(name, match.group())
 
     def _messages(self, output: str) -> Iterable[_Message]:
         """The messages in *output*, with the lines they were wrapped onto."""

@@ -109,7 +109,11 @@ class TypeChecker:
             return None
         return match.group()
 
-    def is_false_kill(self, stdout: str, stderr: str) -> bool:  # pragma: no mutate (truth-tested)
+    def is_false_kill(
+        self,
+        stdout: str,
+        stderr: str,
+    ) -> bool:  # pragma: no mutate (truth-tested)
         """Whether a failed run reports errors, all of them from broken mutated code."""
         return self._only_false_kills(
             {diagnostic.code for diagnostic in self.diagnostics(stdout, stderr)}
