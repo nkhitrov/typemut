@@ -2,15 +2,41 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Final
+from typing import Final, TypeAlias
 
 # Shell operators that start a new command in a command line.
 _COMMAND_SEPARATORS: Final = frozenset({"&&", "||", ";", "|", "&"})
 # Shell commands that change the working directory.
 _DIRECTORY_CHANGES: Final = frozenset({"cd", "pushd"})
+# Commands that run the command after them as is.
+_PASS_THROUGH: Final = frozenset({"env", "exec", "time", "nice", "nohup"})
+# Tools that run another tool: the words after them that do it (``uv run``,
+# ``npx``). ``python -m`` is matched by _PYTHON_RE.
+_RUNNERS: Final = {
+    "uv": ("run",),
+    "poetry": ("run",),
+    "pipx": ("run",),
+    "pdm": ("run",),
+    "hatch": ("run",),
+    "rye": ("run",),
+    "pnpm": ("exec",),
+    "uvx": (),
+    "npx": (),
+    "bunx": (),
+}
+# The words after an interpreter that run a module.
+_PYTHON_MODULE: Final = ("-m",)
+# Interpreters that run a module with ``-m``: ``python``, ``python3.12``.
+_PYTHON_RE: Final = re.compile(r"python[\d.]*")
+# An environment variable assignment before a command: ``MYPY_CACHE_DIR=x``.
+_ASSIGNMENT_RE: Final = re.compile(r"[A-Za-z_]\w*=.*")
+
+# One command of a command line: the position of its first word, its words.
+_Command: TypeAlias = tuple[int, Sequence[str]]
 
 
 class CommandLine:
@@ -29,11 +55,19 @@ class CommandLine:
             return []
 
     def executable_index(self, executables: Iterable[str]) -> int | None:
-        """Position of the first word whose file name is one of *executables*."""
+        """Position of the first command whose file name is one of *executables*.
+
+        The executable must be the command word, possibly after environment
+        assignments and runners such as ``uv run``, ``poetry run``, ``npx``
+        or ``python -m``. A matching word elsewhere is another tool's
+        argument (``tox -e mypy``, ``pre-commit run mypy``) and is not the
+        checker.
+        """
         names = frozenset(executables)
-        for index, word in enumerate(self.words()):
-            if Path(word).name in names:
-                return index
+        for start, command in self._commands():
+            offset = self._prefix_length(command)
+            if offset < len(command) and Path(command[offset]).name in names:
+                return start + offset
         return None
 
     def changes_directory(
@@ -62,6 +96,51 @@ class CommandLine:
             default=0,
         )
         return shlex.join([*words[start : end + 1], "--version"])
+
+    def _commands(self) -> Sequence[_Command]:
+        """The commands of the line, each with the position of its first word."""
+        words = self.words()
+        commands: list[_Command] = []
+        start = 0
+        for index, word in enumerate([*words, ";"]):
+            if word in _COMMAND_SEPARATORS:
+                commands.append((start, words[start:index]))
+                start = index + 1
+        return commands
+
+    def _prefix_length(self, command: Sequence[str]) -> int:
+        """Number of words before the one *command* actually runs.
+
+        Environment assignments, pass-through commands and runners with
+        their options; all of *command* if nothing follows them.
+        """
+        index = 0
+        while index < len(command):
+            skipped = self._prefix_words(command[index:])
+            if not skipped:
+                return index
+            index += skipped
+        return index
+
+    def _prefix_words(self, words: Sequence[str]) -> int:
+        """Number of leading *words* that run the words after them; 0 if none."""
+        word = words[0]
+        if _ASSIGNMENT_RE.fullmatch(word) or word in _PASS_THROUGH:
+            return 1
+        runner = self._runner_words(word)
+        length = 1 + len(runner or ())
+        if runner is None or tuple(words[1:length]) != runner:
+            return 0
+        while length < len(words) and words[length].startswith("-"):
+            length += 1
+        return length
+
+    def _runner_words(self, word: str) -> tuple[str, ...] | None:
+        """The words after runner *word* that run a tool; None if it is no runner."""
+        name = Path(word).name
+        if _PYTHON_RE.fullmatch(name):
+            return _PYTHON_MODULE
+        return _RUNNERS.get(name)
 
     def option(self, names: Iterable[str]) -> str | None:
         """The last value of a ``--name value`` or ``--name=value`` option."""

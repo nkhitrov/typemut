@@ -9,6 +9,7 @@ from pathlib import Path
 from parso.python.tree import BaseNode, Leaf
 
 from typemut.checkers.base import TypeChecker
+from typemut.checkers.mypy import MypyChecker
 from typemut.db import MutantRow
 from typemut.discovery import AnnotationContext, AnnotationNode
 from typemut.operators.base import Mutation, TypeMutationOperator
@@ -68,6 +69,12 @@ class StubChecker(TypeChecker):
 
     name = "stub"
     executables = frozenset({"stubcheck"})
+
+
+class StrictMypyChecker(MypyChecker):
+    """A third-party extension of the mypy checker, run by the same ``mypy`` executable."""
+
+    name = "mypy-strict"
 
 
 class RecordingProgressBar:

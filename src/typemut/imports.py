@@ -326,12 +326,14 @@ class ModuleImports:
     def package_of(self, file: Path) -> str:
         """Return the dotted package a file belongs to, e.g. ``app/x/models.py`` -> ``app.x``.
 
-        The package root is the topmost directory still containing ``__init__.py``.
-        Used to resolve relative imports.
+        The package root is the topmost directory still containing ``__init__.py``
+        (or a ``__init__.pyi`` stub). Used to resolve relative imports.
         """
         parts: list[str] = []
         directory = file.parent
-        while directory.name and (directory / "__init__.py").exists():
+        while directory.name and any(
+            (directory / init).exists() for init in ("__init__.py", "__init__.pyi")
+        ):
             parts.append(directory.name)
             directory = directory.parent
         return ".".join(reversed(parts))

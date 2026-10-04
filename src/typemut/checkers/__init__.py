@@ -101,11 +101,13 @@ class CheckerRegistry:
 
     def _detect(self, test_command: str) -> type[TypeChecker]:
         command = CommandLine(test_command)
-        found = [
-            checker
-            for checker in dict.fromkeys(self._checkers.values())
-            if command.executable_index(checker.executables) is not None
-        ]
+        found = self._most_derived(
+            [
+                checker
+                for checker in dict.fromkeys(self._checkers.values())
+                if command.executable_index(checker.executables) is not None
+            ]
+        )
         if len(found) == 1:
             return found[0]
         if found:
@@ -125,6 +127,23 @@ class CheckerRegistry:
             GenericChecker.name,
         )
         return GenericChecker
+
+    def _most_derived(self, found: list[type[TypeChecker]]) -> list[type[TypeChecker]]:
+        """*found* without checkers a subclass sharing one of their executables replaces.
+
+        A plugin that extends ``MypyChecker`` under another name wins over
+        ``mypy`` itself; checkers with different executables all stay.
+        """
+        return [
+            checker
+            for checker in found
+            if not any(
+                other is not checker
+                and issubclass(other, checker)
+                and not frozenset(other.executables).isdisjoint(checker.executables)
+                for other in found
+            )
+        ]
 
     @staticmethod
     def _load_checker(entry_point: metadata.EntryPoint) -> type[TypeChecker] | None:

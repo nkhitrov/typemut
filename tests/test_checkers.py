@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fakes import ScriptedRunner, StubChecker
+from tests.fakes import ScriptedRunner, StrictMypyChecker, StubChecker
 from typemut.checkers import AUTO, BUILTIN_CHECKERS, ENTRY_POINT_GROUP, CheckerRegistry
 from typemut.checkers.command import CommandLine
 from typemut.checkers.base import VERSION_TIMEOUT, Diagnostic, ErrorFiles, TypeChecker
@@ -103,6 +103,20 @@ def _passing(stdout: str = "", stderr: str = "") -> ScriptedRunner:
         pytest.param(MypyChecker, "cd src && mypy .", "mypy --version", id="chained"),
         pytest.param(MypyChecker, "dmypy run -- src", "dmypy --version", id="dmypy"),
         pytest.param(BasedPyrightChecker, "basedpyright src", "basedpyright --version", id="based"),
+        pytest.param(
+            MypyChecker,
+            "MYPY_FORCE_COLOR=0 uv run --frozen mypy src",
+            "MYPY_FORCE_COLOR=0 uv run --frozen mypy --version",
+            id="env-and-options",
+        ),
+        pytest.param(MypyChecker, "env A=1 time mypy .", "env A=1 time mypy --version", id="env"),
+        pytest.param(PyrightChecker, "npx pyright src", "npx pyright --version", id="npx"),
+        pytest.param(
+            MypyChecker, "uv run python3.12 -m mypy .", "uv run python3.12 -m mypy --version", id="nested"
+        ),
+        pytest.param(
+            MypyChecker, "tox -e lint && mypy src", "mypy --version", id="wrapper-then-checker"
+        ),
     ],
 )
 def test_version_command_from_test_command(
@@ -143,6 +157,29 @@ def test_no_version_without_command(test_command: str, tmp_path: Path) -> None:
     runner = _passing("mypy 1.19.1\n")
     assert MypyChecker(test_command, runner=runner).version(tmp_path) is None
     assert runner.calls == []
+
+
+@pytest.mark.parametrize(
+    "test_command",
+    [
+        pytest.param("tox -e mypy", id="tox"),
+        pytest.param("nox -s mypy", id="nox"),
+        pytest.param("pre-commit run mypy --all-files", id="pre-commit"),
+        pytest.param("uv run tox -e mypy", id="runner-then-wrapper"),
+        pytest.param("poetry show mypy", id="runner-other-subcommand"),
+        pytest.param("python -c mypy", id="python-without-module"),
+    ],
+)
+def test_no_version_from_wrapper_command(
+    test_command: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    runner = _passing("pre-commit 3.7.1\n")
+    assert MypyChecker(test_command, runner=runner).version(tmp_path) is None
+    assert runner.calls == []
+    assert (
+        f"Cannot tell the mypy version from test-command {test_command!r}: "
+        "set checker-version-command" in caplog.text
+    )
 
 
 def test_no_version_when_command_fails(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -595,6 +632,60 @@ def test_dependencies_include_parent_packages(tmp_path: Path) -> None:
     assert ImportGraph().closure(["x.py"], tmp_path) == {"x.py", "app/__init__.py", "app/api.py"}
 
 
+def test_dependencies_from_outside_src_layout(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "tests/test_x.py": "from app.models import User\n",
+            "src/app/__init__.py": "",
+            "src/app/models.py": "from app.base import Base\n",
+            "src/app/base.py": "",
+            "pkg/__init__.py": "",
+            "pkg/app/models.py": "",
+            ".venv/app/models.py": "",
+            "setup.py": "",
+        },
+    )
+    assert ImportGraph().closure(["tests/test_x.py"], tmp_path) == {
+        "tests/test_x.py",
+        "src/app/__init__.py",
+        "src/app/models.py",
+        "src/app/base.py",
+    }
+
+
+def test_dependencies_include_stubs(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/use.py": "from pkg.fast import f\nfrom pkg.ext import g\nimport stubs.mod\n",
+            "pkg/fast.py": "",
+            "pkg/fast.pyi": "",
+            "pkg/ext.pyi": "from .types import T\n",
+            "pkg/types.py": "",
+            "stubs/__init__.pyi": "",
+            "stubs/mod.pyi": "from .base import X\n",
+            "stubs/base.pyi": "",
+        },
+    )
+    assert ImportGraph().closure(["pkg/use.py"], tmp_path) == {
+        "pkg/__init__.py",
+        "pkg/use.py",
+        "pkg/fast.py",
+        "pkg/fast.pyi",
+        "pkg/ext.pyi",
+        "pkg/types.py",
+        "stubs/__init__.pyi",
+        "stubs/mod.pyi",
+        "stubs/base.pyi",
+    }
+
+
+def test_dependencies_in_missing_root(tmp_path: Path) -> None:
+    assert ImportGraph().closure(["a.py"], tmp_path / "missing") == {"a.py"}
+
+
 def test_dependencies_through_symlinked_root(project: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
     link = tmp_path_factory.mktemp("links") / "project"
     link.symlink_to(project)
@@ -697,6 +788,7 @@ def test_command_line_changes_directory(command: str, changes: bool) -> None:
         pytest.param("poetry run pyright", PyrightChecker, id="pyright"),
         pytest.param("basedpyright src", BasedPyrightChecker, id="basedpyright"),
         pytest.param("mypy src && mypy tests", MypyChecker, id="same-twice"),
+        pytest.param("tox -e lint && npx pyright", PyrightChecker, id="after-wrapper"),
     ],
 )
 def test_detect_checker(test_command: str, checker: type[TypeChecker]) -> None:
@@ -707,6 +799,32 @@ def test_detect_checker(test_command: str, checker: type[TypeChecker]) -> None:
 def test_detect_unknown_command_falls_back_to_generic(caplog: pytest.LogCaptureFixture) -> None:
     assert type(CheckerRegistry().get(None, "make typecheck")) is GenericChecker
     assert "Could not detect the type checker in test-command 'make typecheck'" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "test_command",
+    [
+        pytest.param("tox -e mypy", id="tox"),
+        pytest.param("pre-commit run mypy --all-files", id="pre-commit"),
+    ],
+)
+def test_detect_wrapper_argument_is_not_a_checker(
+    test_command: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    assert type(CheckerRegistry().get(None, test_command)) is GenericChecker
+    assert f"Could not detect the type checker in test-command {test_command!r}" in caplog.text
+
+
+def test_detect_prefers_subclass_sharing_executable() -> None:
+    registry = CheckerRegistry({**BUILTIN_CHECKERS, StrictMypyChecker.name: StrictMypyChecker})
+    assert type(registry.get(None, "uv run mypy src")) is StrictMypyChecker
+
+
+def test_detect_subclass_with_other_executable_still_conflicts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    assert type(CheckerRegistry().get(None, "pyright && basedpyright")) is GenericChecker
+    assert "runs several type checkers (pyright, basedpyright)" in caplog.text
 
 
 def test_detect_several_checkers_falls_back_to_generic(caplog: pytest.LogCaptureFixture) -> None:

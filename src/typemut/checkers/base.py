@@ -88,10 +88,16 @@ class TypeChecker:
 
         Runs ``checker-version-command`` if configured, otherwise the
         ``test-command`` up to the checker's executable plus ``--version``
-        (``uv run mypy --version``).
+        (``uv run mypy --version``); None with a warning when the command
+        does not run the executable itself (``tox -e mypy``).
         """
         command = self.version_command or self._command.version_command(self.executables)
         if command is None:
+            logger.warning(
+                "Cannot tell the %s version from test-command %r: set checker-version-command",
+                self.name,
+                self.test_command,
+            )
             return None
         result = self._runner.run(command, timeout=VERSION_TIMEOUT, cwd=root)
         if result.outcome is not Outcome.PASSED:

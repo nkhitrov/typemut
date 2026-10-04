@@ -181,10 +181,16 @@ directory, and which project files a file imports.
 | `generic` | — | mypy-style `[code]` at the end of any output line, as above |
 
 By default (`checker = "auto"`) the checker is detected from `test-command`:
-a recognised executable may be anywhere in it (`uv run mypy src`,
-`python -m mypy -p app`, `poetry run pyright`). A command that runs none of
-them (`make typecheck`, a script), or more than one (`mypy src && pyright src`),
-gets the `generic` checker and a warning; name the checker instead:
+a recognised executable counts when it is the command itself, possibly after
+environment assignments, `env`/`exec`/`time`, or a runner (`uv run`,
+`poetry run`, `pipx run`, `pdm run`, `hatch run`, `rye run`, `pnpm exec`,
+`uvx`, `npx`, `bunx`, `python -m`), in any command of a chain
+(`uv run mypy src`, `python -m mypy -p app`, `cd src && npx pyright`). An
+executable name passed to another tool (`tox -e mypy`,
+`pre-commit run mypy --all-files`) is not detected. A command that runs none
+of them (`make typecheck`, a script, a wrapper like `tox`), or more than one
+(`mypy src && pyright src`), gets the `generic` checker and a warning; name the
+checker instead:
 
 ```toml
 [typemut]
@@ -204,7 +210,9 @@ Both stdout and stderr are parsed, so noise from wrappers such as `uv run` on
 stderr does not hide the checker's errors.
 
 The version is read from `test-command` up to the checker executable plus
-`--version` (`uv run mypy --version`). If that does not work for your setup, set
+`--version` (`uv run mypy --version`). If the command does not run the
+executable directly (`tox -e mypy`, `make typecheck`), the version is unknown
+and a warning is logged. If that does not work for your setup, set
 `checker-version-command`, e.g. `checker-version-command = "npx pyright --version"`;
 the first `X.Y.Z` in its output is the version. `generic` only has a version
 when `checker-version-command` is set.
@@ -221,10 +229,31 @@ name is the value for `checker = ...`:
 pytype = "typemut_pytype:PytypeChecker"
 ```
 
+```python
+from collections.abc import Iterable
+
+from typemut.checkers.base import Diagnostic, TypeChecker
+
+
+class PytypeChecker(TypeChecker):
+    name = "pytype"
+    executables = frozenset({"pytype"})
+
+    def parse_output(self, output: str) -> Iterable[Diagnostic]:
+        ...  # one Diagnostic(path, code) per error
+```
+
 Set `name`, `executables` (used for detection and the version command),
 `false_kill_codes` and `config_names` (config files the checker reads from the
 project root), and override `parse_output(output)` to return a
-`Diagnostic(path, code)` for every error in one output stream. `config_files`,
+`Diagnostic(path, code)` (from `typemut.checkers.base`) for every error in one
+output stream. `executables` should not overlap those of another checker:
+`checker = "auto"` falls back to `generic` when a command matches two
+unrelated checkers. The one exception is a subclass of a checker that shares
+its executables (e.g. `class StrictMypyChecker(MypyChecker)` with the
+inherited `mypy`): auto-detection then picks the subclass instead of its base.
+Two such subclasses of the same checker installed together match both, so set
+`checker = "<name>"` explicitly. `config_files`,
 `cache_paths` and `dependencies` (by default: the project files reachable
 through imports) can be overridden too. The constructor takes
 `(test_command, version_command, runner, graph=None, environ=None)`; *environ*

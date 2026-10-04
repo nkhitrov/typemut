@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fakes import make_mutant
+from tests.fakes import StubRunner, make_mutant
 from typemut.db import MutantRow
 from typemut.engine import MutationTester
 from typemut.parallel import (
@@ -22,7 +22,7 @@ from typemut.parallel import (
     WorkspaceError,
     WorktreeExecutor,
 )
-from typemut.runner import ShellRunner
+from typemut.runner import CommandResult, Outcome, ShellRunner
 
 # In a root holding a `slow` file: mark itself started and hang.
 # Elsewhere: survive as soon as the slow worker has started.
@@ -107,6 +107,15 @@ class TestGitWorkspace:
         with pytest.raises(DirtyWorkingTreeError, match="uncommitted") as exc_info:
             GitWorkspace(tmp_path, ShellRunner()).ensure_clean()
         assert exc_info.value.details == "git status:\n?? dirty.py"
+
+    def test_clean_repo_with_git_warnings(self, tmp_path: Path) -> None:
+        result = CommandResult(Outcome.PASSED, stderr="warning: CRLF will be replaced by LF\n")
+        GitWorkspace(tmp_path, StubRunner(result)).ensure_clean()
+
+    def test_dirty_repo_with_git_warnings(self, tmp_path: Path) -> None:
+        result = CommandResult(Outcome.PASSED, "?? x.py\n", "warning: unsafe repository\n")
+        with pytest.raises(DirtyWorkingTreeError, match="uncommitted"):
+            GitWorkspace(tmp_path, StubRunner(result)).ensure_clean()
 
     def test_status_outside_repo(self, tmp_path: Path) -> None:
         with pytest.raises(WorkspaceError, match="Failed to check git status"):
