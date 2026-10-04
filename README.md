@@ -192,6 +192,8 @@ test-command = "make typecheck"
 checker = "mypy"
 ```
 
+The run prints the checker it uses, with the config files and cache directory
+it found (`Type checker: mypy (config: pyproject.toml; cache: .mypy_cache)`).
 An unknown `checker` name is logged as a warning and `generic` is used. mypy's
 `--pretty`, `--show-column-numbers` and `--show-error-end` output is understood;
 only errors count (mypy notes, pyright warnings and information are ignored).
@@ -216,8 +218,9 @@ name is the value for `checker = ...`:
 pytype = "typemut_pytype:PytypeChecker"
 ```
 
-Set `name`, `executables` (used for detection and the version command) and
-`false_kill_codes`, and override `parse_output(output)` to return a
+Set `name`, `executables` (used for detection and the version command),
+`false_kill_codes` and `config_names` (config files the checker reads from the
+project root), and override `parse_output(output)` to return a
 `Diagnostic(path, code)` for every error in one output stream. `config_files`,
 `cache_paths` and `dependencies` (by default: the project files reachable
 through imports) can be overridden too. The constructor takes

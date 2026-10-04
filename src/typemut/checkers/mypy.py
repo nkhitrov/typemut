@@ -62,6 +62,7 @@ class MypyChecker(TypeChecker):
     name = "mypy"
     executables = frozenset({"mypy", "dmypy"})
     false_kill_codes = FALSE_KILL_CODES
+    config_names = CONFIG_FILES
 
     def __init__(
         self,
@@ -79,11 +80,6 @@ class MypyChecker(TypeChecker):
         return [
             diagnostic for message in self._messages(output) for diagnostic in self._errors(message)
         ]
-
-    def config_files(self, root: Path) -> Iterable[Path]:
-        """``--config-file`` and the config files mypy looks for in *root*."""
-        files = [*self._explicit_config(root), *(root / name for name in CONFIG_FILES)]
-        return [file for file in dict.fromkeys(files) if file.is_file()]
 
     def cache_paths(self, root: Path) -> Iterable[Path]:
         """mypy's cache directory, if it is inside *root*.
@@ -130,13 +126,15 @@ class MypyChecker(TypeChecker):
         code = next((code for code in codes if code is not None), NO_CODE)
         return [Diagnostic(header["path"], code)]
 
-    def _explicit_config(self, root: Path) -> list[Path]:
+    def _explicit_config(self, root: Path) -> Path | None:
+        """``--config-file``."""
         config = self._command.option(("--config-file",))
-        return [] if config is None else [root / config]
+        return None if config is None else root / config
 
     def _configured_cache_dir(self, root: Path) -> str | None:
         """``cache_dir`` from the config file mypy uses."""
-        candidates = self._explicit_config(root) or [root / name for name in CONFIG_FILES]
+        explicit = self._explicit_config(root)
+        candidates = [root / name for name in CONFIG_FILES] if explicit is None else [explicit]
         for file in candidates:
             section = self._mypy_section(file)
             if section is not None:

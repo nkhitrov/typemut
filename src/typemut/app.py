@@ -114,7 +114,7 @@ class App:
         checker = self.checkers.get(
             cfg.checker, cfg.test_command, cfg.checker_version_command, self.runner
         )
-        self.console.print(f"Type checker: {self._describe(checker)}")
+        self.console.print("Type checker: " + self._describe(checker))
         tester = MutationTester(
             self.runner, cfg.test_command, cfg.timeout, classifier=OutcomeClassifier(checker)
         )

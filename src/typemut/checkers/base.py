@@ -60,6 +60,8 @@ class TypeChecker:
     # Error codes that mean the mutated code is broken (a missing import, a
     # syntax error) rather than caught by the type system.
     false_kill_codes: ClassVar[AbstractSet[str]] = frozenset()
+    # Config files the checker looks for in the project root, in its order.
+    config_names: ClassVar[Iterable[str]] = ()
 
     def __init__(
         self,
@@ -134,8 +136,12 @@ class TypeChecker:
         return self.dependencies(files.paths, root)
 
     def config_files(self, root: Path) -> Iterable[Path]:
-        """Existing checker config files in *root* that can change its results."""
-        return []
+        """Existing checker config files in *root* that can change its results.
+
+        The config file named in ``test-command``, then :attr:`config_names`.
+        """
+        files = [self._explicit_config(root), *(root / name for name in self.config_names)]
+        return [file for file in dict.fromkeys(files) if file is not None and file.is_file()]
 
     def cache_paths(self, root: Path) -> Iterable[Path]:
         """Checker cache directories inside *root* worth giving to workers."""
@@ -147,6 +153,10 @@ class TypeChecker:
         None means the checker cannot tell, so no result may be reused.
         """
         return frozenset(self._graph.closure(files, root))
+
+    def _explicit_config(self, root: Path) -> Path | None:
+        """The config file ``test-command`` names; the base class knows no option for it."""
+        return None
 
     def _only_false_kills(self, codes: AbstractSet[str]) -> bool:
         """Whether there are *codes* and all of them are false-kill codes."""
