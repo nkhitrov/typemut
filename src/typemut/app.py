@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 import webbrowser
 from collections.abc import Callable, Collection, Iterable
@@ -193,9 +194,9 @@ class App:
         return not diff.new
 
     def _describe(self, checker: TypeChecker) -> str:
-        """The checker's name with the config files and caches it uses in the project."""
+        """The checker's name with the config files it found and the cache it would use."""
         details = [
-            f"{label}: {', '.join(path.name for path in paths)}"
+            f"{label}: {', '.join(os.path.relpath(path, self.root) for path in paths)}"
             for label, paths in (
                 ("config", list(checker.config_files(self.root))),
                 ("cache", list(checker.cache_paths(self.root))),

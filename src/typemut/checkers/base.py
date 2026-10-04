@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,9 @@ class TypeChecker:
     base class knows no output format; subclasses override
     :meth:`parse_output` and set :attr:`name`, :attr:`executables` and
     :attr:`false_kill_codes`.
+
+    *environ* holds the environment variables the checker runs with (such as
+    ``MYPY_CACHE_DIR``); None means the current process environment.
     """
 
     # Name in the ``checker`` config option.
@@ -69,11 +73,14 @@ class TypeChecker:
         version_command: str | None = None,
         runner: CommandRunner | None = None,
         graph: ImportGraph | None = None,
+        environ: Mapping[str, str] | None = None,
     ) -> None:
         self.test_command = test_command
         self.version_command = version_command
         self._runner = runner or ShellRunner()
         self._graph = graph or ImportGraph()
+        # None, not os.environ: checkers are pickled to worker processes.
+        self._environ = environ
         self._command = CommandLine(test_command)
 
     def version(self, root: Path) -> str | None:
@@ -128,10 +135,16 @@ class TypeChecker:
 
         The files with errors and the project files they import; None when
         that is unknown: no errors in project files, errors outside *root*,
-        or a checker that cannot tell dependencies.
+        reported files missing from *root* (the checker ran in another
+        directory), ``test-command`` changing directory before running the
+        checker, or a checker that cannot tell dependencies.
         """
         files = self.error_files(stdout, stderr, root)
         if len(files.outside) or not len(files.paths):
+            return None
+        if self._command.changes_directory(self.executables):
+            return None
+        if not all((root / path).is_file() for path in files.paths):
             return None
         return self.dependencies(files.paths, root)
 
@@ -153,6 +166,10 @@ class TypeChecker:
         None means the checker cannot tell, so no result may be reused.
         """
         return frozenset(self._graph.closure(files, root))
+
+    def _environment(self) -> Mapping[str, str]:
+        """The environment variables the checker runs with."""
+        return os.environ if self._environ is None else self._environ
 
     def _explicit_config(self, root: Path) -> Path | None:
         """The config file ``test-command`` names; the base class knows no option for it."""

@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from tests.fakes import RecordingProgressBar, StubRunner
 from typemut.app import App
+from typemut.checkers import CheckerRegistry
 from typemut.cli import main
 from typemut.db import Database, MutantRow
 from typemut.parallel import InlinePool
@@ -405,11 +406,26 @@ def test_run_classifies_output_with_checker(
     assert statuses == {status}
 
 
-def test_run_describes_checker(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("test_command", "cache"),
+    [
+        pytest.param("mypy src", ".mypy_cache", id="default"),
+        pytest.param("mypy --cache-dir build/mypy src", "build/mypy", id="relative-path"),
+    ],
+)
+def test_run_describes_checker(test_command: str, cache: str, tmp_path: Path) -> None:
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
-        (Path(td) / "typemut.toml").write_text('[typemut]\nmodule-path = "src"\ntest-command = "mypy src"\n')
+        (Path(td) / "typemut.toml").write_text(
+            f'[typemut]\nmodule-path = "src"\ntest-command = "{test_command}"\n'
+        )
         (Path(td) / "mypy.ini").write_text("[mypy]\n")
-        result = runner.invoke(main, ["run"], obj=_app(Outcome.PASSED))
-    assert "Type checker: mypy (config: mypy.ini; cache: .mypy_cache)" in result.output
+        app = partial(
+            App,
+            runner=StubRunner(CommandResult(Outcome.PASSED)),
+            progress=RecordingProgressBar(),
+            checkers=CheckerRegistry(environ={}),
+        )
+        result = runner.invoke(main, ["run"], obj=app)
+    assert f"Type checker: mypy (config: mypy.ini; cache: {cache})" in result.output

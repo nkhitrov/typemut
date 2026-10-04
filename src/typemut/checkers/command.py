@@ -9,6 +9,8 @@ from typing import Final
 
 # Shell operators that start a new command in a command line.
 _COMMAND_SEPARATORS: Final = frozenset({"&&", "||", ";", "|", "&"})
+# Shell commands that change the working directory.
+_DIRECTORY_CHANGES: Final = frozenset({"cd", "pushd"})
 
 
 class CommandLine:
@@ -33,6 +35,17 @@ class CommandLine:
             if Path(word).name in names:
                 return index
         return None
+
+    def changes_directory(
+        self, executables: Iterable[str]
+    ) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether ``cd`` or ``pushd`` runs before the checker's executable.
+
+        Without the executable in the command, anywhere in it.
+        """
+        words = self.words()
+        end = self.executable_index(executables)
+        return any(word in _DIRECTORY_CHANGES for word in words[:end])
 
     def version_command(self, executables: Iterable[str]) -> str | None:
         """The command up to the checker's executable, plus ``--version``.

@@ -21,8 +21,6 @@ ENTRY_POINT_GROUP: Final = "typemut.checkers"
 # ``checker`` value that detects the checker from ``test-command``.
 AUTO: Final = "auto"
 
-# In detection order: pyright before mypy, so ``mypy . && pyright`` and
-# similar chains pick the stricter output format first.
 BUILTIN_CHECKERS: Mapping[str, type[TypeChecker]] = {
     PyrightChecker.name: PyrightChecker,
     BasedPyrightChecker.name: BasedPyrightChecker,
@@ -32,13 +30,26 @@ BUILTIN_CHECKERS: Mapping[str, type[TypeChecker]] = {
 
 
 class CheckerRegistry:
-    """Type checker plugins available by name for the ``checker`` config option."""
+    """Type checker plugins available by name for the ``checker`` config option.
 
-    def __init__(self, checkers: Mapping[str, type[TypeChecker]] = BUILTIN_CHECKERS) -> None:
+    *environ* is the environment the checkers it builds run with; None means
+    the current process environment.
+    """
+
+    def __init__(
+        self,
+        checkers: Mapping[str, type[TypeChecker]] = BUILTIN_CHECKERS,
+        environ: Mapping[str, str] | None = None,
+    ) -> None:
         self._checkers = dict(checkers)
+        self._environ = environ
 
     @classmethod
-    def discover(cls, entry_points: Iterable[metadata.EntryPoint] | None = None) -> CheckerRegistry:
+    def discover(
+        cls,
+        entry_points: Iterable[metadata.EntryPoint] | None = None,
+        environ: Mapping[str, str] | None = None,
+    ) -> CheckerRegistry:
         """Built-in checkers plus those installed under the ``typemut.checkers`` entry point group.
 
         An entry point names a :class:`TypeChecker` subclass, e.g. in ``pyproject.toml``::
@@ -55,7 +66,7 @@ class CheckerRegistry:
             checker = cls._load_checker(entry_point)
             if checker is not None:
                 checkers[entry_point.name] = checker
-        return cls(checkers)
+        return cls(checkers, environ)
 
     def get(
         self,
@@ -66,12 +77,15 @@ class CheckerRegistry:
     ) -> TypeChecker:
         """The checker called *name*, or detected from *test_command* if *name* is None or auto.
 
-        An unknown name, or a command no checker recognises, falls back to
-        the generic checker with a warning.
+        An unknown name, or a command no checker or several different
+        checkers are recognised in, falls back to the generic checker with a
+        warning.
         """
         if name is not None and name != AUTO:
-            return self._named(name)(test_command, version_command, runner)
-        return self._detect(test_command)(test_command, version_command, runner)
+            checker = self._named(name)
+        else:
+            checker = self._detect(test_command)
+        return checker(test_command, version_command, runner, environ=self._environ)
 
     def _named(self, name: str) -> type[TypeChecker]:
         checker = self._checkers.get(name)
@@ -87,9 +101,23 @@ class CheckerRegistry:
 
     def _detect(self, test_command: str) -> type[TypeChecker]:
         command = CommandLine(test_command)
-        for checker in self._checkers.values():
-            if command.executable_index(checker.executables) is not None:
-                return checker
+        found = [
+            checker
+            for checker in dict.fromkeys(self._checkers.values())
+            if command.executable_index(checker.executables) is not None
+        ]
+        if len(found) == 1:
+            return found[0]
+        if found:
+            # The output of one checker can't be read by the other's parser.
+            logger.warning(
+                "test-command %r runs several type checkers (%s), using %r: "
+                "set the 'checker' option to choose one",
+                test_command,
+                ", ".join(checker.name for checker in found),
+                GenericChecker.name,
+            )
+            return GenericChecker
         logger.warning(
             "Could not detect the type checker in test-command %r, using %r: "
             "set the 'checker' option to choose one",

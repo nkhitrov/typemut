@@ -182,9 +182,9 @@ directory, and which project files a file imports.
 
 By default (`checker = "auto"`) the checker is detected from `test-command`:
 a recognised executable may be anywhere in it (`uv run mypy src`,
-`python -m mypy -p app`, `poetry run pyright`), and pyright and basedpyright are
-looked for before mypy. A command that runs none of them (`make typecheck`, a
-script) gets the `generic` checker and a warning; name the checker instead:
+`python -m mypy -p app`, `poetry run pyright`). A command that runs none of
+them (`make typecheck`, a script), or more than one (`mypy src && pyright src`),
+gets the `generic` checker and a warning; name the checker instead:
 
 ```toml
 [typemut]
@@ -192,8 +192,11 @@ test-command = "make typecheck"
 checker = "mypy"
 ```
 
-The run prints the checker it uses, with the config files and cache directory
-it found (`Type checker: mypy (config: pyproject.toml; cache: .mypy_cache)`).
+The run prints the checker it uses, with the config files it found and the
+cache directory it would use, relative to the project root
+(`Type checker: mypy (config: pyproject.toml; cache: .mypy_cache)`); the cache
+is listed even before mypy has created it. mypy's cache directory comes from
+`--cache-dir`, `MYPY_CACHE_DIR`, `cache_dir` in its config, or `.mypy_cache`.
 An unknown `checker` name is logged as a warning and `generic` is used. mypy's
 `--pretty`, `--show-column-numbers` and `--show-error-end` output is understood;
 only errors count (mypy notes, pyright warnings and information are ignored).
@@ -224,7 +227,8 @@ project root), and override `parse_output(output)` to return a
 `Diagnostic(path, code)` for every error in one output stream. `config_files`,
 `cache_paths` and `dependencies` (by default: the project files reachable
 through imports) can be overridden too. The constructor takes
-`(test_command, version_command, runner)`. An entry point that fails to import
+`(test_command, version_command, runner, graph=None, environ=None)`; *environ*
+is the environment the checker runs with (the process environment by default). An entry point that fails to import
 or does not name a `TypeChecker` subclass is logged as a warning and skipped.
 
 ## What It Finds
@@ -506,8 +510,9 @@ excluded-modules = ["src/vendor/*.py"]  # glob patterns to skip
 skip-comments = ["type: ignore", "pragma: no mutate"]
 db = "typemut.sqlite"                   # database file
 plugins = ["sqlalchemy"]                # library plugins, none by default
-checker = "auto"                        # mypy, pyright, basedpyright, generic; auto detects it from test-command
-checker-version-command = "mypy --version"  # default: test-command up to the checker + --version
+checker = "mypy"                        # mypy, pyright, basedpyright, generic; default "auto" detects it
+                                        # from test-command (set it when test-command is a wrapper like make)
+# checker-version-command = "mypy --version"  # optional; default: test-command up to the checker + --version
 
 [typemut.operators]
 # all enabled by default, disable selectively

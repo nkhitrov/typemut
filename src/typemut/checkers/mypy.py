@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import configparser
 import logging
-import os
 import re
 import tomllib
 from collections.abc import Iterable, Mapping
@@ -13,8 +12,6 @@ from pathlib import Path
 from typing import Final
 
 from typemut.checkers.base import Diagnostic, TypeChecker
-from typemut.checkers.graph import ImportGraph
-from typemut.runner import CommandRunner
 
 logger = logging.getLogger(__name__)
 
@@ -53,27 +50,12 @@ class _Message:
 
 
 class MypyChecker(TypeChecker):
-    """mypy (and dmypy): ``path:line: error: message  [code]`` output.
-
-    *environ* holds the environment variables mypy runs with (``MYPY_CACHE_DIR``);
-    None means the current process environment.
-    """
+    """mypy (and dmypy): ``path:line: error: message  [code]`` output."""
 
     name = "mypy"
     executables = frozenset({"mypy", "dmypy"})
     false_kill_codes = FALSE_KILL_CODES
     config_names = CONFIG_FILES
-
-    def __init__(
-        self,
-        test_command: str = "",
-        version_command: str | None = None,
-        runner: CommandRunner | None = None,
-        graph: ImportGraph | None = None,
-        environ: Mapping[str, str] | None = None,
-    ) -> None:
-        super().__init__(test_command, version_command, runner, graph)
-        self._environ = environ
 
     def parse_output(self, output: str) -> Iterable[Diagnostic]:
         """Errors (not notes) in mypy's output, also with ``--pretty`` wrapping."""
@@ -87,10 +69,9 @@ class MypyChecker(TypeChecker):
         Taken from ``--cache-dir``, ``MYPY_CACHE_DIR``, ``cache_dir`` in the
         config file, or the default ``.mypy_cache``, in that order.
         """
-        environ = os.environ if self._environ is None else self._environ
         cache_dir = (
             self._command.option(("--cache-dir",))
-            or environ.get("MYPY_CACHE_DIR")
+            or self._environment().get("MYPY_CACHE_DIR")
             or self._configured_cache_dir(root)
             or DEFAULT_CACHE_DIR
         )
@@ -149,11 +130,13 @@ class MypyChecker(TypeChecker):
         if file.suffix == ".toml":
             try:
                 data = tomllib.loads(file.read_text())
-            except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+            except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
                 return None
-            section = data.get("tool", {}).get("mypy")
+            tool = data.get("tool")
+            section = tool.get("mypy") if isinstance(tool, dict) else None
             return section if isinstance(section, dict) else None
-        parser = configparser.ConfigParser()
+        # Like mypy, without ``%`` interpolation: values are often regexes.
+        parser = configparser.RawConfigParser()
         try:
             parser.read(file)
         except (configparser.Error, UnicodeDecodeError):

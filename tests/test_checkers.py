@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from importlib.metadata import EntryPoint
 from pathlib import Path
 
@@ -455,6 +456,16 @@ def test_pyright_config_files(
         pytest.param(
             "mypy .", {}, {"pyproject.toml": "[tool]\nmypy = 1\n"}, ".mypy_cache", id="not-a-table"
         ),
+        pytest.param(
+            "mypy .", {}, {"pyproject.toml": "tool = 1\n"}, ".mypy_cache", id="tool-not-a-table"
+        ),
+        pytest.param(
+            "mypy .",
+            {},
+            {"setup.cfg": "[mypy]\nexclude = build%\ncache_dir = cfg%(x)s\n"},
+            "cfg%(x)s",
+            id="no-interpolation",
+        ),
     ],
 )
 def test_mypy_cache_paths(
@@ -485,8 +496,14 @@ def test_mypy_cache_outside_root_is_not_used(
     assert "is outside the project" in caplog.text
 
 
-def test_mypy_cache_from_process_environment(tmp_path: Path) -> None:
-    assert MypyChecker("mypy --cache-dir c .").cache_paths(tmp_path) == [tmp_path / "c"]
+def test_mypy_cache_defaults_to_process_environment(tmp_path: Path) -> None:
+    process = MypyChecker("mypy .", environ=dict(os.environ)).cache_paths(tmp_path)
+    assert MypyChecker("mypy .").cache_paths(tmp_path) == process
+
+
+def test_registry_gives_checkers_its_environment(tmp_path: Path) -> None:
+    registry = CheckerRegistry.discover([], environ={"MYPY_CACHE_DIR": "env"})
+    assert registry.get(None, "mypy .").cache_paths(tmp_path) == [tmp_path / "env"]
 
 
 def test_pyright_has_no_cache(tmp_path: Path) -> None:
@@ -548,6 +565,36 @@ def test_dependencies_keep_unreadable_files(tmp_path: Path) -> None:
     assert deps == {"binary.py", "missing.py"}
 
 
+def test_dependencies_in_namespace_packages(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "ns/a.py": "from ns.b import X\n",
+            "ns/b.py": "X = 1\n",
+            "src/space/c.py": "import space.d\n",
+            "src/space/d.py": "",
+        },
+    )
+    assert ImportGraph().closure(["ns/a.py", "src/space/c.py"], tmp_path) == {
+        "ns/a.py",
+        "ns/b.py",
+        "src/space/c.py",
+        "src/space/d.py",
+    }
+
+
+def test_dependencies_include_parent_packages(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "x.py": "import app.api\napp.helper(1)\n",
+            "app/__init__.py": "def helper(x: int) -> None: ...\n",
+            "app/api.py": "",
+        },
+    )
+    assert ImportGraph().closure(["x.py"], tmp_path) == {"x.py", "app/__init__.py", "app/api.py"}
+
+
 def test_dependencies_through_symlinked_root(project: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
     link = tmp_path_factory.mktemp("links") / "project"
     link.symlink_to(project)
@@ -588,6 +635,10 @@ def test_result_dependencies(
             id="error-outside-root",
         ),
         pytest.param(GenericChecker(), "src/app/util.py:1: error: x  [misc]\n", id="generic"),
+        pytest.param(MypyChecker(), "app/util.py:1: error: x  [misc]\n", id="not-in-root"),
+        pytest.param(
+            MypyChecker("cd src && mypy ."), "src/app/util.py:1: error: x  [misc]\n", id="cd"
+        ),
     ],
 )
 def test_no_result_dependencies(checker: TypeChecker, output: str, project: Path) -> None:
@@ -621,6 +672,20 @@ def test_command_line_option(command: str, value: str | None) -> None:
     assert CommandLine(command).option(["--cache-dir"]) == value
 
 
+@pytest.mark.parametrize(
+    ("command", "changes"),
+    [
+        pytest.param("cd src && mypy .", True, id="cd"),
+        pytest.param("pushd src; uv run mypy .", True, id="pushd"),
+        pytest.param("mypy . && cd docs", False, id="after"),
+        pytest.param("make -C src typecheck", False, id="no-executable"),
+        pytest.param("cd src && make typecheck", True, id="no-executable-cd"),
+    ],
+)
+def test_command_line_changes_directory(command: str, changes: bool) -> None:
+    assert CommandLine(command).changes_directory(["mypy"]) is changes
+
+
 # --- registry ---
 
 
@@ -631,7 +696,7 @@ def test_command_line_option(command: str, value: str | None) -> None:
         pytest.param("uv run dmypy run -- src", MypyChecker, id="dmypy"),
         pytest.param("poetry run pyright", PyrightChecker, id="pyright"),
         pytest.param("basedpyright src", BasedPyrightChecker, id="basedpyright"),
-        pytest.param("mypy src && pyright src", PyrightChecker, id="pyright-first"),
+        pytest.param("mypy src && mypy tests", MypyChecker, id="same-twice"),
     ],
 )
 def test_detect_checker(test_command: str, checker: type[TypeChecker]) -> None:
@@ -642,6 +707,16 @@ def test_detect_checker(test_command: str, checker: type[TypeChecker]) -> None:
 def test_detect_unknown_command_falls_back_to_generic(caplog: pytest.LogCaptureFixture) -> None:
     assert type(CheckerRegistry().get(None, "make typecheck")) is GenericChecker
     assert "Could not detect the type checker in test-command 'make typecheck'" in caplog.text
+
+
+def test_detect_several_checkers_falls_back_to_generic(caplog: pytest.LogCaptureFixture) -> None:
+    checker = CheckerRegistry().get(None, "mypy src && pyright src")
+    assert type(checker) is GenericChecker
+    assert checker.is_false_kill('a.py:1: error: Name "Seq" is not defined  [name-defined]\n', "")
+    assert (
+        "test-command 'mypy src && pyright src' runs several type checkers (pyright, mypy), "
+        "using 'generic'" in caplog.text
+    )
 
 
 def test_get_checker_by_name() -> None:
