@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typemut.checkers.base import Diagnostic
+from typemut.checkers.generic import GenericChecker
 from typemut.engine import OutcomeClassifier
 from typemut.runner import CommandResult, Outcome
 
@@ -73,4 +75,7 @@ def test_no_error_codes():
 
 def test_error_codes():
     output = "a.py:1: error: x  [arg-type]\na.py:2: note: see [docs]\nFound 1 error\n"
-    assert OutcomeClassifier().error_codes(output) == {"arg-type", "docs"}
+    assert GenericChecker().diagnostics(output, "") == [
+        Diagnostic("", "arg-type"),
+        Diagnostic("", "docs"),
+    ]

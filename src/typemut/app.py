@@ -12,12 +12,14 @@ from rich.console import Console
 from rich.markup import escape
 
 from typemut.baseline import Baseline
+from typemut.checkers import CheckerRegistry
 from typemut.config import Config, ConfigLoader
 from typemut.db import Database, MutantRow
 from typemut.discovery import AnnotationFinder, SourceFiles
 from typemut.engine import (
     MutantExecutor,
     MutationTester,
+    OutcomeClassifier,
     ProgressBar,
     ResultRecorder,
     RichProgressBar,
@@ -47,6 +49,7 @@ class App:
     runner: CommandRunner = field(default_factory=ShellRunner)
     operators: OperatorRegistry = field(default_factory=OperatorRegistry)
     plugins: PluginRegistry = field(default_factory=PluginRegistry.discover)
+    checkers: CheckerRegistry = field(default_factory=CheckerRegistry.discover)
     worker_pool: WorkerPool = field(default_factory=ProcessPool)
     # None draws a rich progress bar on the console.
     progress: ProgressBar | None = None
@@ -107,7 +110,13 @@ class App:
         if len(mutants) == 0:
             self.console.print("[yellow]No pending mutants: nothing to test.[/yellow]")
             return
-        tester = MutationTester(self.runner, cfg.test_command, cfg.timeout)
+        checker = self.checkers.get(
+            cfg.checker, cfg.test_command, cfg.checker_version_command, self.runner
+        )
+        self.console.print(f"Type checker: {checker.name}")
+        tester = MutationTester(
+            self.runner, cfg.test_command, cfg.timeout, classifier=OutcomeClassifier(checker)
+        )
         self.console.print("Running baseline check...")
         ok, output = tester.check_baseline(self.root)
         if not ok:

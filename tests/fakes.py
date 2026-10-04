@@ -8,12 +8,13 @@ from pathlib import Path
 
 from parso.python.tree import BaseNode, Leaf
 
+from typemut.checkers.base import TypeChecker
 from typemut.db import MutantRow
 from typemut.discovery import AnnotationContext, AnnotationNode
 from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.plugins.base import Plugin
 from typemut.registry import Registry
-from typemut.runner import CommandResult
+from typemut.runner import CommandResult, Outcome
 
 
 class StubRunner:
@@ -32,6 +33,41 @@ class StubRunner:
     ) -> CommandResult:
         self.calls.append((command, timeout, cwd))
         return self.result
+
+
+class ScriptedRunner:
+    """CommandRunner that answers each command with the result scripted for it.
+
+    A command gets the result of the longest key of *results* it starts
+    with, or *default*. Calls are recorded like :class:`StubRunner` does.
+    """
+
+    def __init__(
+        self,
+        results: Mapping[str, CommandResult],
+        default: CommandResult = CommandResult(Outcome.FAILED),
+    ) -> None:
+        self._results = results
+        self._default = default
+        self.calls: list[tuple[str, float | None, Path | None]] = []
+
+    def run(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+        cwd: Path | None = None,
+    ) -> CommandResult:
+        self.calls.append((command, timeout, cwd))
+        prefixes = [prefix for prefix in self._results if command.startswith(prefix)]
+        return self._results[max(prefixes, key=len)] if prefixes else self._default
+
+
+class StubChecker(TypeChecker):
+    """Type checker plugin run by the ``stubcheck`` command; it finds no errors."""
+
+    name = "stub"
+    executables = frozenset({"stubcheck"})
 
 
 class RecordingProgressBar:

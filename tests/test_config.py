@@ -138,3 +138,36 @@ def test_load_config_invalid_ignore_types_warns(
     assert cfg.ignore_types == expected
     assert message in caplog.text
     assert cfg.module_path == "src"
+
+
+def test_load_config_checker(tmp_path: Path) -> None:
+    cfg = load_toml(
+        '[typemut]\nchecker = "pyright"\nchecker-version-command = "npx pyright --version"\n',
+        tmp_path,
+    )
+    assert (cfg.checker, cfg.checker_version_command) == ("pyright", "npx pyright --version")
+
+
+def test_load_config_checker_default_detects(tmp_path: Path) -> None:
+    cfg = load_toml('[typemut]\nmodule-path = "src"\n', tmp_path)
+    assert (cfg.checker, cfg.checker_version_command) == (None, None)
+
+
+@pytest.mark.parametrize(
+    ("toml_value", "message"),
+    [
+        pytest.param("checker = 1", "Ignoring invalid 'checker' option 1", id="checker"),
+        pytest.param(
+            'checker-version-command = ["mypy", "--version"]',
+            "Ignoring invalid 'checker-version-command' option ['mypy', '--version']",
+            id="version-command",
+        ),
+    ],
+)
+def test_load_config_invalid_checker_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, toml_value: str, message: str
+) -> None:
+    cfg = load_toml(f'[typemut]\nmodule-path = "src"\n{toml_value}\n', tmp_path)
+    assert (cfg.checker, cfg.checker_version_command) == (None, None)
+    assert message in caplog.text
+    assert cfg.module_path == "src"

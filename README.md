@@ -164,6 +164,66 @@ Mutation testing is slow, so use `--jobs N` in CI (it needs a clean git working 
 see [Quick Start](#quick-start)).
 typemut runs this on itself — see `make mutate` and `.github/workflows/ci.yml`.
 
+## Type checkers
+
+typemut runs `test-command` as is, but it reads the output with a plugin for the
+type checker that command runs. The plugin tells a real kill from a mutant that
+merely broke the code: a failure whose only errors are a missing name, a syntax
+error or an invalid type is recorded as `error`, not `killed`. It also knows the
+checker's version, the files with errors, the checker's config files and cache
+directory, and which project files a file imports.
+
+| `checker` | Recognised executables | Errors counted as broken code |
+|-----------|------------------------|-------------------------------|
+| `mypy` | `mypy`, `dmypy` | `[name-defined]`, `[syntax]`, `[valid-type]` |
+| `pyright` | `pyright` | `reportUndefinedVariable`, `reportInvalidTypeForm`, errors without a rule (syntax errors) |
+| `basedpyright` | `basedpyright` | same as `pyright` (a subclass: the output format is the same) |
+| `generic` | — | mypy-style `[code]` at the end of any output line, as above |
+
+By default (`checker = "auto"`) the checker is detected from `test-command`:
+a recognised executable may be anywhere in it (`uv run mypy src`,
+`python -m mypy -p app`, `poetry run pyright`), and pyright and basedpyright are
+looked for before mypy. A command that runs none of them (`make typecheck`, a
+script) gets the `generic` checker and a warning; name the checker instead:
+
+```toml
+[typemut]
+test-command = "make typecheck"
+checker = "mypy"
+```
+
+An unknown `checker` name is logged as a warning and `generic` is used. mypy's
+`--pretty`, `--show-column-numbers` and `--show-error-end` output is understood;
+only errors count (mypy notes, pyright warnings and information are ignored).
+Both stdout and stderr are parsed, so noise from wrappers such as `uv run` on
+stderr does not hide the checker's errors.
+
+The version is read from `test-command` up to the checker executable plus
+`--version` (`uv run mypy --version`). If that does not work for your setup, set
+`checker-version-command`, e.g. `checker-version-command = "npx pyright --version"`;
+the first `X.Y.Z` in its output is the version. `generic` only has a version
+when `checker-version-command` is set.
+
+### Third-party checkers
+
+A package can ship a checker plugin: subclass `typemut.checkers.base.TypeChecker`
+and register it under the `typemut.checkers` entry point group. The entry point
+name is the value for `checker = ...`:
+
+```toml
+# pyproject.toml of the plugin package
+[project.entry-points."typemut.checkers"]
+pytype = "typemut_pytype:PytypeChecker"
+```
+
+Set `name`, `executables` (used for detection and the version command) and
+`false_kill_codes`, and override `parse_output(output)` to return a
+`Diagnostic(path, code)` for every error in one output stream. `config_files`,
+`cache_paths` and `dependencies` (by default: the project files reachable
+through imports) can be overridden too. The constructor takes
+`(test_command, version_command, runner)`. An entry point that fails to import
+or does not name a `TypeChecker` subclass is logged as a warning and skipped.
+
 ## What It Finds
 
 typemut generates mutations of type annotations and checks whether the type checker catches them. Each mutation operator targets a specific class of type safety issues.
@@ -443,6 +503,8 @@ excluded-modules = ["src/vendor/*.py"]  # glob patterns to skip
 skip-comments = ["type: ignore", "pragma: no mutate"]
 db = "typemut.sqlite"                   # database file
 plugins = ["sqlalchemy"]                # library plugins, none by default
+checker = "auto"                        # mypy, pyright, basedpyright, generic; auto detects it from test-command
+checker-version-command = "mypy --version"  # default: test-command up to the checker + --version
 
 [typemut.operators]
 # all enabled by default, disable selectively

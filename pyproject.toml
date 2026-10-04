@@ -80,6 +80,24 @@ line_coverage_min = 80
 [tool.coverage-threshold.modules."src/typemut/config.py"]
 file_line_coverage_min = 100
 
+[tool.coverage-threshold.modules."src/typemut/checkers/__init__.py"]
+file_line_coverage_min = 100
+
+[tool.coverage-threshold.modules."src/typemut/checkers/base.py"]
+file_line_coverage_min = 100
+
+[tool.coverage-threshold.modules."src/typemut/checkers/generic.py"]
+file_line_coverage_min = 100
+
+[tool.coverage-threshold.modules."src/typemut/checkers/graph.py"]
+file_line_coverage_min = 100
+
+[tool.coverage-threshold.modules."src/typemut/checkers/mypy.py"]
+file_line_coverage_min = 100
+
+[tool.coverage-threshold.modules."src/typemut/checkers/pyright.py"]
+file_line_coverage_min = 100
+
 [tool.coverage-threshold.modules."src/typemut/engine.py"]
 file_line_coverage_min = 100
 
@@ -149,6 +167,7 @@ module = [
     "typemut.nodes",
     "typemut.registry",
     "typemut.symbols",
+    "typemut.checkers.graph",
     "typemut.operators.*",
 ]
 disallow_untyped_calls = false
