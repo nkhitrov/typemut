@@ -97,7 +97,7 @@ class CommandLine:
         )
         return shlex.join([*words[start : end + 1], "--version"])
 
-    def _commands(self) -> Sequence[_Command]:
+    def _commands(self) -> Iterable[_Command]:
         """The commands of the line, each with the position of its first word."""
         words = self.words()
         commands: list[_Command] = []
@@ -117,7 +117,7 @@ class CommandLine:
         index = 0
         while index < len(command):
             skipped = self._prefix_words(command[index:])
-            if not skipped:
+            if skipped == 0:
                 return index
             index += skipped
         return index
@@ -127,20 +127,19 @@ class CommandLine:
         word = words[0]
         if _ASSIGNMENT_RE.fullmatch(word) or word in _PASS_THROUGH:
             return 1
-        runner = self._runner_words(word)
-        length = 1 + len(runner or ())
-        if runner is None or tuple(words[1:length]) != runner:
-            return 0
-        while length < len(words) and words[length].startswith("-"):
+        length = self._runner_length(words)
+        while 0 < length < len(words) and words[length].startswith("-"):
             length += 1
         return length
 
-    def _runner_words(self, word: str) -> tuple[str, ...] | None:
-        """The words after runner *word* that run a tool; None if it is no runner."""
-        name = Path(word).name
-        if _PYTHON_RE.fullmatch(name):
-            return _PYTHON_MODULE
-        return _RUNNERS.get(name)
+    def _runner_length(self, words: Sequence[str]) -> int:
+        """Number of leading *words* that start a runner (``uv run``); 0 if none."""
+        name = Path(words[0]).name
+        runner = _PYTHON_MODULE if _PYTHON_RE.fullmatch(name) else _RUNNERS.get(name)
+        if runner is None:
+            return 0
+        length = 1 + len(runner)
+        return length if tuple(words[1:length]) == runner else 0
 
     def option(self, names: Iterable[str]) -> str | None:
         """The last value of a ``--name value`` or ``--name=value`` option."""

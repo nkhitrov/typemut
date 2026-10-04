@@ -65,12 +65,10 @@ class ImportGraph:
         return [
             child
             for child in children
-            if child.is_dir() and not child.name.startswith(".") and not self._is_package(child)
+            if child.is_dir()
+            and not child.name.startswith(".")
+            and not any((child / init).is_file() for init in _INIT_FILES)
         ]
-
-    def _is_package(self, directory: Path) -> bool:
-        """Whether *directory* has an ``__init__`` module."""
-        return any((directory / name).is_file() for name in _INIT_FILES)
 
     def _imported_files(
         self, file: Path, project: Path, top_roots: Iterable[Path]

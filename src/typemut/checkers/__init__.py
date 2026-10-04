@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from importlib import metadata
 from typing import Final
 
@@ -128,12 +128,13 @@ class CheckerRegistry:
         )
         return GenericChecker
 
-    def _most_derived(self, found: list[type[TypeChecker]]) -> list[type[TypeChecker]]:
-        """*found* without checkers a subclass sharing one of their executables replaces.
+    def _most_derived(self, checkers: Iterable[type[TypeChecker]]) -> Sequence[type[TypeChecker]]:
+        """*checkers* without those a subclass sharing one of their executables replaces.
 
         A plugin that extends ``MypyChecker`` under another name wins over
         ``mypy`` itself; checkers with different executables all stay.
         """
+        found = list(checkers)
         return [
             checker
             for checker in found
