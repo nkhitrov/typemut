@@ -284,7 +284,7 @@ class App:
         return cache
 
     def _reuse(
-        self, db: Database, cache: ResultCache, mutants: Collection[MutantRow]
+        self, db: Database, cache: ResultCache, mutants: Iterable[MutantRow]
     ) -> Collection[MutantRow]:
         """Store the cached kills that are still valid in *db*; the mutants left to run."""
         found = cache.reuse(mutants)
@@ -295,8 +295,7 @@ class App:
                 f"Rerunning {found.stale} kills whose files changed and "
                 f"{found.untraceable} kills the checker output did not trace to files."
             )
-        reused = {mutant.id for mutant in found.reused}
-        return [mutant for mutant in mutants if mutant.id not in reused]
+        return found.remaining
 
     def _describe(self, checker: TypeChecker) -> str:
         """The checker's name with the config files it found and the cache it would use."""

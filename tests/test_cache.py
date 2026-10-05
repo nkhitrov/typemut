@@ -214,6 +214,7 @@ def test_reuse(project: Path) -> None:
                 depends=unchanged,
             )
         ],
+        pending[1:],
         stale=2,
         untraceable=1,
     )
@@ -222,7 +223,7 @@ def test_reuse(project: Path) -> None:
 def test_reuse_from_empty_cache(project: Path) -> None:
     db, cache = _cache(project)
     with db:
-        assert cache.reuse([make_mutant()]) == Reuse([])
+        assert cache.reuse([make_mutant()]) == Reuse([], [make_mutant()])
 
 
 # --- kill dependencies ---

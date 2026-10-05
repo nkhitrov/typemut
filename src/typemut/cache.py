@@ -122,9 +122,9 @@ class CacheInputs:
             "timeout": str(cfg.timeout),
         }
         for path in checker.config_files(self._root):
-            meta[f"checker config {self._name(path)}"] = self._hasher.digest(path)
+            meta["checker config " + self._name(path)] = self._hasher.digest(path)
         for path in self._key_files(cfg.cache_key_files):
-            meta[f"file {self._name(path)}"] = self._hasher.digest(path)
+            meta["file " + self._name(path)] = self._hasher.digest(path)
         return meta
 
     def knows_checker_version(
@@ -149,13 +149,14 @@ class CacheInputs:
 class Reuse:
     """Outcome of looking pending mutants up in the cache.
 
-    *reused* are the pending mutants with the cached kill copied in; *stale*
-    counts cached kills a file they depend on has changed since, and
+    *reused* are the pending mutants with the cached kill copied in and
+    *remaining* the others, left to run; *stale* counts cached kills a file they depend on has changed since, and
     *untraceable* the cached kills that cannot be reused because the
     checker's output did not tell which files they depend on.
     """
 
     reused: Collection[MutantRow]
+    remaining: Collection[MutantRow]
     stale: int = 0
     untraceable: int = 0
 
@@ -188,13 +189,16 @@ class ResultCache:
         cached = self._db.cache.load()
         digests: dict[str, str] = {}
         reused: list[MutantRow] = []
+        remaining: list[MutantRow] = []
         stale = 0
         untraceable = 0
         for mutant in pending:
             hit = cached.get(mutant.key())
             if hit is None or hit.status != "killed":
+                remaining.append(mutant)
                 continue
             if hit.depends is None:
+                remaining.append(mutant)
                 untraceable += 1
             elif self._unchanged(hit.depends, digests):
                 reused.append(
@@ -207,8 +211,9 @@ class ResultCache:
                     )
                 )
             else:
+                remaining.append(mutant)
                 stale += 1
-        return Reuse(reused, stale, untraceable)
+        return Reuse(reused, remaining, stale, untraceable)
 
     def save(self, mutants: Iterable[MutantRow]) -> None:
         """Store the results of the finished *mutants*; pending ones are skipped."""
