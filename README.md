@@ -89,7 +89,7 @@ Global option: `-C, --project-dir PATH` — change to this directory before runn
 | Command | Description |
 |---------|-------------|
 | `typemut run` | Full pipeline: discover mutations, run the type checker on each, show the report |
-| `typemut init` | Discover mutations and store them in SQLite (replaces previous results; the [result cache](#fast-ci-incremental-runs) keeps them) |
+| `typemut init` | Discover mutations and store them in SQLite (replaces previous results; the [result cache](#fast-ci-incremental-runs) keeps the kills of incremental runs) |
 | `typemut exec` | Run the type checker against each **pending** mutation |
 | `typemut report` | Show the terminal report |
 | `typemut html` | Generate the HTML report with diffs |
@@ -212,18 +212,19 @@ with, `test-command`, `timeout`, the checker's config files (`mypy.ini`,
 reused, but results are still stored. The Python version is that of
 `python --version`, run through the project runner the checker runs with
 (`uv run python --version` for `uv run mypy`, `python3.12 --version` for
-`python3.12 -m mypy`).
+`python3.12 -m mypy`) or from the directory of a checker run by path
+(`.venv/bin/python --version` for `.venv/bin/mypy`).
 
 **Keeping the cache fresh.** `--refresh` runs every mutant and stores the
 results without reusing any: run it on a schedule (e.g. weekly) to recheck
-the kills. Without `--incremental` nothing is reused, but `init` and `run`
-keep the finished results in the database's result cache, so the next
-incremental run can still use them.
+the kills. Without `--incremental` nothing is reused or stored, and the kills
+already in the result cache stay there: a run without the flag (or `init`)
+between two incremental runs does not discard them.
 
 **Time limits.** `--max-duration SECONDS` (or `max-duration` in the config)
 stops starting new mutants after that many seconds, waits for the running
 ones and saves every finished result; the run then fails with
-`N mutants not run (max-duration)`. Keep it below the CI job timeout. A run
+`N mutants not run yet`. Keep it below the CI job timeout. A run
 stopped by `SIGTERM` (as CI runners stop jobs) saves its finished results too.
 On a project with no cache yet, a first run may not fit in the CI timeout:
 store the database after every run on the main branch (even a failed one), and
@@ -239,7 +240,12 @@ artifact or cache.
 **Limits.** Reuse trusts the checker's output and typemut's import graph: a
 file the checker reads that is not imported (a plugin config, a stub found
 through `mypy_path` outside the project) is not tracked; list it in
-`cache-key-files` if a change to it can turn a kill into a survivor.
+`cache-key-files` if a change to it can turn a kill into a survivor. For a
+checker run by name without a project runner (`mypy src`, `npx pyright`), the
+Python version is that of the `python` on `PATH`, which may not be the one the
+checker runs with (a pipx-installed mypy), or may be missing (systems with only
+`python3`): then a Python upgrade does not reset the cache; run the checker
+through its environment (`uv run mypy`, `.venv/bin/mypy`) or use `--refresh`.
 
 ## Type checkers
 

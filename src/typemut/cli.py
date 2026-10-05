@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import signal
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -125,10 +124,8 @@ def exec_cmd(
     max_duration: float | None,  # pragma: no mutate  (click passes None when omitted)
 ) -> None:
     """Run type checker against each mutation."""
-    # A CI timeout stops the run like Ctrl+C: finished results are saved.
-    signal.signal(signal.SIGTERM, signal.default_int_handler)
     cfg, db = app.load(config_path, db_path)
-    with db:
+    with db, app.terminate_signal.interrupts():
         app.execute(cfg, db, jobs, incremental, refresh, max_duration)
     app.console.print("[green]Done.[/green]")
 
@@ -190,10 +187,8 @@ def run(
 ) -> None:
     """Run full pipeline: discover mutations, execute, and report."""
     _require_baseline_path(baseline_path, update_baseline)
-    # A CI timeout stops the run like Ctrl+C: finished results are saved.
-    signal.signal(signal.SIGTERM, signal.default_int_handler)
     cfg, db = app.load(config_path, db_path)
-    with db:
+    with db, app.terminate_signal.interrupts():
         app.discover(cfg, db)
         app.execute(cfg, db, jobs, incremental, refresh, max_duration)
         app.console.print()

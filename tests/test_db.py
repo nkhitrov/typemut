@@ -168,3 +168,10 @@ def test_cache_reset_drops_results(tmp_db: Database) -> None:
     tmp_db.cache.reset({"checker": "pyright"})
     assert tmp_db.cache.load() == {}
     assert tmp_db.cache.meta() == {"checker": "pyright"}
+
+
+def test_cache_reset_drops_dependencies_of_recorded_kills(tmp_db: Database) -> None:
+    tmp_db.insert_many([_make_mutant(status="killed", depends={"test.py": "1"})])
+    tmp_db.cache.reset({"checker": "mypy"})
+    (mutant,) = tmp_db.get_all()
+    assert (mutant.status, mutant.depends) == ("killed", None)

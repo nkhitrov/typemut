@@ -140,7 +140,9 @@ class CommandLine:
 
         ``python3.12 -m mypy`` -> ``python3.12 --version``; a project runner
         runs the project's Python (``uv run mypy`` -> ``uv run python --version``);
-        anything else gets the ``python`` on ``PATH``, as pyright uses it.
+        an executable run by path runs the Python next to it
+        (``.venv/bin/mypy`` -> ``.venv/bin/python --version``); anything else
+        gets the ``python`` on ``PATH``, as pyright uses it.
         ``cd`` and ``pushd`` before the checker are kept, as in
         :meth:`version_command`.
         """
@@ -148,7 +150,10 @@ class CommandLine:
         if end is None:
             return None
         start = self._command_start(end)
-        prefix = self.words()[start:end]
+        words = self.words()
+        prefix = words[start:end]
+        name = Path(words[end]).name
+        executable = self._text(end, end + 1)
         if len(prefix) >= 2 and prefix[-1] == "-m" and _PYTHON_RE.fullmatch(Path(prefix[-2]).name):
             python = self._text(start, end - 1)
         elif any(
@@ -156,6 +161,8 @@ class CommandLine:
             for word, following in itertools.pairwise(prefix)
         ):
             python = self._text(start, end) + " python"
+        elif executable.endswith(f"/{name}"):
+            python = executable.removesuffix(name) + "python"
         else:
             python = "python"
         return " && ".join([*self._directory_changes(end), python + " --version"])

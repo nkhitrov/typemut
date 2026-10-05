@@ -210,6 +210,16 @@ class ResultCache:
         """Store the results of the finished *mutants*; pending ones are skipped."""
         self._db.cache.upsert(mutant for mutant in mutants if mutant.status != "pending")
 
+    def carry_over(self, mutants: Iterable[MutantRow]) -> None:
+        """Store the kills of *mutants* recorded with the files they depend on.
+
+        For results about to be replaced: a run killed before it stored
+        them keeps them. Other results are not stored, so a run that does
+        not track dependencies (not incremental) cannot overwrite the kills
+        cached by an incremental one.
+        """
+        self.save(mutant for mutant in mutants if mutant.depends is not None)
+
     def _unchanged(
         self, depends: Mapping[str, str], digests: dict[str, str]
     ) -> bool:  # pragma: no mutate (truth-tested)

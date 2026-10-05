@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
@@ -105,6 +106,39 @@ def test_without_incremental_nothing_is_reused(tmp_path: Path, runner: CliRunner
         statuses = _statuses(Path(td))
     assert "Reused" not in result.output
     assert f"Running {len(statuses)} mutations" in result.output
+
+
+def test_run_without_incremental_keeps_cached_kills(tmp_path: Path, runner: CliRunner) -> None:
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _write_project(Path(td))
+        _run(runner, "--incremental")
+        kills = _statuses(Path(td)).count("killed")
+        _run(runner)
+        result = _run(runner, "--incremental")
+    assert f"Reused {kills} cached kills." in result.output
+    assert "Rerunning" not in result.output
+
+
+def test_cache_reset_drops_kills_recorded_before(tmp_path: Path, runner: CliRunner) -> None:
+    """A kill with the old checker version, still in the mutants table, is not reused."""
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _write_project(Path(td))
+        runner.invoke(main, ["init"], obj=_app())
+        runner.invoke(
+            main,
+            ["exec", "--incremental", "--max-duration", "1.5"],
+            obj=_app(clock=StepClock()),
+        )
+        first = _statuses(Path(td))
+        (Path(td) / "typemut.toml").write_text(_CONFIG.replace("VERSION", "1.1.0"))
+        resumed = runner.invoke(main, ["exec", "--incremental"], obj=_app())
+        kills = _statuses(Path(td)).count("killed")
+        runner.invoke(main, ["init"], obj=_app())
+        result = runner.invoke(main, ["exec", "--incremental"], obj=_app())
+    assert first.count("killed") == 1
+    assert "Result cache reset: checker version changed." in resumed.output
+    assert "Result cache reset" not in result.output
+    assert f"Reused {kills - 1} cached kills." in result.output
 
 
 def test_incremental_option_in_config(tmp_path: Path, runner: CliRunner) -> None:
@@ -211,8 +245,9 @@ def test_results_kept_when_the_cache_missed_them(tmp_path: Path, runner: CliRunn
         _write_project(Path(td))
         _run(runner, "--incremental")
         with Database(Path(td) / "typemut.sqlite") as db:
-            kills = sum(mutant.status == "killed" for mutant in db.get_all())
-            db.cache.reset(db.cache.meta())
+            killed = [mutant for mutant in db.get_all() if mutant.status == "killed"]
+            db.cache.upsert(replace(mutant, status="survived", depends=None) for mutant in killed)
+        kills = len(killed)
         result = _run(runner, "--incremental")
     assert f"Reused {kills} cached kills" in result.output
 
@@ -229,7 +264,7 @@ def test_max_duration_stops_and_fails_the_gate(tmp_path: Path, runner: CliRunner
     assert not_run == len(statuses) - 1
     assert stopped.exit_code == 1
     assert f"Stopped after max-duration: {not_run} mutants not run." in stopped.output
-    assert f"{not_run} mutants not run (max-duration); run again to test them." in stopped.output
+    assert f"{not_run} mutants not run yet (stopped early or interrupted)" in stopped.output
     assert resumed.exit_code == 0
     assert f"Running {len(statuses) - statuses.count('killed')} mutations" in resumed.output
 
@@ -275,5 +310,5 @@ def test_report_fails_gate_with_pending_mutants(tmp_path: Path, runner: CliRunne
         result = runner.invoke(main, ["report", "--baseline", "b.json", "--update-baseline"])
         written = (Path(td) / "b.json").exists()
     assert result.exit_code == 1
-    assert "mutants not run (max-duration)" in result.output
+    assert "mutants not run yet (stopped early or interrupted); run exec again" in result.output
     assert not written

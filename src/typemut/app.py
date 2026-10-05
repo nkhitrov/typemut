@@ -44,6 +44,7 @@ from typemut.registry import RegistryBuilder
 from typemut.reporting.html import HtmlReport
 from typemut.reporting.terminal import MutationScore, TerminalReport
 from typemut.runner import CommandRunner, ShellRunner
+from typemut.signals import TerminateSignal
 
 
 @dataclass
@@ -67,6 +68,8 @@ class App:
     config_loader: ConfigLoader = field(default_factory=ConfigLoader)
     registry_builder: RegistryBuilder = field(default_factory=RegistryBuilder)
     html_report: HtmlReport = field(default_factory=HtmlReport)
+    # SIGTERM handling while mutants run.
+    terminate_signal: TerminateSignal = field(default_factory=TerminateSignal)
     # Seconds for max-duration; the default clock is shared with worker processes.
     clock: Callable[[], float] = time.monotonic
     # What identifies the installed typemut; cached results of another one are dropped.
@@ -94,9 +97,9 @@ class App:
     def discover(self, cfg: Config, db: Database) -> None:
         """Replace the mutants in *db* with all mutations of the configured module.
 
-        The results already in *db* are kept in its result cache first, so an
-        incremental run can reuse them even if the previous one was killed
-        before it saved them there.
+        The kills already in *db* that an incremental run recorded are kept
+        in its result cache first, so the next incremental run can reuse them
+        even if the previous one was killed before it saved them there.
         """
         module_dir = Path(cfg.module_path)
         if not module_dir.exists():
@@ -119,7 +122,7 @@ class App:
             IgnoredTypes(cfg.ignore_types),
         )
         mutants = self._find_mutants(files, cfg, finder)
-        ResultCache(db, self.root).save(db.get_all())
+        ResultCache(db, self.root).carry_over(db.get_all())
         db.clear()
         db.insert_many(mutants)
         self.console.print(f"[green]Found {len(mutants)} type annotation mutations[/green]")
@@ -196,12 +199,14 @@ class App:
         """Update or enforce the survivor baseline and enforce *fail_under*.
 
         Returns False if the run must fail; it does if any mutant was not
-        run (``max-duration``), and then the baseline is not updated.
+        run (a run stopped early or interrupted), and then the baseline is
+        not updated.
         """
         not_run = db.count_pending()
         if not_run > 0:
             self.console.print(
-                f"[red]{not_run} mutants not run (max-duration); run again to test them.[/red]"
+                f"[red]{not_run} mutants not run yet (stopped early or interrupted); "
+                "run exec again to test them.[/red]"
             )
             return False
         score = MutationScore(db.get_summary()).total()

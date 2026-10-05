@@ -152,6 +152,27 @@ def test_save_skips_pending(project: Path) -> None:
     assert [mutant.status for mutant in cached.values()] == ["survived"]
 
 
+def test_carry_over_keeps_only_traced_kills(project: Path) -> None:
+    db, cache = _cache(project)
+    traced = _result("killed", {"test.py": "1"}, line=1)
+    with db:
+        cache.save([traced, _result("killed", {"dep.py": "2"}, line=2)])
+        cache.carry_over(
+            [
+                replace(traced, depends=None, output="untracked run"),
+                _result("killed", None, line=2),
+                _result("survived", None, line=3),
+                _result("killed", {"other.py": "3"}, line=4),
+            ]
+        )
+        cached = db.cache.load()
+    assert [(m.line, m.output, m.depends) for m in cached.values()] == [
+        (1, "killed output", {"test.py": "1"}),
+        (2, "killed output", {"dep.py": "2"}),
+        (4, "killed output", {"other.py": "3"}),
+    ]
+
+
 def test_reuse(project: Path) -> None:
     unchanged = {"test.py": _sha("import dep\nx: int = 1\n"), "dep.py": _sha("y = 1\n")}
     db, cache = _cache(project)

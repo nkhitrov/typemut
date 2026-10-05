@@ -268,9 +268,15 @@ class CacheTables:
         return {row["key"]: row["value"] for row in rows}
 
     def reset(self, meta: Mapping[str, str]) -> None:
-        """Drop every cached result and record *meta* as the inputs of the next ones."""
+        """Drop every cached result and record *meta* as the inputs of the next ones.
+
+        The files the kills in the mutants table depend on are dropped too:
+        those kills were computed with the old inputs, so they must not
+        reach the cache again (see ``ResultCache.carry_over``).
+        """
         with self._conn:
             self._conn.execute("DELETE FROM result_cache")
+            self._conn.execute("UPDATE mutants SET depends = NULL")
             self._conn.execute("DELETE FROM cache_meta")
             self._conn.executemany(
                 "INSERT INTO cache_meta (key, value) VALUES (?, ?)", list(meta.items())

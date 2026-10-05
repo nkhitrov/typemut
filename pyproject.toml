@@ -66,8 +66,8 @@ dev = [
 [tool.coverage.run]
 source = ["typemut", "tests"]
 branch = true
-# Worker processes (typemut.parallel.ProcessPool) record coverage too.
-concurrency = ["multiprocessing"]
+# Worker processes (typemut.parallel.ProcessPool) and threads record coverage too.
+concurrency = ["multiprocessing", "thread"]
 parallel = true
 
 [tool.coverage.report]
@@ -105,6 +105,9 @@ file_line_coverage_min = 100
 file_line_coverage_min = 100
 
 [tool.coverage-threshold.modules."src/typemut/engine.py"]
+file_line_coverage_min = 100
+
+[tool.coverage-threshold.modules."src/typemut/signals.py"]
 file_line_coverage_min = 100
 
 [tool.coverage-threshold.modules."src/typemut/operators/__init__.py"]

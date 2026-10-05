@@ -984,6 +984,13 @@ def test_discover_skips_broken_entry_points(
         ),
         pytest.param(PyrightChecker, "npx pyright src", "python --version", id="npx"),
         pytest.param(
+            MypyChecker, "X=1 .venv/bin/mypy src", ".venv/bin/python --version", id="by-path"
+        ),
+        pytest.param(
+            MypyChecker, "$VENV/bin/dmypy run", "$VENV/bin/python --version", id="by-path-var"
+        ),
+        pytest.param(MypyChecker, "'.venv/bin/mypy' src", "python --version", id="quoted-path"),
+        pytest.param(
             MypyChecker,
             "cd backend && uv run mypy .",
             "cd backend && uv run python --version",
