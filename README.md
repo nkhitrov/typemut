@@ -128,7 +128,7 @@ mutants that are still pending.
 | `--db PATH` | `db` from config (`typemut.sqlite`) | Database file |
 | `--jobs N` | `1` | Number of parallel workers |
 | `--incremental / --no-incremental` | `incremental` from config (off) | Reuse kills of earlier runs whose files are unchanged |
-| `--refresh` | — | Run every mutant and store the results for later incremental runs |
+| `--refresh` | — | Run the pending mutants without reusing cached kills, and store the results for later incremental runs (`exec` only runs pending mutants: use `run --refresh`, or `init` first, to recheck every mutant) |
 | `--max-duration SECONDS` | `max-duration` from config (none) | Start no new mutant after this many seconds |
 
 ### `typemut report`
@@ -195,8 +195,9 @@ those import (directly or not). The next incremental run copies the kill
 
 **What always runs again.** Survived and `error` mutants; kills by timeout;
 kills whose errors are outside the project root (in installed packages) or
-whose output names no file (the `generic` checker, a `test-command` that
-`cd`s before running the checker); kills whose files changed (the run prints
+whose output names no file (a `test-command` that `cd`s before running the
+checker); every mutant under the `generic` checker, which cannot tell the
+files a kill depends on (the run says so, and stores nothing in the cache); kills whose files changed (the run prints
 how many). The baseline check always runs too: it catches a broken tree and
 warms the checker's cache.
 
@@ -207,17 +208,20 @@ its sources), the checker and its version, the version of the Python it runs
 with, `test-command`, `timeout`, the checker's config files (`mypy.ini`,
 `pyproject.toml`, `pyrightconfig.json`, ...) and the files matched by
 `cache-key-files` (by default the lockfiles `uv.lock`, `poetry.lock`,
-`requirements*.txt`). If the checker's version is unknown (see
-[Type checkers](#type-checkers); set `checker-version-command`), nothing is
-reused, but results are still stored. The Python version is that of
+`requirements*.txt`). Patterns in `cache-key-files` are relative to the
+project root; absolute ones are skipped with a warning. If the checker's
+version is unknown (see [Type checkers](#type-checkers); set
+`checker-version-command`), that run neither reuses nor stores results and
+leaves the cache as it is, so a single failed version check does not discard
+it: the next run with a known version reuses the kills again. The Python version is that of
 `python --version`, run through the project runner the checker runs with
 (`uv run python --version` for `uv run mypy`, `python3.12 --version` for
 `python3.12 -m mypy`) or from the directory of a checker run by path
 (`.venv/bin/python --version` for `.venv/bin/mypy`).
 
-**Keeping the cache fresh.** `--refresh` runs every mutant and stores the
-results without reusing any: run it on a schedule (e.g. weekly) to recheck
-the kills. Without `--incremental` nothing is reused or stored, and the kills
+**Keeping the cache fresh.** `typemut run --refresh` runs every mutant and
+stores the results without reusing any: run it on a schedule (e.g. weekly) to
+recheck the kills. (`exec --refresh` only runs the mutants still pending.) Without `--incremental` nothing is reused or stored, and the kills
 already in the result cache stay there: a run without the flag (or `init`)
 between two incremental runs does not discard them.
 
@@ -237,9 +241,13 @@ file in the project fails the clean-tree check, so list it in `.gitignore` or
 pass `--db` outside the project) and carry it between CI runs as a build
 artifact or cache.
 
-**Limits.** Reuse trusts the checker's output and typemut's import graph: a
-file the checker reads that is not imported (a plugin config, a stub found
-through `mypy_path` outside the project) is not tracked; list it in
+**Limits.** Reuse trusts the checker's output and typemut's import graph. For
+every imported project module both its `.py` file and its `.pyi` stub are
+tracked, so adding a stub next to a module (or a module next to a stub)
+reruns the kills that depend on it. A file the checker reads that is not
+imported (a plugin config, a stub found through `mypy_path` outside the
+project, a new module that shadows another on the search path) is not
+tracked; list it in
 `cache-key-files` if a change to it can turn a kill into a survivor. For a
 checker run by name without a project runner (`mypy src`, `npx pyright`), the
 Python version is that of the `python` on `PATH`, which may not be the one the
@@ -298,13 +306,14 @@ Both stdout and stderr are parsed, so noise from wrappers such as `uv run` on
 stderr does not hide the checker's errors.
 
 Incremental runs reuse earlier kills only while the checker's version is the
-same, and reuse nothing if it is unknown. It is taken from `test-command` up to the checker executable plus `--version`,
+same, and do not use the cache at all while it is unknown. It is taken from `test-command` up to the checker executable plus `--version`,
 as written there (`cd backend && uv run mypy .` -> `cd backend && uv run mypy --version`:
 of the commands before the checker only `cd` and `pushd` are kept). If the
 command does not run the executable directly (`tox -e mypy`, `make typecheck`),
 set `checker-version-command`, e.g. `checker-version-command = "npx pyright --version"`;
 the first `X.Y.Z` in its output is the version. `generic` only has a version
-when `checker-version-command` is set.
+when `checker-version-command` is set, but it never reuses kills anyway: it
+cannot tell which files they depend on.
 
 ### Third-party checkers
 
@@ -635,8 +644,9 @@ checker = "mypy"                        # mypy, pyright, basedpyright, generic; 
                                         # default: test-command up to the checker + --version
 incremental = false                     # reuse kills of earlier runs (--incremental / --no-incremental)
 # max-duration = 1500                   # seconds; start no new mutant after it (--max-duration)
-cache-key-files = ["uv.lock", "poetry.lock", "requirements*.txt"]  # glob patterns in the project
-                                        # root; a change to any drops every cached result
+cache-key-files = ["uv.lock", "poetry.lock", "requirements*.txt"]  # glob patterns relative to the
+                                        # project root (absolute ones are skipped with a warning);
+                                        # a change to any drops every cached result
 
 [typemut.operators]
 # all enabled by default, disable selectively

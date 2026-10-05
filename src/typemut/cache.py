@@ -122,11 +122,9 @@ class CacheInputs:
             "timeout": str(cfg.timeout),
         }
         for path in checker.config_files(self._root):
-            meta[f"checker config {path.relative_to(self._root).as_posix()}"] = self._hasher.digest(
-                path
-            )
+            meta[f"checker config {self._name(path)}"] = self._hasher.digest(path)
         for path in self._key_files(cfg.cache_key_files):
-            meta[f"file {path.relative_to(self._root).as_posix()}"] = self._hasher.digest(path)
+            meta[f"file {self._name(path)}"] = self._hasher.digest(path)
         return meta
 
     def knows_checker_version(
@@ -134,6 +132,12 @@ class CacheInputs:
     ) -> bool:  # pragma: no mutate (truth-tested)
         """Whether the checker version is known in *meta*: reuse needs it."""
         return meta.get(CHECKER_VERSION, UNKNOWN) != UNKNOWN
+
+    def _name(self, path: Path) -> str:
+        """*path* relative to the project root, or absolute if it lies outside it."""
+        if path.is_relative_to(self._root):
+            return path.relative_to(self._root).as_posix()
+        return path.as_posix()
 
     def _key_files(self, patterns: Iterable[str]) -> Iterable[Path]:
         """Files in the project root matching any of the glob *patterns*."""

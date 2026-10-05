@@ -66,6 +66,9 @@ class TypeChecker:
     false_kill_codes: ClassVar[AbstractSet[str]] = frozenset()
     # Config files the checker looks for in the project root, in its order.
     config_names: ClassVar[Iterable[str]] = ()
+    # Whether :meth:`dependencies` can tell the files a kill depends on, so
+    # incremental runs may reuse the checker's kills.
+    traces_dependencies: ClassVar[bool] = True
 
     def __init__(
         self,

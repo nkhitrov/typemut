@@ -216,27 +216,62 @@ def test_new_checker_version_resets_cache(tmp_path: Path, runner: CliRunner) -> 
     assert "Result cache reset: checker version changed." in result.output
 
 
-def test_unknown_checker_version_disables_reuse(tmp_path: Path, runner: CliRunner) -> None:
+def test_unknown_checker_version_leaves_the_cache_alone(tmp_path: Path, runner: CliRunner) -> None:
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
         config = Path(td) / "typemut.toml"
+        _run(runner, "--incremental")
+        kills = _statuses(Path(td)).count("killed")
         config.write_text(_CONFIG.replace("echo mypy VERSION", "false"))
+        unknown = _run(runner, "--incremental")
+        config.write_text(_CONFIG.replace("VERSION", "1.0.0"))
+        known = _run(runner, "--incremental")
+    assert "mypy version unknown: result cache not used" in unknown.output
+    assert "Reused" not in unknown.output
+    assert "Result cache reset" not in unknown.output
+    assert "Result cache reset" not in known.output
+    assert f"Reused {kills} cached kills." in known.output
+
+
+def test_generic_checker_never_uses_the_cache(tmp_path: Path, runner: CliRunner) -> None:
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _write_project(Path(td))
+        config = Path(td) / "typemut.toml"
+        config.write_text(config.read_text().replace('checker = "mypy"', 'checker = "generic"'))
         _run(runner, "--incremental")
         result = _run(runner, "--incremental")
-    assert "mypy version unknown: not reusing cached results" in result.output
+        with Database(Path(td) / "typemut.sqlite") as db:
+            cached = db.cache.load()
+    assert "generic checker: kills are never reused" in result.output
+    assert "version unknown" not in result.output
     assert "Reused" not in result.output
+    assert len(cached) == 0
 
 
-def test_refresh_reruns_and_updates_cache(tmp_path: Path, runner: CliRunner) -> None:
+def test_refresh_stores_results_in_the_cache(tmp_path: Path, runner: CliRunner) -> None:
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _write_project(Path(td))
+        _run(runner)
+        statuses = _statuses(Path(td))
+        runner.invoke(main, ["init"], obj=_app())
+        refreshed = runner.invoke(main, ["exec", "--refresh"], obj=_app())
+        with Database(Path(td) / "typemut.sqlite") as db:
+            cached = sorted(row.status for row in db.cache.load().values())
+        after = _run(runner, "--incremental")
+    assert "Refreshing the result cache: every pending mutant runs." in refreshed.output
+    assert f"Running {len(statuses)} mutations" in refreshed.output
+    assert cached == statuses
+    assert f"Reused {statuses.count('killed')} cached kills." in after.output
+
+
+def test_new_stub_invalidates_kills(tmp_path: Path, runner: CliRunner) -> None:
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         _write_project(Path(td))
         _run(runner, "--incremental")
-        statuses = _statuses(Path(td))
-        refreshed = _run(runner, "--refresh")
-        after = _run(runner, "--incremental")
-    assert "Refreshing the result cache: every mutant runs." in refreshed.output
-    assert f"Running {len(statuses)} mutations" in refreshed.output
-    assert f"Reused {statuses.count('killed')} cached kills" in after.output
+        kills = _statuses(Path(td)).count("killed")
+        (Path(td) / "src" / "app.pyi").write_text("class A:\n    x: object\n")
+        result = _run(runner, "--incremental")
+    assert f"Rerunning {kills} kills whose files changed" in result.output
 
 
 def test_results_kept_when_the_cache_missed_them(tmp_path: Path, runner: CliRunner) -> None:

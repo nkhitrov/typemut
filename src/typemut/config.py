@@ -111,7 +111,17 @@ class ConfigLoader:
         if raw is None:
             return DEFAULT_CACHE_KEY_FILES
         patterns = self._string_list(raw, "cache-key-files")
-        return DEFAULT_CACHE_KEY_FILES if patterns is None else patterns
+        if patterns is None:
+            return DEFAULT_CACHE_KEY_FILES
+        relative = [pattern for pattern in patterns if not Path(pattern).is_absolute()]
+        for pattern in patterns:
+            if Path(pattern).is_absolute():
+                logger.warning(
+                    "Ignoring absolute 'cache-key-files' pattern %r: "
+                    "patterns are relative to the project root",
+                    pattern,
+                )
+        return relative
 
     def _bool(self, raw: object, option: str) -> bool:
         """Return *raw* if it is a boolean, else warn and return False."""

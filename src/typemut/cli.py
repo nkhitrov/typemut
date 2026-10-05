@@ -44,7 +44,10 @@ _incremental_option = click.option(
 _refresh_option = click.option(
     "--refresh",
     is_flag=True,
-    help="Run every mutant and store the results for later incremental runs.",
+    help=(
+        "Run the mutants without reusing cached kills, and store the results "
+        "for later incremental runs."
+    ),
 )
 _max_duration_option = click.option(
     "--max-duration",

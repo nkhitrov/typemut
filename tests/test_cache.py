@@ -108,6 +108,21 @@ def test_cache_inputs(project: Path) -> None:
     }
 
 
+def test_cache_inputs_outside_the_project(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "mypy.ini").write_text("[mypy]\n")
+    (tmp_path / "uv.lock").write_text("lock\n")
+    checker = MypyChecker(
+        f"mypy --config-file {shared / 'mypy.ini'} src", runner=ScriptedRunner({}), environ={}
+    )
+    meta = CacheInputs(project).meta(Config(cache_key_files=["../uv.lock"]), checker, "0.1.0")
+    assert meta[f"checker config {(shared / 'mypy.ini').as_posix()}"] == _sha("[mypy]\n")
+    assert meta["file ../uv.lock"] == _sha("lock\n")
+
+
 def test_cache_inputs_with_unknown_versions(project: Path) -> None:
     inputs = CacheInputs(project)
     meta = inputs.meta(Config(cache_key_files=[]), _mypy(ScriptedRunner({})), "0.1.0")
@@ -218,7 +233,11 @@ def test_reuse_from_empty_cache(project: Path) -> None:
     [
         pytest.param(
             CommandResult(Outcome.FAILED, "test.py:2: error: x  [assignment]\n"),
-            {"test.py": _sha("import dep\nx: int = 1\n"), "dep.py": _sha("y = 1\n")},
+            {
+                    "test.py": _sha("import dep\nx: int = 1\n"),
+                    "dep.py": _sha("y = 1\n"),
+                    "dep.pyi": "",
+                },
             id="error-in-mutated-file",
         ),
         pytest.param(

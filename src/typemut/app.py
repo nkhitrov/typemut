@@ -155,16 +155,17 @@ class App:
         self.console.print("Type checker: " + self._describe(checker))
         if incremental is None:
             incremental = cfg.incremental
-        record = incremental or refresh
-        cache = ResultCache(db, self.root) if record else None
-        if cache is not None:
-            mutants = self._reuse(cfg, db, checker, cache, mutants, refresh)
+        cache = self._open_cache(cfg, db, checker) if incremental or refresh else None
+        if cache is not None and refresh:
+            self.console.print("Refreshing the result cache: every pending mutant runs.")
+        elif cache is not None:
+            mutants = self._reuse(db, cache, mutants)
         tester = MutationTester(
             self.runner,
             cfg.test_command,
             cfg.timeout,
             classifier=OutcomeClassifier(checker),
-            dependencies=KillDependencies(checker) if record else None,
+            dependencies=None if cache is None else KillDependencies(checker),
             deadline=deadline,
         )
         self.console.print("Running baseline check...")
@@ -255,30 +256,37 @@ class App:
             )
         return not diff.new
 
-    def _reuse(
-        self,
-        cfg: Config,
-        db: Database,
-        checker: TypeChecker,
-        cache: ResultCache,
-        mutants: Collection[MutantRow],
-        refresh: bool,
-    ) -> Collection[MutantRow]:
-        """Store the cached kills that are still valid in *db*; the mutants left to run."""
+    def _open_cache(self, cfg: Config, db: Database, checker: TypeChecker) -> ResultCache | None:
+        """The result cache in *db*, reset unless it was computed with this run's inputs.
+
+        None when this run can neither reuse nor store results: *checker*
+        cannot tell which files a kill depends on, or its version is unknown
+        (the cache is then left as it is for the next run that knows it).
+        """
+        if not checker.traces_dependencies:
+            self.console.print(
+                f"[yellow]{checker.name} checker: kills are never reused "
+                "(it cannot trace their files).[/yellow]"
+            )
+            return None
         inputs = CacheInputs(self.root)
         meta = inputs.meta(cfg, checker, self.typemut_version)
+        if not inputs.knows_checker_version(meta):
+            self.console.print(
+                f"[yellow]{checker.name} version unknown: result cache not used "
+                "(set checker-version-command).[/yellow]"
+            )
+            return None
+        cache = ResultCache(db, self.root)
         reason = cache.validate(meta)
         if reason is not None:
             self.console.print(f"Result cache reset: {reason}.")
-        if refresh:
-            self.console.print("Refreshing the result cache: every mutant runs.")
-            return mutants
-        if not inputs.knows_checker_version(meta):
-            self.console.print(
-                f"[yellow]{checker.name} version unknown: not reusing cached results "
-                "(set checker-version-command).[/yellow]"
-            )
-            return mutants
+        return cache
+
+    def _reuse(
+        self, db: Database, cache: ResultCache, mutants: Collection[MutantRow]
+    ) -> Collection[MutantRow]:
+        """Store the cached kills that are still valid in *db*; the mutants left to run."""
         found = cache.reuse(mutants)
         db.update_results_batch(found.reused)
         self.console.print(f"Reused {len(found.reused)} cached kills.")
