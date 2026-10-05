@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, replace
 from importlib import metadata
 from pathlib import Path
 from typing import Final
 
-import typemut
 from typemut.checkers.base import TypeChecker
 from typemut.config import Config
 from typemut.db import Database, MutantRow
 from typemut.runner import CommandResult, Outcome
+
+logger = logging.getLogger(__name__)
 
 # Bumped when the meaning of cached results changes; older caches are reset.
 CACHE_FORMAT_VERSION: Final = "1"
@@ -83,7 +85,7 @@ class TypemutVersion:
         package_dir: Path | None = None,
         hasher: FileHasher | None = None,
     ) -> None:
-        self._package_dir = package_dir or Path(typemut.__file__).parent
+        self._package_dir = package_dir or Path(__file__).parent
         self._hasher = hasher or FileHasher()
 
     def fingerprint(self) -> str:
@@ -141,8 +143,16 @@ class CacheInputs:
 
     def _key_files(self, patterns: Iterable[str]) -> Iterable[Path]:
         """Files in the project root matching any of the glob *patterns*."""
-        found = {path for pattern in patterns for path in self._root.glob(pattern)}
+        found = {path for pattern in patterns for path in self._glob(pattern)}
         return sorted(path for path in found if path.is_file())
+
+    def _glob(self, pattern: str) -> Iterable[Path]:
+        """Paths matching *pattern*; none, with a warning, if it is not a valid glob."""
+        try:
+            return list(self._root.glob(pattern))
+        except (ValueError, NotImplementedError) as exc:
+            logger.warning("Ignoring invalid 'cache-key-files' pattern %r: %s", pattern, exc)
+            return []
 
 
 @dataclass(frozen=True)

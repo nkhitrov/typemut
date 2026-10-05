@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from multiprocessing import Queue
 from pathlib import Path
@@ -9,8 +10,10 @@ from pathlib import Path
 import pytest
 
 from tests.fakes import StubRunner, make_mutant
+from typemut.cache import KillDependencies
+from typemut.checkers.mypy import MypyChecker
 from typemut.db import MutantRow
-from typemut.engine import MutationTester
+from typemut.engine import Deadline, MutationTester
 from typemut.parallel import (
     DirtyWorkingTreeError,
     FileGroupPartitioner,
@@ -57,6 +60,10 @@ def _git_project(root: Path) -> Path:
     _git(root, "add", "test.py")
     _git(root, "commit", "-m", "init")
     return root
+
+
+def _row_id(row: MutantRow) -> int:
+    return row.id or 0
 
 
 def _statuses(results: list[MutantRow]) -> set[tuple[int | None, str]]:
@@ -206,6 +213,30 @@ class TestWorktreeExecutor:
         assert _statuses(results) == {(1, "survived"), (2, "killed")}
         assert _git(root, "worktree", "list").count("\n") == 1
         assert (root / "test.py").read_text() == "x: int = 5\n"
+
+    def test_records_kill_dependencies_in_worker_processes(self, tmp_path: Path) -> None:
+        root = _git_project(tmp_path)
+        (root / "other.py").write_text("y: int = 5\n")
+        _git(root, "add", "other.py")
+        _git(root, "commit", "-m", "other")
+        tester = MutationTester(
+            ShellRunner(),
+            "echo 'test.py:1: error: Incompatible types  [assignment]'; false",
+            timeout=60,
+            dependencies=KillDependencies(MypyChecker()),
+            deadline=Deadline(3600.0),
+        )
+        workspace = GitWorkspace(root, ShellRunner())
+        executor = WorktreeExecutor(tester, workspace, ProcessPool(poll_interval=0.01), 2)
+
+        results = list(executor.execute([make_mutant(1), make_mutant(2, "other.py")]))
+
+        test_py = hashlib.sha256(b"x: int = 5\n").hexdigest()
+        other_py = hashlib.sha256(b"y: int = 5\n").hexdigest()
+        assert [(row.id, row.status, row.depends) for row in sorted(results, key=_row_id)] == [
+            (1, "killed", {"test.py": test_py}),
+            (2, "killed", {"test.py": test_py, "other.py": other_py}),
+        ]
 
     def test_dirty_tree_is_rejected(self, tmp_path: Path) -> None:
         root = _git_project(tmp_path)

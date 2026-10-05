@@ -113,15 +113,21 @@ class ConfigLoader:
         patterns = self._string_list(raw, "cache-key-files")
         if patterns is None:
             return DEFAULT_CACHE_KEY_FILES
-        relative = [pattern for pattern in patterns if not Path(pattern).is_absolute()]
-        for pattern in patterns:
-            if Path(pattern).is_absolute():
-                logger.warning(
-                    "Ignoring absolute 'cache-key-files' pattern %r: "
-                    "patterns are relative to the project root",
-                    pattern,
-                )
-        return relative
+        return [pattern for pattern in patterns if self._usable_key_file_pattern(pattern)]
+
+    def _usable_key_file_pattern(self, pattern: str) -> bool:
+        """Whether a ``cache-key-files`` *pattern* can be globbed; warn if not."""
+        if not pattern.strip():
+            logger.warning("Ignoring empty 'cache-key-files' pattern %r", pattern)
+            return False
+        if Path(pattern).is_absolute():
+            logger.warning(
+                "Ignoring absolute 'cache-key-files' pattern %r: "
+                "patterns are relative to the project root",
+                pattern,
+            )
+            return False
+        return True
 
     def _bool(self, raw: object, option: str) -> bool:
         """Return *raw* if it is a boolean, else warn and return False."""

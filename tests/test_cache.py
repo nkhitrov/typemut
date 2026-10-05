@@ -123,6 +123,17 @@ def test_cache_inputs_outside_the_project(tmp_path: Path) -> None:
     assert meta["file ../uv.lock"] == _sha("lock\n")
 
 
+def test_cache_inputs_skip_invalid_patterns(
+    project: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (project / "uv.lock").write_text("lock\n")
+    meta = CacheInputs(project).meta(
+        Config(cache_key_files=["", "uv.lock"]), _mypy(ScriptedRunner({})), "0.1.0"
+    )
+    assert meta["file uv.lock"] == _sha("lock\n")
+    assert "Ignoring invalid 'cache-key-files' pattern ''" in caplog.text
+
+
 def test_cache_inputs_with_unknown_versions(project: Path) -> None:
     inputs = CacheInputs(project)
     meta = inputs.meta(Config(cache_key_files=[]), _mypy(ScriptedRunner({})), "0.1.0")

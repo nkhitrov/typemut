@@ -209,7 +209,7 @@ with, `test-command`, `timeout`, the checker's config files (`mypy.ini`,
 `pyproject.toml`, `pyrightconfig.json`, ...) and the files matched by
 `cache-key-files` (by default the lockfiles `uv.lock`, `poetry.lock`,
 `requirements*.txt`). Patterns in `cache-key-files` are relative to the
-project root; absolute ones are skipped with a warning. If the checker's
+project root; absolute, empty and invalid ones are skipped with a warning. If the checker's
 version is unknown (see [Type checkers](#type-checkers); set
 `checker-version-command`), that run neither reuses nor stores results and
 leaves the cache as it is, so a single failed version check does not discard
@@ -353,8 +353,11 @@ inherited `mypy`): auto-detection then picks the subclass instead of its base.
 Two such subclasses of the same checker installed together match both, so set
 `checker = "<name>"` explicitly. `config_files`,
 `cache_paths`, `python_version` and `dependencies` (by default: the project
-files reachable through imports; `None` means no kill is reused) can be
-overridden too. The constructor takes
+files reachable through imports; `None` means that kill is not reused) can be
+overridden too. A checker that can never tell which files a kill depends on
+(e.g. its output carries no file paths) should set
+`traces_dependencies = False`: incremental runs then neither reuse nor store
+its results and leave the cache alone, as with `generic`. The constructor takes
 `(test_command, version_command, runner, graph=None, environ=None)`; *environ*
 is the environment the checker runs with (the process environment by default). An entry point that fails to import
 or does not name a `TypeChecker` subclass is logged as a warning and skipped.
@@ -645,7 +648,7 @@ checker = "mypy"                        # mypy, pyright, basedpyright, generic; 
 incremental = false                     # reuse kills of earlier runs (--incremental / --no-incremental)
 # max-duration = 1500                   # seconds; start no new mutant after it (--max-duration)
 cache-key-files = ["uv.lock", "poetry.lock", "requirements*.txt"]  # glob patterns relative to the
-                                        # project root (absolute ones are skipped with a warning);
+                                        # project root (absolute, empty or invalid ones are skipped with a warning);
                                         # a change to any drops every cached result
 
 [typemut.operators]

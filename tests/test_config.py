@@ -203,6 +203,15 @@ def test_load_config_absolute_cache_key_files_skipped(
     assert "Ignoring absolute 'cache-key-files' pattern '/repo/uv.lock'" in caplog.text
 
 
+def test_load_config_empty_cache_key_files_skipped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    cfg = load_toml('[typemut]\ncache-key-files = ["", "  ", "uv.lock"]\n', tmp_path)
+    assert list(cfg.cache_key_files) == ["uv.lock"]
+    assert "Ignoring empty 'cache-key-files' pattern ''" in caplog.text
+    assert "Ignoring empty 'cache-key-files' pattern '  '" in caplog.text
+
+
 def test_load_config_no_cache_key_files(tmp_path: Path) -> None:
     cfg = load_toml("[typemut]\ncache-key-files = []\n", tmp_path)
     assert list(cfg.cache_key_files) == []
