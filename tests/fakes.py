@@ -77,6 +77,18 @@ class StrictMypyChecker(MypyChecker):
     name = "mypy-strict"
 
 
+class StepClock:
+    """Clock whose time advances by *step* seconds each time it is read, from 0."""
+
+    def __init__(self, step: float = 1.0) -> None:
+        self._step = step
+        self._now = -step
+
+    def __call__(self) -> float:
+        self._now += self._step
+        return self._now
+
+
 class RecordingProgressBar:
     """ProgressBar that remembers the totals it was given."""
 

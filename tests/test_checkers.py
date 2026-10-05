@@ -960,3 +960,48 @@ def test_discover_skips_broken_entry_points(
     registry = CheckerRegistry.discover([_entry_point("bad", value)])
     assert type(registry.get("bad", "mypy .")) is GenericChecker
     assert message in caplog.text
+
+
+# --- python version ---
+
+
+@pytest.mark.parametrize(
+    ("checker", "test_command", "python_command"),
+    [
+        pytest.param(MypyChecker, "mypy src", "python --version", id="bare"),
+        pytest.param(MypyChecker, "uv run mypy src", "uv run python --version", id="uv-run"),
+        pytest.param(
+            MypyChecker,
+            "X=1 poetry run --directory app mypy .",
+            "X=1 poetry run --directory app python --version",
+            id="poetry-run-with-options",
+        ),
+        pytest.param(
+            MypyChecker, "python3.12 -m mypy -p app", "python3.12 --version", id="python-m"
+        ),
+        pytest.param(
+            MypyChecker, "uv run python -m mypy .", "uv run python --version", id="uv-python-m"
+        ),
+        pytest.param(PyrightChecker, "npx pyright src", "python --version", id="npx"),
+        pytest.param(
+            MypyChecker,
+            "cd backend && uv run mypy .",
+            "cd backend && uv run python --version",
+            id="cd",
+        ),
+    ],
+)
+def test_python_version(
+    checker: type[TypeChecker], test_command: str, python_command: str, tmp_path: Path
+) -> None:
+    runner = _passing("Python 3.12.4\n")
+    assert checker(test_command, runner=runner).python_version(tmp_path) == "3.12.4"
+    assert runner.calls == [(python_command, VERSION_TIMEOUT, tmp_path)]
+
+
+def test_no_python_version_without_checker_command(tmp_path: Path) -> None:
+    runner = _passing("Python 3.12.4\n")
+    assert GenericChecker("make typecheck", "mypy --version", runner).python_version(
+        tmp_path
+    ) is None
+    assert runner.calls == []

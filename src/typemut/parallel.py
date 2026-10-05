@@ -6,6 +6,7 @@ import logging
 import queue
 import shlex
 import shutil
+import signal
 import tempfile
 from collections import defaultdict
 from collections.abc import Collection, Iterable
@@ -45,7 +46,12 @@ class WorkerJob:
     root: Path
 
     def run(self, tester: MutationTester, results: Queue[MutantRow]) -> None:
-        """Worker process body: run the mutants and put each result on *results*."""
+        """Worker process body: run the mutants and put each result on *results*.
+
+        SIGTERM ends the worker as usual, even if the parent turned it into
+        KeyboardInterrupt and the worker was forked with that handler.
+        """
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
         for mutant in self.mutants:
             results.put(tester.run(mutant, self.root))
 

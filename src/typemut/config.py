@@ -25,6 +25,9 @@ OPERATOR_KEYS: tuple[str, ...] = (
 # Key under [typemut.ignore-types] that applies to every operator.
 ALL_OPERATORS = "all"
 
+# Files whose change invalidates every cached result: the project's lockfiles.
+DEFAULT_CACHE_KEY_FILES: tuple[str, ...] = ("uv.lock", "poetry.lock", "requirements*.txt")
+
 
 @dataclass
 class OperatorsConfig:
@@ -57,6 +60,12 @@ class Config:
     # type checker plugin name; None detects it from test_command
     checker: str | None = None
     checker_version_command: str | None = None
+    # reuse kills of earlier runs while the files they depend on are unchanged
+    incremental: bool = False
+    # seconds after which no new mutant is started; None: no limit
+    max_duration: float | None = None
+    # glob patterns of files (relative to the project root) the cache depends on
+    cache_key_files: list[str] = field(default_factory=lambda: list(DEFAULT_CACHE_KEY_FILES))
 
 
 class ConfigLoader:
@@ -91,7 +100,35 @@ class ConfigLoader:
             checker_version_command=self._optional_string(
                 section.get("checker-version-command"), "checker-version-command"
             ),
+            incremental=self._bool(section.get("incremental", False), "incremental"),
+            max_duration=self._max_duration(section.get("max-duration")),
+            cache_key_files=self._cache_key_files(section.get("cache-key-files")),
         )
+
+    def _cache_key_files(self, raw: object) -> list[str]:
+        """Validate ``cache-key-files``; the default lockfiles if unset or invalid."""
+        if raw is None:
+            return list(DEFAULT_CACHE_KEY_FILES)
+        patterns = self._string_list(raw, "cache-key-files")
+        return list(DEFAULT_CACHE_KEY_FILES) if patterns is None else patterns
+
+    def _bool(self, raw: object, option: str) -> bool:
+        """Return *raw* if it is a boolean, else warn and return False."""
+        if isinstance(raw, bool):
+            return raw
+        logger.warning("Ignoring invalid %r option %r: expected true or false", option, raw)
+        return False
+
+    def _max_duration(self, raw: object) -> float | None:
+        """Validate ``max-duration``: a positive number of seconds."""
+        if raw is None:
+            return None
+        if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0:
+            return float(raw)
+        logger.warning(
+            "Ignoring invalid 'max-duration' option %r: expected a positive number of seconds", raw
+        )
+        return None
 
     def _optional_string(self, raw: object, option: str) -> str | None:
         """Return *raw* if it is a string or None, else warn and return None."""

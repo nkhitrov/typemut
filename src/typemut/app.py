@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 import tomllib
 import webbrowser
 from collections.abc import Callable, Collection, Iterable
@@ -13,12 +14,19 @@ from rich.console import Console
 from rich.markup import escape
 
 from typemut.baseline import Baseline
+from typemut.cache import (
+    CacheInputs,
+    KillDependencies,
+    ResultCache,
+    TypemutVersion,
+)
 from typemut.checkers import CheckerRegistry
 from typemut.checkers.base import TypeChecker
 from typemut.config import Config, ConfigLoader
 from typemut.db import Database, MutantRow
 from typemut.discovery import AnnotationFinder, SourceFiles
 from typemut.engine import (
+    Deadline,
     MutantExecutor,
     MutationTester,
     OutcomeClassifier,
@@ -59,6 +67,10 @@ class App:
     config_loader: ConfigLoader = field(default_factory=ConfigLoader)
     registry_builder: RegistryBuilder = field(default_factory=RegistryBuilder)
     html_report: HtmlReport = field(default_factory=HtmlReport)
+    # Seconds for max-duration; the default clock is shared with worker processes.
+    clock: Callable[[], float] = time.monotonic
+    # What identifies the installed typemut; cached results of another one are dropped.
+    typemut_version: str = field(default_factory=TypemutVersion().fingerprint)
 
     def load(self, config_path: str, db_path: str | None) -> tuple[Config, Database]:
         """Load the config at *config_path* and open the database it (or *db_path*) names."""
@@ -80,7 +92,12 @@ class App:
         return cfg, Database(Path(db_path or cfg.db_path))
 
     def discover(self, cfg: Config, db: Database) -> None:
-        """Replace the mutants in *db* with all mutations of the configured module."""
+        """Replace the mutants in *db* with all mutations of the configured module.
+
+        The results already in *db* are kept in its result cache first, so an
+        incremental run can reuse them even if the previous one was killed
+        before it saved them there.
+        """
         module_dir = Path(cfg.module_path)
         if not module_dir.exists():
             raise TypemutError(f"Module path not found: {module_dir}")
@@ -102,22 +119,50 @@ class App:
             IgnoredTypes(cfg.ignore_types),
         )
         mutants = self._find_mutants(files, cfg, finder)
+        ResultCache(db, self.root).save(db.get_all())
         db.clear()
         db.insert_many(mutants)
         self.console.print(f"[green]Found {len(mutants)} type annotation mutations[/green]")
 
-    def execute(self, cfg: Config, db: Database, jobs: int) -> None:
-        """Check the baseline, then run the pending mutants on *jobs* workers, storing results."""
+    def execute(
+        self,
+        cfg: Config,
+        db: Database,
+        jobs: int,
+        incremental: bool | None = None,
+        refresh: bool = False,
+        max_duration: float | None = None,
+    ) -> None:
+        """Check the baseline, then run the pending mutants on *jobs* workers, storing results.
+
+        *incremental* (default: the ``incremental`` option) first takes the
+        kills of earlier runs from the result cache, if every file they
+        depend on is unchanged, and stores the new results there; *refresh*
+        stores them without reusing any. After *max_duration* seconds
+        (default: the ``max-duration`` option) no new mutant is started.
+        """
         mutants = db.get_pending()
         if len(mutants) == 0:
             self.console.print("[yellow]No pending mutants: nothing to test.[/yellow]")
             return
+        deadline = Deadline(cfg.max_duration if max_duration is None else max_duration, self.clock)
         checker = self.checkers.get(
             cfg.checker, cfg.test_command, cfg.checker_version_command, self.runner
         )
         self.console.print("Type checker: " + self._describe(checker))
+        if incremental is None:
+            incremental = cfg.incremental
+        record = incremental or refresh
+        cache = ResultCache(db, self.root) if record else None
+        if cache is not None:
+            mutants = self._reuse(cfg, db, checker, cache, mutants, refresh)
         tester = MutationTester(
-            self.runner, cfg.test_command, cfg.timeout, classifier=OutcomeClassifier(checker)
+            self.runner,
+            cfg.test_command,
+            cfg.timeout,
+            classifier=OutcomeClassifier(checker),
+            dependencies=KillDependencies(checker) if record else None,
+            deadline=deadline,
         )
         self.console.print("Running baseline check...")
         ok, output = tester.check_baseline(self.root)
@@ -130,7 +175,12 @@ class App:
 
         self.console.print(f"Running [bold]{len(mutants)}[/bold] mutations...")
         progress = self.progress or RichProgressBar(self.console)
-        ResultRecorder(db, progress).record(mutants, self._executor(tester, jobs))
+        ResultRecorder(db, progress, cache=cache).record(mutants, self._executor(tester, jobs))
+        not_run = db.count_pending()
+        if not_run:
+            self.console.print(
+                f"[yellow]Stopped after max-duration: {not_run} mutants not run.[/yellow]"
+            )
 
     def report(self, db: Database) -> None:
         """Print the results table."""
@@ -145,8 +195,15 @@ class App:
     ) -> bool:
         """Update or enforce the survivor baseline and enforce *fail_under*.
 
-        Returns False if the run must fail.
+        Returns False if the run must fail; it does if any mutant was not
+        run (``max-duration``), and then the baseline is not updated.
         """
+        not_run = db.count_pending()
+        if not_run:
+            self.console.print(
+                f"[red]{not_run} mutants not run (max-duration); run again to test them.[/red]"
+            )
+            return False
         score = MutationScore(db.get_summary()).total()
         survivors = [mutant for mutant in db.get_all() if mutant.status == "survived"]
 
@@ -192,6 +249,41 @@ class App:
                 f"{escape(mutant.original_annotation)} → {escape(mutant.mutated_annotation)}"
             )
         return not diff.new
+
+    def _reuse(
+        self,
+        cfg: Config,
+        db: Database,
+        checker: TypeChecker,
+        cache: ResultCache,
+        mutants: Collection[MutantRow],
+        refresh: bool,
+    ) -> Collection[MutantRow]:
+        """Store the cached kills that are still valid in *db*; the mutants left to run."""
+        inputs = CacheInputs(self.root)
+        meta = inputs.meta(cfg, checker, self.typemut_version)
+        reason = cache.validate(meta)
+        if reason is not None:
+            self.console.print(f"Result cache reset: {reason}.")
+        if refresh:
+            self.console.print("Refreshing the result cache: every mutant runs.")
+            return mutants
+        if not inputs.knows_checker_version(meta):
+            self.console.print(
+                f"[yellow]{checker.name} version unknown: not reusing cached results "
+                "(set checker-version-command).[/yellow]"
+            )
+            return mutants
+        found = cache.reuse(mutants)
+        db.update_results_batch(found.reused)
+        self.console.print(f"Reused {len(found.reused)} cached kills.")
+        if found.stale or found.untraceable:
+            self.console.print(
+                f"Rerunning {found.stale} kills whose files changed and "
+                f"{found.untraceable} kills the checker output did not trace to files."
+            )
+        reused = {mutant.id for mutant in found.reused}
+        return [mutant for mutant in mutants if mutant.id not in reused]
 
     def _describe(self, checker: TypeChecker) -> str:
         """The checker's name with the config files it found and the cache it would use."""

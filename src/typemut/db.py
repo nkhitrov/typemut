@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 SCHEMA = """\
 CREATE TABLE IF NOT EXISTS mutants (
@@ -20,17 +22,56 @@ CREATE TABLE IF NOT EXISTS mutants (
     required_import TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     output TEXT,
-    duration_seconds REAL
+    duration_seconds REAL,
+    depends TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_status ON mutants(status);
 CREATE INDEX IF NOT EXISTS idx_module ON mutants(module_path);
+
+-- Results of earlier runs, kept across ``clear()`` for incremental runs.
+-- required_import is '' when there is none: NULLs never collide in a key.
+CREATE TABLE IF NOT EXISTS result_cache (
+    module_path TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    col INTEGER NOT NULL,
+    operator TEXT NOT NULL,
+    original_annotation TEXT NOT NULL,
+    mutated_annotation TEXT NOT NULL,
+    required_import TEXT NOT NULL,
+    status TEXT NOT NULL,
+    output TEXT,
+    depends TEXT,
+    PRIMARY KEY (
+        module_path, line, col, operator,
+        original_annotation, mutated_annotation, required_import
+    )
+);
+
+-- The inputs the cached results were computed with: {name: value}.
+CREATE TABLE IF NOT EXISTS cache_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 _MIGRATIONS = [
-    # Add required_import column if missing (for DBs created before this version)
+    # Columns missing from DBs created by earlier versions.
     "ALTER TABLE mutants ADD COLUMN required_import TEXT",
+    "ALTER TABLE mutants ADD COLUMN depends TEXT",
 ]
+
+
+class MutantKey(NamedTuple):
+    """What identifies a mutant across runs; *required_import* is '' for none."""
+
+    module_path: str
+    line: int
+    col: int
+    operator: str
+    original_annotation: str
+    mutated_annotation: str
+    required_import: str
 
 
 @dataclass
@@ -47,6 +88,20 @@ class MutantRow:
     status: str = "pending"
     output: str | None = None
     duration_seconds: float | None = None
+    # {project file: sha256} a kill was computed from; None if it cannot be reused.
+    depends: Mapping[str, str] | None = None
+
+    def key(self) -> MutantKey:
+        """What identifies this mutant across runs."""
+        return MutantKey(
+            self.module_path,
+            self.line,
+            self.col,
+            self.operator,
+            self.original_annotation,
+            self.mutated_annotation,
+            self.required_import or "",
+        )
 
 
 class Database:
@@ -55,6 +110,7 @@ class Database:
         self.conn = sqlite3.connect(str(path))
         self.conn.row_factory = sqlite3.Row
         self._init_schema()
+        self.cache = CacheTables(self.conn)
 
     def __enter__(self) -> Database:
         return self
@@ -75,8 +131,8 @@ class Database:
         cursor = self.conn.execute(
             """INSERT INTO mutants
                (module_path, operator, line, col, original_annotation,
-                mutated_annotation, description, required_import, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                mutated_annotation, description, required_import, status, depends)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 mutant.module_path,
                 mutant.operator,
@@ -87,6 +143,7 @@ class Database:
                 mutant.description,
                 mutant.required_import,
                 mutant.status,
+                DependsColumn.dump(mutant.depends),
             ),
         )
         self.conn.commit()
@@ -96,8 +153,8 @@ class Database:
         self.conn.executemany(
             """INSERT INTO mutants
                (module_path, operator, line, col, original_annotation,
-                mutated_annotation, description, required_import, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                mutated_annotation, description, required_import, status, depends)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     m.module_path,
@@ -109,6 +166,7 @@ class Database:
                     m.description,
                     m.required_import,
                     m.status,
+                    DependsColumn.dump(m.depends),
                 )
                 for m in mutants
             ],
@@ -158,16 +216,25 @@ class Database:
         self,
         results: Iterable[MutantRow],
     ) -> None:
-        """Store the status, output and duration of finished mutants."""
+        """Store the status, output, duration and dependencies of finished mutants."""
         self.conn.executemany(
             """UPDATE mutants
-               SET status = ?, output = ?, duration_seconds = ?
+               SET status = ?, output = ?, duration_seconds = ?, depends = ?
                WHERE id = ?""",
-            [(m.status, m.output, m.duration_seconds, m.id) for m in results],
+            [
+                (m.status, m.output, m.duration_seconds, DependsColumn.dump(m.depends), m.id)
+                for m in results
+            ],
         )
         self.conn.commit()
 
+    def count_pending(self) -> int:
+        """Number of mutants not run yet."""
+        row = self.conn.execute("SELECT COUNT(*) FROM mutants WHERE status = 'pending'").fetchone()
+        return int(row[0])
+
     def clear(self) -> None:
+        """Remove all mutants; the result cache is kept."""
         self.conn.execute("DELETE FROM mutants")
         self.conn.commit()
 
@@ -189,4 +256,75 @@ class Database:
             status=row["status"],
             output=row["output"],
             duration_seconds=row["duration_seconds"],
+            depends=DependsColumn.load(row["depends"]),
         )
+
+
+class CacheTables:
+    """The result cache of a database: results of earlier runs, kept by :meth:`Database.clear`.
+
+    Cached results are stored by :class:`MutantKey`, with the inputs (checker,
+    its version, lockfiles...) they were computed with as ``{name: value}``.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def meta(self) -> Mapping[str, str]:
+        """The inputs the cached results were computed with."""
+        rows = self._conn.execute("SELECT key, value FROM cache_meta").fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
+    def reset(self, meta: Mapping[str, str]) -> None:
+        """Drop every cached result and record *meta* as the inputs of the next ones."""
+        with self._conn:
+            self._conn.execute("DELETE FROM result_cache")
+            self._conn.execute("DELETE FROM cache_meta")
+            self._conn.executemany(
+                "INSERT INTO cache_meta (key, value) VALUES (?, ?)", list(meta.items())
+            )
+
+    def upsert(self, mutants: Iterable[MutantRow]) -> None:
+        """Store the results of *mutants* in the cache, replacing earlier ones."""
+        with self._conn:
+            self._conn.executemany(
+                """INSERT OR REPLACE INTO result_cache
+                   (module_path, line, col, operator, original_annotation,
+                    mutated_annotation, required_import, status, output, depends)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [(*m.key(), m.status, m.output, DependsColumn.dump(m.depends)) for m in mutants],
+            )
+
+    def load(self) -> Mapping[MutantKey, MutantRow]:
+        """Cached results by mutant key, as rows without an id or description."""
+        rows = self._conn.execute("SELECT * FROM result_cache").fetchall()
+        cached = (
+            MutantRow(
+                id=None,
+                module_path=row["module_path"],
+                operator=row["operator"],
+                line=row["line"],
+                col=row["col"],
+                original_annotation=row["original_annotation"],
+                mutated_annotation=row["mutated_annotation"],
+                description="",
+                required_import=row["required_import"] or None,
+                status=row["status"],
+                output=row["output"],
+                depends=DependsColumn.load(row["depends"]),
+            )
+            for row in rows
+        )
+        return {mutant.key(): mutant for mutant in cached}
+
+
+class DependsColumn:
+    """``MutantRow.depends`` as stored: a JSON object, or NULL."""
+
+    @staticmethod
+    def dump(depends: Mapping[str, str] | None) -> str | None:
+        return None if depends is None else json.dumps(dict(depends), sort_keys=True)
+
+    @staticmethod
+    def load(text: str | None) -> Mapping[str, str] | None:
+        return None if text is None else dict(json.loads(text))

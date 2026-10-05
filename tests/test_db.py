@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import replace
+from pathlib import Path
 
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantKey, MutantRow
 
 
 def _make_mutant(**overrides) -> MutantRow:
@@ -97,3 +99,72 @@ def test_required_import_stored(tmp_db: Database) -> None:
     mid = tmp_db.insert_mutant(mutant)
     row = tmp_db.get_all()[0]
     assert row.required_import == "from collections.abc import Sequence"
+
+
+def test_depends_stored(tmp_db: Database) -> None:
+    tmp_db.insert_many([_make_mutant(depends={"b.py": "2", "a.py": "1"}), _make_mutant(line=2)])
+    first, second = tmp_db.get_all()
+    tmp_db.update_results_batch([replace(second, status="killed", depends={"c.py": "3"})])
+    assert [m.depends for m in tmp_db.get_all()] == [{"a.py": "1", "b.py": "2"}, {"c.py": "3"}]
+    assert first.depends == {"a.py": "1", "b.py": "2"}
+
+
+def test_count_pending(tmp_db: Database) -> None:
+    tmp_db.insert_many([_make_mutant(), _make_mutant(line=2, status="killed")])
+    assert tmp_db.count_pending() == 1
+
+
+def test_mutant_key() -> None:
+    mutant = _make_mutant(required_import="import x")
+    assert mutant.key() == MutantKey("test.py", 1, 3, "TestOp", "int", "str", "import x")
+    assert _make_mutant().key().required_import == ""
+
+
+def test_old_database_gets_depends_column(tmp_path: Path) -> None:
+    path = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """CREATE TABLE mutants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, module_path TEXT NOT NULL,
+            operator TEXT NOT NULL, line INTEGER NOT NULL, col INTEGER NOT NULL DEFAULT 0,
+            original_annotation TEXT NOT NULL, mutated_annotation TEXT NOT NULL,
+            description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            output TEXT, duration_seconds REAL)"""
+    )
+    conn.execute(
+        "INSERT INTO mutants (module_path, operator, line, original_annotation,"
+        " mutated_annotation, description) VALUES ('a.py', 'Op', 1, 'int', 'str', '')"
+    )
+    conn.commit()
+    conn.close()
+    with Database(path) as db:
+        (mutant,) = db.get_all()
+    assert (mutant.required_import, mutant.depends) == (None, None)
+
+
+def test_cache_kept_by_clear(tmp_db: Database) -> None:
+    killed = _make_mutant(status="killed", output="err", depends={"test.py": "1"})
+    tmp_db.cache.reset({"checker": "mypy"})
+    tmp_db.cache.upsert([killed, _make_mutant(line=2, status="survived")])
+    tmp_db.clear()
+    cached = tmp_db.cache.load()
+    assert tmp_db.cache.meta() == {"checker": "mypy"}
+    assert cached[killed.key()] == replace(killed, description="")
+    assert cached[_make_mutant(line=2).key()].depends is None
+
+
+def test_cache_upsert_replaces(tmp_db: Database) -> None:
+    mutant = _make_mutant(required_import="import x", status="killed", depends={"a": "1"})
+    tmp_db.cache.upsert([mutant])
+    tmp_db.cache.upsert([replace(mutant, status="survived", depends=None)])
+    assert list(tmp_db.cache.load().values()) == [
+        replace(mutant, description="", status="survived", depends=None)
+    ]
+
+
+def test_cache_reset_drops_results(tmp_db: Database) -> None:
+    tmp_db.cache.reset({"checker": "mypy", "checker version": "1.0"})
+    tmp_db.cache.upsert([_make_mutant(status="killed")])
+    tmp_db.cache.reset({"checker": "pyright"})
+    assert tmp_db.cache.load() == {}
+    assert tmp_db.cache.meta() == {"checker": "pyright"}

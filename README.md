@@ -89,7 +89,7 @@ Global option: `-C, --project-dir PATH` — change to this directory before runn
 | Command | Description |
 |---------|-------------|
 | `typemut run` | Full pipeline: discover mutations, run the type checker on each, show the report |
-| `typemut init` | Discover mutations and store them in SQLite (replaces previous results) |
+| `typemut init` | Discover mutations and store them in SQLite (replaces previous results; the [result cache](#fast-ci-incremental-runs) keeps them) |
 | `typemut exec` | Run the type checker against each **pending** mutation |
 | `typemut report` | Show the terminal report |
 | `typemut html` | Generate the HTML report with diffs |
@@ -106,6 +106,9 @@ mutants that are still pending.
 | `--config PATH` | `typemut.toml` | Config file |
 | `--db PATH` | `db` from config (`typemut.sqlite`) | Database file |
 | `--jobs N` | `1` | Number of parallel workers (see [Quick Start](#quick-start)) |
+| `--incremental / --no-incremental` | `incremental` from config (off) | Reuse kills of earlier runs whose files are unchanged (see [Fast CI](#fast-ci-incremental-runs)) |
+| `--refresh` | — | Run every mutant without reusing anything, and store the results for later incremental runs |
+| `--max-duration SECONDS` | `max-duration` from config (none) | Start no new mutant after this many seconds; finished results are saved |
 | `--fail-under PERCENT` | — | Exit with code 1 if the mutation score is below this value |
 | `--baseline PATH` | — | JSON file of accepted survivors; exit with code 1 on any other survivor |
 | `--update-baseline` | — | Write the current survivors to the `--baseline` file instead of checking it |
@@ -124,6 +127,9 @@ mutants that are still pending.
 | `--config PATH` | `typemut.toml` | Config file |
 | `--db PATH` | `db` from config (`typemut.sqlite`) | Database file |
 | `--jobs N` | `1` | Number of parallel workers |
+| `--incremental / --no-incremental` | `incremental` from config (off) | Reuse kills of earlier runs whose files are unchanged |
+| `--refresh` | — | Run every mutant and store the results for later incremental runs |
+| `--max-duration SECONDS` | `max-duration` from config (none) | Start no new mutant after this many seconds |
 
 ### `typemut report`
 
@@ -161,9 +167,79 @@ text of the source line — not its number, so edits elsewhere in a file keep th
 baseline valid. Entries that no longer survive are reported; rerun with
 `--update-baseline` to drop them.
 
+`run` and `report` also exit with code 1 while any mutant is still pending (a run
+stopped by `--max-duration`, an interrupted `exec`), and then do not update the
+baseline: a gate on incomplete results would pass by accident.
+
 Mutation testing is slow, so use `--jobs N` in CI (it needs a clean git working tree,
-see [Quick Start](#quick-start)).
+see [Quick Start](#quick-start)), and `--incremental` (below).
 typemut runs this on itself — see `make mutate` and `.github/workflows/ci.yml`.
+
+## Fast CI: incremental runs
+
+`typemut run --incremental` reuses the kills of earlier runs stored in the same
+database, and runs only the mutants that are new, survived, ended in `error`,
+or whose kill may no longer hold:
+
+```bash
+typemut run --incremental --jobs 4 --baseline typemut-baseline.json
+```
+
+**What is reused.** A killed mutant is identified by its file, line, column,
+operator, original and mutated annotation and required import. When it is
+killed, typemut records the files the kill depends on, with a hash of each: the
+mutated file, the files the checker reported errors in, and every project file
+those import (directly or not). The next incremental run copies the kill
+(status and checker output) if all those files are unchanged, and prints
+`Reused N cached kills`.
+
+**What always runs again.** Survived and `error` mutants; kills by timeout;
+kills whose errors are outside the project root (in installed packages) or
+whose output names no file (the `generic` checker, a `test-command` that
+`cd`s before running the checker); kills whose files changed (the run prints
+how many). The baseline check always runs too: it catches a broken tree and
+warms the checker's cache.
+
+**When the whole cache is dropped.** The cache is reset, with the changed input
+named (`Result cache reset: checker version changed.`), when any of these differ
+from the run that filled it: the typemut version (and, for unreleased builds,
+its sources), the checker and its version, the version of the Python it runs
+with, `test-command`, `timeout`, the checker's config files (`mypy.ini`,
+`pyproject.toml`, `pyrightconfig.json`, ...) and the files matched by
+`cache-key-files` (by default the lockfiles `uv.lock`, `poetry.lock`,
+`requirements*.txt`). If the checker's version is unknown (see
+[Type checkers](#type-checkers); set `checker-version-command`), nothing is
+reused, but results are still stored. The Python version is that of
+`python --version`, run through the project runner the checker runs with
+(`uv run python --version` for `uv run mypy`, `python3.12 --version` for
+`python3.12 -m mypy`).
+
+**Keeping the cache fresh.** `--refresh` runs every mutant and stores the
+results without reusing any: run it on a schedule (e.g. weekly) to recheck
+the kills. Without `--incremental` nothing is reused, but `init` and `run`
+keep the finished results in the database's result cache, so the next
+incremental run can still use them.
+
+**Time limits.** `--max-duration SECONDS` (or `max-duration` in the config)
+stops starting new mutants after that many seconds, waits for the running
+ones and saves every finished result; the run then fails with
+`N mutants not run (max-duration)`. Keep it below the CI job timeout. A run
+stopped by `SIGTERM` (as CI runners stop jobs) saves its finished results too.
+On a project with no cache yet, a first run may not fit in the CI timeout:
+store the database after every run on the main branch (even a failed one), and
+each next incremental run continues from the kills of the previous ones until
+the whole project is covered.
+
+The cache lives in the database file (`typemut.sqlite` by default): keep it
+out of git (it is binary and changes on every run; with `--jobs` an untracked
+file in the project fails the clean-tree check, so list it in `.gitignore` or
+pass `--db` outside the project) and carry it between CI runs as a build
+artifact or cache.
+
+**Limits.** Reuse trusts the checker's output and typemut's import graph: a
+file the checker reads that is not imported (a plugin config, a stub found
+through `mypy_path` outside the project) is not tracked; list it in
+`cache-key-files` if a change to it can turn a kill into a survivor.
 
 ## Type checkers
 
@@ -173,8 +249,8 @@ merely broke the code: a failure whose only errors are a missing name, a syntax
 error or an invalid type is recorded as `error`, not `killed`. It also finds the
 checker's config files and cache directory. The checker's version, the files
 with errors and which project files a file imports are known to the plugin
-too; they are for incremental runs that reuse earlier results, which are not
-released yet.
+too: [incremental runs](#fast-ci-incremental-runs) use them to tell whether
+an earlier kill can be reused.
 
 | `checker` | Recognised executables | Errors counted as broken code |
 |-----------|------------------------|-------------------------------|
@@ -215,9 +291,8 @@ only errors count (mypy notes, pyright warnings and information are ignored).
 Both stdout and stderr are parsed, so noise from wrappers such as `uv run` on
 stderr does not hide the checker's errors.
 
-The checker's version will be used by incremental runs (not released yet) to
-tell whether an earlier result can be reused; this release does not read it.
-It is taken from `test-command` up to the checker executable plus `--version`,
+Incremental runs reuse earlier kills only while the checker's version is the
+same, and reuse nothing if it is unknown. It is taken from `test-command` up to the checker executable plus `--version`,
 as written there (`cd backend && uv run mypy .` -> `cd backend && uv run mypy --version`:
 of the commands before the checker only `cd` and `pushd` are kept). If the
 command does not run the executable directly (`tox -e mypy`, `make typecheck`),
@@ -262,8 +337,9 @@ its executables (e.g. `class StrictMypyChecker(MypyChecker)` with the
 inherited `mypy`): auto-detection then picks the subclass instead of its base.
 Two such subclasses of the same checker installed together match both, so set
 `checker = "<name>"` explicitly. `config_files`,
-`cache_paths` and `dependencies` (by default: the project files reachable
-through imports) can be overridden too. The constructor takes
+`cache_paths`, `python_version` and `dependencies` (by default: the project
+files reachable through imports; `None` means no kill is reused) can be
+overridden too. The constructor takes
 `(test_command, version_command, runner, graph=None, environ=None)`; *environ*
 is the environment the checker runs with (the process environment by default). An entry point that fails to import
 or does not name a `TypeChecker` subclass is logged as a warning and skipped.
@@ -549,8 +625,12 @@ db = "typemut.sqlite"                   # database file
 plugins = ["sqlalchemy"]                # library plugins, none by default
 checker = "mypy"                        # mypy, pyright, basedpyright, generic; default "auto" detects it
                                         # from test-command (set it when test-command is a wrapper like make)
-# checker-version-command = "mypy --version"  # optional; for incremental runs (not released yet);
+# checker-version-command = "mypy --version"  # optional; for incremental runs;
                                         # default: test-command up to the checker + --version
+incremental = false                     # reuse kills of earlier runs (--incremental / --no-incremental)
+# max-duration = 1500                   # seconds; start no new mutant after it (--max-duration)
+cache-key-files = ["uv.lock", "poetry.lock", "requirements*.txt"]  # glob patterns in the project
+                                        # root; a change to any drops every cached result
 
 [typemut.operators]
 # all enabled by default, disable selectively

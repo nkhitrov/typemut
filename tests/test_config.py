@@ -171,3 +171,62 @@ def test_load_config_invalid_checker_warns(
     assert (cfg.checker, cfg.checker_version_command) == (None, None)
     assert message in caplog.text
     assert cfg.module_path == "src"
+
+
+def test_load_config_incremental_defaults(tmp_path: Path) -> None:
+    cfg = load_toml('[typemut]\nmodule-path = "src"\n', tmp_path)
+    assert (cfg.incremental, cfg.max_duration, cfg.cache_key_files) == (
+        False,
+        None,
+        ["uv.lock", "poetry.lock", "requirements*.txt"],
+    )
+
+
+def test_load_config_incremental(tmp_path: Path) -> None:
+    cfg = load_toml(
+        "[typemut]\nincremental = true\nmax-duration = 600\n"
+        'cache-key-files = ["Pipfile.lock"]\n',
+        tmp_path,
+    )
+    assert (cfg.incremental, cfg.max_duration, cfg.cache_key_files) == (
+        True,
+        600.0,
+        ["Pipfile.lock"],
+    )
+
+
+def test_load_config_no_cache_key_files(tmp_path: Path) -> None:
+    cfg = load_toml("[typemut]\ncache-key-files = []\n", tmp_path)
+    assert cfg.cache_key_files == []
+
+
+@pytest.mark.parametrize(
+    ("toml_value", "message"),
+    [
+        pytest.param(
+            'incremental = "yes"', "Ignoring invalid 'incremental' option 'yes'", id="incremental"
+        ),
+        pytest.param("max-duration = 0", "Ignoring invalid 'max-duration' option 0", id="zero"),
+        pytest.param(
+            "max-duration = true", "Ignoring invalid 'max-duration' option True", id="bool"
+        ),
+        pytest.param(
+            'max-duration = "1h"', "Ignoring invalid 'max-duration' option '1h'", id="string"
+        ),
+        pytest.param(
+            'cache-key-files = "uv.lock"',
+            "Ignoring invalid 'cache-key-files' option 'uv.lock'",
+            id="key-files",
+        ),
+    ],
+)
+def test_load_config_invalid_incremental_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, toml_value: str, message: str
+) -> None:
+    cfg = load_toml(f'[typemut]\nmodule-path = "src"\n{toml_value}\n', tmp_path)
+    assert (cfg.incremental, cfg.max_duration, cfg.cache_key_files) == (
+        False,
+        None,
+        ["uv.lock", "poetry.lock", "requirements*.txt"],
+    )
+    assert message in caplog.text
