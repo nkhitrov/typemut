@@ -276,6 +276,8 @@ class ResultRecorder:
             self._flush(batch)
 
     def _flush(self, batch: Collection[MutantRow]) -> None:
+        if len(batch) == 0:
+            return
         self._db.update_results_batch(batch)
         if self._cache is not None:
             self._cache.save(batch)

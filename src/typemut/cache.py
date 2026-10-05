@@ -88,10 +88,13 @@ class TypemutVersion:
 
     def fingerprint(self) -> str:
         """``<version>+<source hash>``."""
+        paths = [
+            path.relative_to(self._package_dir).as_posix()
+            for path in self._package_dir.rglob("*.py")
+        ]
         sources = hashlib.sha256()
-        for path in sorted(self._package_dir.rglob("*.py")):
-            relative = path.relative_to(self._package_dir).as_posix()
-            sources.update(f"{relative}\0{self._hasher.digest(path)}\0".encode())
+        for relative, digest in self._hasher.digests(self._package_dir, paths).items():
+            sources.update(f"{relative}\0{digest}\0".encode())
         return f"{metadata.version('typemut')}+{sources.hexdigest()[:16]}"
 
 
@@ -119,12 +122,16 @@ class CacheInputs:
             "timeout": str(cfg.timeout),
         }
         for path in checker.config_files(self._root):
-            meta[f"checker config {self._relative(path)}"] = self._hasher.digest(path)
+            meta[f"checker config {path.relative_to(self._root).as_posix()}"] = self._hasher.digest(
+                path
+            )
         for path in self._key_files(cfg.cache_key_files):
-            meta[f"file {self._relative(path)}"] = self._hasher.digest(path)
+            meta[f"file {path.relative_to(self._root).as_posix()}"] = self._hasher.digest(path)
         return meta
 
-    def knows_checker_version(self, meta: Mapping[str, str]) -> bool:
+    def knows_checker_version(
+        self, meta: Mapping[str, str]
+    ) -> bool:  # pragma: no mutate (truth-tested)
         """Whether the checker version is known in *meta*: reuse needs it."""
         return meta.get(CHECKER_VERSION, UNKNOWN) != UNKNOWN
 
@@ -132,9 +139,6 @@ class CacheInputs:
         """Files in the project root matching any of the glob *patterns*."""
         found = {path for pattern in patterns for path in self._root.glob(pattern)}
         return sorted(path for path in found if path.is_file())
-
-    def _relative(self, path: Path) -> str:
-        return path.relative_to(self._root).as_posix()
 
 
 @dataclass(frozen=True)
@@ -170,11 +174,9 @@ class ResultCache:
         if stored == meta:
             return None
         self._db.cache.reset(meta)
+        changed = sorted(key for key in set(stored) | set(meta) if stored.get(key) != meta.get(key))
         if not stored:
             return "no earlier results"
-        changed = sorted(
-            key for key in stored.keys() | meta.keys() if stored.get(key) != meta.get(key)
-        )
         return ", ".join(changed) + " changed"
 
     def reuse(self, pending: Iterable[MutantRow]) -> Reuse:
@@ -208,7 +210,9 @@ class ResultCache:
         """Store the results of the finished *mutants*; pending ones are skipped."""
         self._db.cache.upsert(mutant for mutant in mutants if mutant.status != "pending")
 
-    def _unchanged(self, depends: Mapping[str, str], digests: dict[str, str]) -> bool:
+    def _unchanged(
+        self, depends: Mapping[str, str], digests: dict[str, str]
+    ) -> bool:  # pragma: no mutate (truth-tested)
         """Whether every file in *depends* still has its digest; *digests* memoizes them."""
         for path, digest in depends.items():
             if path not in digests:

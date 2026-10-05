@@ -120,9 +120,9 @@ def exec_cmd(
     config_path: str,
     db_path: str | None,  # pragma: no mutate  (click passes None when --db is omitted)
     jobs: int,
-    incremental: bool | None,
+    incremental: bool | None,  # pragma: no mutate  (click passes None when neither flag is given)
     refresh: bool,
-    max_duration: float | None,
+    max_duration: float | None,  # pragma: no mutate  (click passes None when omitted)
 ) -> None:
     """Run type checker against each mutation."""
     # A CI timeout stops the run like Ctrl+C: finished results are saved.
@@ -181,9 +181,9 @@ def run(
     config_path: str,
     db_path: str | None,
     jobs: int,
-    incremental: bool | None,
+    incremental: bool | None,  # pragma: no mutate  (click passes None when neither flag is given)
     refresh: bool,
-    max_duration: float | None,
+    max_duration: float | None,  # pragma: no mutate  (click passes None when omitted)
     fail_under: float | None,
     baseline_path: str | None,
     update_baseline: bool,

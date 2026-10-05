@@ -175,7 +175,7 @@ def test_load_config_invalid_checker_warns(
 
 def test_load_config_incremental_defaults(tmp_path: Path) -> None:
     cfg = load_toml('[typemut]\nmodule-path = "src"\n', tmp_path)
-    assert (cfg.incremental, cfg.max_duration, cfg.cache_key_files) == (
+    assert (cfg.incremental, cfg.max_duration, list(cfg.cache_key_files)) == (
         False,
         None,
         ["uv.lock", "poetry.lock", "requirements*.txt"],
@@ -188,7 +188,7 @@ def test_load_config_incremental(tmp_path: Path) -> None:
         'cache-key-files = ["Pipfile.lock"]\n',
         tmp_path,
     )
-    assert (cfg.incremental, cfg.max_duration, cfg.cache_key_files) == (
+    assert (cfg.incremental, cfg.max_duration, list(cfg.cache_key_files)) == (
         True,
         600.0,
         ["Pipfile.lock"],
@@ -197,7 +197,7 @@ def test_load_config_incremental(tmp_path: Path) -> None:
 
 def test_load_config_no_cache_key_files(tmp_path: Path) -> None:
     cfg = load_toml("[typemut]\ncache-key-files = []\n", tmp_path)
-    assert cfg.cache_key_files == []
+    assert list(cfg.cache_key_files) == []
 
 
 @pytest.mark.parametrize(
@@ -224,7 +224,7 @@ def test_load_config_invalid_incremental_warns(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, toml_value: str, message: str
 ) -> None:
     cfg = load_toml(f'[typemut]\nmodule-path = "src"\n{toml_value}\n', tmp_path)
-    assert (cfg.incremental, cfg.max_duration, cfg.cache_key_files) == (
+    assert (cfg.incremental, cfg.max_duration, list(cfg.cache_key_files)) == (
         False,
         None,
         ["uv.lock", "poetry.lock", "requirements*.txt"],

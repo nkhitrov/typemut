@@ -177,7 +177,7 @@ class App:
         progress = self.progress or RichProgressBar(self.console)
         ResultRecorder(db, progress, cache=cache).record(mutants, self._executor(tester, jobs))
         not_run = db.count_pending()
-        if not_run:
+        if not_run > 0:
             self.console.print(
                 f"[yellow]Stopped after max-duration: {not_run} mutants not run.[/yellow]"
             )
@@ -199,7 +199,7 @@ class App:
         run (``max-duration``), and then the baseline is not updated.
         """
         not_run = db.count_pending()
-        if not_run:
+        if not_run > 0:
             self.console.print(
                 f"[red]{not_run} mutants not run (max-duration); run again to test them.[/red]"
             )
@@ -277,7 +277,7 @@ class App:
         found = cache.reuse(mutants)
         db.update_results_batch(found.reused)
         self.console.print(f"Reused {len(found.reused)} cached kills.")
-        if found.stale or found.untraceable:
+        if found.stale + found.untraceable > 0:
             self.console.print(
                 f"Rerunning {found.stale} kills whose files changed and "
                 f"{found.untraceable} kills the checker output did not trace to files."

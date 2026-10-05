@@ -164,7 +164,7 @@ class CommandLine:
         """Position of the first word of the command word *index* belongs to."""
         return max(start for start, _ in self._commands() if start <= index)
 
-    def _directory_changes(self, end: int) -> Sequence[str]:
+    def _directory_changes(self, end: int) -> Iterable[str]:
         """The ``cd`` and ``pushd`` commands before word *end*, as written."""
         return [
             self._text(start, start + len(command))

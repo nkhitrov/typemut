@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import TypeAlias
 
 SCHEMA = """\
 CREATE TABLE IF NOT EXISTS mutants (
@@ -61,17 +61,9 @@ _MIGRATIONS = [
     "ALTER TABLE mutants ADD COLUMN depends TEXT",
 ]
 
-
-class MutantKey(NamedTuple):
-    """What identifies a mutant across runs; *required_import* is '' for none."""
-
-    module_path: str
-    line: int
-    col: int
-    operator: str
-    original_annotation: str
-    mutated_annotation: str
-    required_import: str
+# What identifies a mutant across runs: module path, line, column, operator,
+# original and mutated annotation, required import ('' for none).
+MutantKey: TypeAlias = tuple[str, int, int, str, str, str, str]
 
 
 @dataclass
@@ -93,7 +85,7 @@ class MutantRow:
 
     def key(self) -> MutantKey:
         """What identifies this mutant across runs."""
-        return MutantKey(
+        return (
             self.module_path,
             self.line,
             self.col,
@@ -256,7 +248,7 @@ class Database:
             status=row["status"],
             output=row["output"],
             duration_seconds=row["duration_seconds"],
-            depends=DependsColumn.load(row["depends"]),
+            depends=DependsColumn.load(row),
         )
 
 
@@ -311,7 +303,7 @@ class CacheTables:
                 required_import=row["required_import"] or None,
                 status=row["status"],
                 output=row["output"],
-                depends=DependsColumn.load(row["depends"]),
+                depends=DependsColumn.load(row),
             )
             for row in rows
         )
@@ -326,5 +318,7 @@ class DependsColumn:
         return None if depends is None else json.dumps(dict(depends), sort_keys=True)
 
     @staticmethod
-    def load(text: str | None) -> Mapping[str, str] | None:
+    def load(row: sqlite3.Row) -> Mapping[str, str] | None:
+        """The ``depends`` column of *row*."""
+        text = row["depends"]
         return None if text is None else dict(json.loads(text))

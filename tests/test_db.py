@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
-from typemut.db import Database, MutantKey, MutantRow
+from typemut.db import Database, MutantRow
 
 
 def _make_mutant(**overrides) -> MutantRow:
@@ -116,8 +116,8 @@ def test_count_pending(tmp_db: Database) -> None:
 
 def test_mutant_key() -> None:
     mutant = _make_mutant(required_import="import x")
-    assert mutant.key() == MutantKey("test.py", 1, 3, "TestOp", "int", "str", "import x")
-    assert _make_mutant().key().required_import == ""
+    assert mutant.key() == ("test.py", 1, 3, "TestOp", "int", "str", "import x")
+    assert _make_mutant().key() == ("test.py", 1, 3, "TestOp", "int", "str", "")
 
 
 def test_old_database_gets_depends_column(tmp_path: Path) -> None:

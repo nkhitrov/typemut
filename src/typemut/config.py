@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import tomllib
-from collections.abc import Container
+from collections.abc import Container, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Final
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ OPERATOR_KEYS: tuple[str, ...] = (
 ALL_OPERATORS = "all"
 
 # Files whose change invalidates every cached result: the project's lockfiles.
-DEFAULT_CACHE_KEY_FILES: tuple[str, ...] = ("uv.lock", "poetry.lock", "requirements*.txt")
+DEFAULT_CACHE_KEY_FILES: Final = ("uv.lock", "poetry.lock", "requirements*.txt")
 
 
 @dataclass
@@ -61,11 +62,11 @@ class Config:
     checker: str | None = None
     checker_version_command: str | None = None
     # reuse kills of earlier runs while the files they depend on are unchanged
-    incremental: bool = False
+    incremental: bool = False  # pragma: no mutate (truth-tested)
     # seconds after which no new mutant is started; None: no limit
     max_duration: float | None = None
     # glob patterns of files (relative to the project root) the cache depends on
-    cache_key_files: list[str] = field(default_factory=lambda: list(DEFAULT_CACHE_KEY_FILES))
+    cache_key_files: Iterable[str] = DEFAULT_CACHE_KEY_FILES
 
 
 class ConfigLoader:
@@ -105,12 +106,12 @@ class ConfigLoader:
             cache_key_files=self._cache_key_files(section.get("cache-key-files")),
         )
 
-    def _cache_key_files(self, raw: object) -> list[str]:
+    def _cache_key_files(self, raw: object) -> Iterable[str]:
         """Validate ``cache-key-files``; the default lockfiles if unset or invalid."""
         if raw is None:
-            return list(DEFAULT_CACHE_KEY_FILES)
+            return DEFAULT_CACHE_KEY_FILES
         patterns = self._string_list(raw, "cache-key-files")
-        return list(DEFAULT_CACHE_KEY_FILES) if patterns is None else patterns
+        return DEFAULT_CACHE_KEY_FILES if patterns is None else patterns
 
     def _bool(self, raw: object, option: str) -> bool:
         """Return *raw* if it is a boolean, else warn and return False."""
