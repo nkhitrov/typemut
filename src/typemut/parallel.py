@@ -160,8 +160,13 @@ class GitWorkspace:
         if result.outcome is not Outcome.PASSED:
             shutil.rmtree(worktree.parent, ignore_errors=True)
             raise WorkspaceError("Failed to create git worktree", result.output.strip())
-        for path in self._carry:
-            self._copy_into(path, worktree)
+        try:
+            for path in self._carry:
+                self._copy_into(path, worktree)
+        except BaseException:
+            # The caller never gets this worktree, so it could not remove it.
+            self.remove_worktrees([worktree])
+            raise
         return worktree
 
     def remove_worktrees(self, worktrees: Iterable[Path]) -> None:

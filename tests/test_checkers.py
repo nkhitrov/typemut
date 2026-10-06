@@ -646,7 +646,23 @@ def test_mypy_relative_cache_outside_root_is_not_carried(
 ) -> None:
     checker = MypyChecker("mypy --cache-dir ../outside .", environ={})
     assert checker.worktree_cache_paths(tmp_path) == []
-    assert "is outside the project" in caplog.text
+    assert caplog.text == ""
+
+
+@pytest.mark.parametrize(
+    "test_command",
+    [
+        pytest.param(f"mypy --cache-dir={os.devnull} .", id="option"),
+        pytest.param(f"mypy --cache-dir {os.devnull} .", id="separate-option"),
+    ],
+)
+def test_mypy_devnull_cache_is_no_cache(
+    test_command: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    checker = MypyChecker(test_command, environ={})
+    assert checker.cache_paths(tmp_path) == []
+    assert checker.worktree_cache_paths(tmp_path) == []
+    assert caplog.text == ""
 
 
 @pytest.mark.parametrize(

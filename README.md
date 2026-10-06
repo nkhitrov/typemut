@@ -84,9 +84,11 @@ at the end. What this means for your project:
   place as in the project, so all workers share that one cache instead (a
   warning says so); use a relative path inside the project to give each
   worker its own copy. A cache outside the project (`../mypy-cache`) is
-  neither listed nor copied, and workers start cold. pyright and `generic`
-  have no cache to copy. A missing cache is skipped and a failed copy is
-  logged as a warning; that worker then starts cold.
+  neither listed nor copied, and workers start cold; `--cache-dir=/dev/null`
+  turns mypy's cache off, so there is nothing to copy or warn about. pyright
+  and `generic` have no cache to copy. A missing cache is skipped and a failed
+  copy is logged as a warning; that worker then starts cold. If the copy is
+  interrupted (Ctrl-C), the half-made worktree is removed.
 - **Pick N by CPU cores and memory**: every worker runs its own type checker
   process (mypy on a large project can take gigabytes of RAM). The number of
   CPU cores is a good start.

@@ -67,15 +67,18 @@ class MypyChecker(TypeChecker):
         ]
 
     def cache_paths(self, root: Path) -> Iterable[Path]:
-        """mypy's cache directory, if it is inside *root*.
+        """mypy's cache directory, if it is inside *root* (none for ``/dev/null``).
 
         Taken from ``--cache-dir``, ``MYPY_CACHE_DIR``, ``cache_dir`` in the
         config file, or the default ``.mypy_cache``, in that order, with
         ``~`` and ``$VAR`` expanded in the checker's environment, as mypy does.
         """
+        cache_dir = self._cache_dir(root)
+        if cache_dir == os.devnull:
+            return []
         project = root.resolve()
-        path = (root / self._cache_dir(root)).resolve()
-        if not path.is_relative_to(project):
+        path = (root / cache_dir).resolve()
+        if not self._inside_project(root, cache_dir):
             logger.warning("mypy cache %s is outside the project %s; not using it", path, project)
             return []
         return [root / path.relative_to(project)]
@@ -88,8 +91,13 @@ class MypyChecker(TypeChecker):
         cache and a copy would never be read. A relative one is carried by
         its configured name, not by where symlinks lead: mypy in the worktree
         looks for that name, and an untracked symlink is not there.
+
+        Only ``cache_paths`` warns about a cache outside *root*, and nothing
+        is said for ``/dev/null``, which turns mypy's cache off.
         """
         cache_dir = self._cache_dir(root)
+        if cache_dir == os.devnull:
+            return []
         if Path(cache_dir).is_absolute():
             logger.warning(
                 "mypy cache %s is an absolute path: parallel workers share it "
@@ -97,9 +105,13 @@ class MypyChecker(TypeChecker):
                 cache_dir,
             )
             return []
-        if not self.cache_paths(root):
+        if not self._inside_project(root, cache_dir):
             return []
         return [root / os.path.normpath(cache_dir)]
+
+    def _inside_project(self, root: Path, cache_dir: str) -> bool:
+        """Whether *cache_dir*, with symlinks resolved, is inside *root*."""
+        return (root / cache_dir).resolve().is_relative_to(root.resolve())
 
     def _cache_dir(self, root: Path) -> str:
         """The configured cache directory, expanded, possibly relative to *root*."""
