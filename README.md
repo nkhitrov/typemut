@@ -311,8 +311,9 @@ these rules:
 - **Recheck on a schedule**: a weekly `typemut run --refresh` on the default
   branch runs every mutant again and stores the results like a push. It
   rechecks only what fits in its `--max-duration`, so give it a limit (and job
-  timeout) long enough for the whole project: the examples use 5.5 hours
-  instead of 25 minutes.
+  timeout) long enough for the whole project, within the platform's maximum
+  job time: the GitHub examples use 5.5 hours, the GitLab one 5h40m, instead
+  of 25 minutes.
 
 typemut's own CI does this with a GitHub artifact: see
 `.github/workflows/ci.yml`. (There, any change to typemut's own sources resets
@@ -330,9 +331,14 @@ a branch that is also named `main`, and the run id keeps out a re-run of an
 old run, which uploads later than newer runs. It reads the 100 most recently
 uploaded `typemut-db` artifacts, which is plenty with one per run on main.
 The `concurrency` group queues runs of the same branch, so a run on main
-starts after the previous one has uploaded (a newer queued run replaces an
-older one that is still waiting, which is fine: it downloads the same
-database). `overwrite: true` lets a re-run of failed jobs, which reuses the
+starts after the previous one has uploaded. GitHub keeps only one waiting run
+per group, and a newer one cancels it. For a waiting push run that is fine:
+the newer run downloads the same database and covers its commit. But a push
+can also cancel a waiting weekly refresh (or wait for a running one, up to its
+time limit); re-trigger a cancelled refresh by hand with the workflow's
+`refresh` input. Don't give refreshes a group of their own: a push run started
+during a refresh has a higher run id, so its database, built without the
+refresh's results, would become the latest. `overwrite: true` lets a re-run of failed jobs, which reuses the
 run, replace that run's artifact. The weekly `--refresh` run gets a 5.5-hour
 limit (a GitHub-hosted job runs for at most 6 hours).
 
@@ -346,6 +352,10 @@ on:
   schedule:
     - cron: "0 3 * * 1"   # weekly --refresh
   workflow_dispatch:
+    inputs:
+      refresh:            # re-trigger a refresh replaced in the queue
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -354,7 +364,7 @@ jobs:
   typemut:
     runs-on: ubuntu-latest
     # > step timeout > --max-duration; the weekly --refresh gets longer.
-    timeout-minutes: ${{ github.event_name == 'schedule' && 350 || 45 }}
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 350 || 45 }}
     concurrency:                   # runs on main upload one after another
       group: typemut-db-${{ github.ref }}
       cancel-in-progress: false
@@ -398,9 +408,9 @@ jobs:
           rm -f typemut-db.zip
 
       - name: typemut
-        timeout-minutes: ${{ github.event_name == 'schedule' && 340 || 35 }}
+        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 340 || 35 }}
         env:
-          ARGS: ${{ github.event_name == 'schedule' && '--refresh --max-duration 19800' || '--max-duration 1500' }}
+          ARGS: ${{ (github.event_name == 'schedule' || inputs.refresh) && '--refresh --max-duration 19800' || '--max-duration 1500' }}
         run: >-
           uv run typemut run --incremental --jobs 4
           --baseline typemut-baseline.json $ARGS
@@ -438,6 +448,10 @@ on:
   schedule:
     - cron: "0 3 * * 1"   # weekly --refresh
   workflow_dispatch:
+    inputs:
+      refresh:            # re-trigger a refresh replaced in the queue
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -446,7 +460,7 @@ jobs:
   typemut:
     runs-on: ubuntu-latest
     # > step timeout > --max-duration; the weekly --refresh gets longer.
-    timeout-minutes: ${{ github.event_name == 'schedule' && 350 || 45 }}
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 350 || 45 }}
     concurrency:                   # runs on main save one after another
       group: typemut-db-${{ github.ref }}
       cancel-in-progress: false
@@ -462,9 +476,9 @@ jobs:
           restore-keys: typemut-   # the newest cache saved on main
 
       - name: typemut
-        timeout-minutes: ${{ github.event_name == 'schedule' && 340 || 35 }}
+        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 340 || 35 }}
         env:
-          ARGS: ${{ github.event_name == 'schedule' && '--refresh --max-duration 19800' || '--max-duration 1500' }}
+          ARGS: ${{ (github.event_name == 'schedule' || inputs.refresh) && '--refresh --max-duration 19800' || '--max-duration 1500' }}
         run: >-
           uv run typemut run --incremental --jobs 4
           --baseline typemut-baseline.json $ARGS
@@ -478,7 +492,7 @@ jobs:
 
 #### GitLab CI: artifact
 
-Two jobs share the script: `typemut` runs on the default branch and keeps the
+Three jobs share the script: `typemut` runs on the default branch and keeps the
 database as an artifact even when it fails (`when: always`); `typemut-mr` runs
 for merge requests and keeps nothing; `typemut-refresh` is the weekly
 `--refresh` from a pipeline schedule, with a longer time limit so that it
