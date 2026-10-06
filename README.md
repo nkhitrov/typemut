@@ -240,7 +240,11 @@ it: the next run with a known version reuses the kills again. The Python version
 
 **Keeping the cache fresh.** `typemut run --refresh` runs every mutant and
 stores the results without reusing any: run it on a schedule (e.g. weekly) to
-recheck the kills. (`exec --refresh` only runs the mutants still pending.) Without `--incremental` nothing is reused or stored, and the kills
+recheck the kills. (`exec --refresh` only runs the mutants still pending.)
+Under `--max-duration` a refresh rechecks only the mutants that fit: they run
+in a fixed order, so the ones past the limit are never rechecked and keep
+their old kills. Give the scheduled refresh a time limit (and CI timeout)
+long enough for the whole project, or none. Without `--incremental` nothing is reused or stored, and the kills
 already in the result cache stay there: a run without the flag (or `init`)
 between two incremental runs does not discard them.
 
@@ -300,8 +304,15 @@ these rules:
   and saves, and the upload step still runs. Leave room for one mutant's
   `timeout` plus the baseline check between `--max-duration` and the step
   timeout.
+- **Runs on the default branch wait for each other.** Two overlapping runs
+  would both upload a database, and the older commit's run could finish
+  last and become "the latest". Queue them (a concurrency group on GitHub)
+  and pick the newest run's database, not the newest upload.
 - **Recheck on a schedule**: a weekly `typemut run --refresh` on the default
-  branch runs every mutant again and stores the results like a push.
+  branch runs every mutant again and stores the results like a push. It
+  rechecks only what fits in its `--max-duration`, so give it a limit (and job
+  timeout) long enough for the whole project: the examples use 5.5 hours
+  instead of 25 minutes.
 
 typemut's own CI does this with a GitHub artifact: see
 `.github/workflows/ci.yml`. (There, any change to typemut's own sources resets
@@ -313,9 +324,17 @@ that touch `src/typemut/` run every mutant.)
 Artifacts are kept for `retention-days` (up to the repository's limit, 90 days
 by default), can be found by name through the API, and a failed or timed-out
 run still uploads one with `if: always()`. The download step looks for the
-newest unexpired `typemut-db` artifact uploaded by a run on `main` of this
-repository: `head_repository_id` keeps out a fork's pull request from a branch
-that is also named `main`.
+unexpired `typemut-db` artifact of the newest run (highest run id) on `main`
+of this repository: `head_repository_id` keeps out a fork's pull request from
+a branch that is also named `main`, and the run id keeps out a re-run of an
+old run, which uploads later than newer runs. It reads the 100 most recently
+uploaded `typemut-db` artifacts, which is plenty with one per run on main.
+The `concurrency` group queues runs of the same branch, so a run on main
+starts after the previous one has uploaded (a newer queued run replaces an
+older one that is still waiting, which is fine: it downloads the same
+database). `overwrite: true` lets a re-run of failed jobs, which reuses the
+run, replace that run's artifact. The weekly `--refresh` run gets a 5.5-hour
+limit (a GitHub-hosted job runs for at most 6 hours).
 
 ```yaml
 name: typemut
@@ -334,7 +353,11 @@ permissions:
 jobs:
   typemut:
     runs-on: ubuntu-latest
-    timeout-minutes: 45            # > step timeout > --max-duration
+    # > step timeout > --max-duration; the weekly --refresh gets longer.
+    timeout-minutes: ${{ github.event_name == 'schedule' && 350 || 45 }}
+    concurrency:                   # runs on main upload one after another
+      group: typemut-db-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: read
       actions: read                # list and download artifacts
@@ -348,13 +371,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO_ID: ${{ github.repository_id }}
         run: |
-          # Newest unexpired artifact uploaded by a run on main of this repository
+          # Unexpired artifact of the newest run on main of this repository
           # (not of a fork), whatever that run's outcome.
           query='[.artifacts[]
                   | select(.expired | not)
                   | select(.workflow_run.head_branch == "main")
                   | select(.workflow_run.head_repository_id == ($ENV.REPO_ID | tonumber))]
-                 | first // empty
+                 | max_by(.workflow_run.id) // empty
                  | "\(.id) \(.workflow_run.id)"'
           if ! found="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=typemut-db&per_page=100" --jq "$query")"; then
             echo "::warning::Could not list the typemut-db artifacts: running every mutant"
@@ -375,12 +398,12 @@ jobs:
           rm -f typemut-db.zip
 
       - name: typemut
-        timeout-minutes: 35
+        timeout-minutes: ${{ github.event_name == 'schedule' && 340 || 35 }}
         env:
-          REFRESH: ${{ github.event_name == 'schedule' && '--refresh' || '' }}
+          ARGS: ${{ github.event_name == 'schedule' && '--refresh --max-duration 19800' || '--max-duration 1500' }}
         run: >-
-          uv run typemut run --incremental --jobs 4 --max-duration 1500
-          --baseline typemut-baseline.json $REFRESH
+          uv run typemut run --incremental --jobs 4
+          --baseline typemut-baseline.json $ARGS
 
       # Only trusted events on main store the database, even when typemut failed.
       - name: Upload the typemut database
@@ -391,6 +414,7 @@ jobs:
           path: typemut.sqlite
           retention-days: 30
           if-no-files-found: ignore
+          overwrite: true          # a re-run of failed jobs reuses the run
 ```
 
 #### GitHub Actions: cache
@@ -400,9 +424,32 @@ repository's cache storage is limited (10 GB by default, oldest evicted first).
 Each run on main saves a new cache under a unique key; every run restores the
 newest one by the `typemut-` prefix. Pull requests can restore caches of the
 base branch, and caches saved by pull requests stay scoped to them, so main
-never reads one.
+never reads one. The triggers, time limits and concurrency group are those of
+the artifact workflow; only the database steps differ (no `actions: read`
+needed).
 
 ```yaml
+name: typemut
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * 1"   # weekly --refresh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typemut:
+    runs-on: ubuntu-latest
+    # > step timeout > --max-duration; the weekly --refresh gets longer.
+    timeout-minutes: ${{ github.event_name == 'schedule' && 350 || 45 }}
+    concurrency:                   # runs on main save one after another
+      group: typemut-db-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
@@ -415,12 +462,12 @@ never reads one.
           restore-keys: typemut-   # the newest cache saved on main
 
       - name: typemut
-        timeout-minutes: 35
+        timeout-minutes: ${{ github.event_name == 'schedule' && 340 || 35 }}
         env:
-          REFRESH: ${{ github.event_name == 'schedule' && '--refresh' || '' }}
+          ARGS: ${{ github.event_name == 'schedule' && '--refresh --max-duration 19800' || '--max-duration 1500' }}
         run: >-
-          uv run typemut run --incremental --jobs 4 --max-duration 1500
-          --baseline typemut-baseline.json $REFRESH
+          uv run typemut run --incremental --jobs 4
+          --baseline typemut-baseline.json $ARGS
 
       - uses: actions/cache/save@v4
         if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -433,37 +480,55 @@ never reads one.
 
 Two jobs share the script: `typemut` runs on the default branch and keeps the
 database as an artifact even when it fails (`when: always`); `typemut-mr` runs
-for merge requests and keeps nothing. Both download the artifact of the newest
-`typemut` job on the default branch that succeeded or failed: GitLab's
+for merge requests and keeps nothing; `typemut-refresh` is the weekly
+`--refresh` from a pipeline schedule, with a longer time limit so that it
+rechecks the whole project (raise the project's and the runner's maximum job
+timeout to match). All download the artifact of the newest `typemut` or
+`typemut-refresh` job on the default branch that succeeded or failed: GitLab's
 "latest artifact of a branch" endpoint only knows successful pipelines, so the
-job is looked up through the jobs API. Listing jobs needs a token with the
+job is looked up through the API, in the 50 newest finished pipelines of the
+default branch (listed by the server, so merge request pipelines do not push
+them out); with none among them, the run is a full one. Listing pipelines and jobs needs a token with the
 `read_api` scope (a project access token with the Reporter role, saved as the
 masked CI/CD variable `TYPEMUT_API_TOKEN`; leave it unprotected so merge
 request pipelines see it). Without it the script falls back to the job token
-and the latest successful pipeline. `curl --fail` fetches the single file, so
+and the `typemut` job of the latest successful pipeline. `curl --fail` fetches the single file, so
 no zip is involved; a missing artifact (or a failed download, whose partial
 file is removed) just means a full run.
 `RUNNER_SCRIPT_TIMEOUT` below `timeout` leaves the runner time to upload the
-artifact after a script timeout.
+artifact after a script timeout; it needs GitLab Runner 16.4 or later (older
+runners ignore it, and a job that hits `timeout` uploads nothing).
 
 ```yaml
 .typemut:
   image: ghcr.io/astral-sh/uv:python3.13-bookworm
   timeout: 45m
   variables:
-    RUNNER_SCRIPT_TIMEOUT: 35m     # < timeout, > --max-duration
+    RUNNER_SCRIPT_TIMEOUT: 35m     # < timeout, > --max-duration (Runner 16.4+)
+    TYPEMUT_MAX_DURATION: "1500"
   script:
     - uv sync
     - |
       api="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
       if [ -n "${TYPEMUT_API_TOKEN:-}" ]; then
-        # Newest `typemut` job on the default branch, successful or failed.
-        job_id="$(curl --fail --globoff -sS --header "PRIVATE-TOKEN: $TYPEMUT_API_TOKEN" \
-            "$api/jobs?scope[]=success&scope[]=failed&per_page=100" \
-          | python3 -c 'import json, os, sys
-      jobs = [j for j in json.load(sys.stdin)
-              if j["name"] == "typemut" and j["ref"] == os.environ["CI_DEFAULT_BRANCH"] and not j["tag"]]
-      print(jobs[0]["id"] if jobs else "")')" || job_id=""
+        # Newest `typemut`/`typemut-refresh` job on the default branch,
+        # successful or failed, in its 50 newest finished pipelines.
+        job_id="$(python3 - <<'PY'
+      import json, os, urllib.parse, urllib.request
+      api = os.environ["CI_API_V4_URL"] + "/projects/" + os.environ["CI_PROJECT_ID"]
+      def get(path):
+          headers = {"PRIVATE-TOKEN": os.environ["TYPEMUT_API_TOKEN"]}
+          with urllib.request.urlopen(urllib.request.Request(api + path, headers=headers)) as response:
+              return json.load(response)
+      ref = urllib.parse.quote(os.environ["CI_DEFAULT_BRANCH"], safe="")
+      for pipeline in get(f"/pipelines?ref={ref}&scope=finished&order_by=id&sort=desc&per_page=50"):
+          jobs = get(f"/pipelines/{pipeline['id']}/jobs?scope[]=success&scope[]=failed&per_page=100")
+          found = [job["id"] for job in jobs if job["name"] in ("typemut", "typemut-refresh")]
+          if found:
+              print(found[0])
+              break
+      PY
+      )" || job_id=""
         if [ -n "$job_id" ]; then
           curl --fail --location -sS --header "PRIVATE-TOKEN: $TYPEMUT_API_TOKEN" \
             "$api/jobs/$job_id/artifacts/typemut.sqlite" -o typemut.sqlite \
@@ -478,20 +543,32 @@ artifact after a script timeout.
           "$api/jobs/artifacts/$CI_DEFAULT_BRANCH/raw/typemut.sqlite?job=typemut" -o typemut.sqlite \
           || { echo "no previous DB"; rm -f typemut.sqlite; }
       fi
-    - uv run typemut run --incremental --jobs 4 --max-duration 1500
+    - uv run typemut run --incremental --jobs 4 --max-duration $TYPEMUT_MAX_DURATION
         --baseline typemut-baseline.json $TYPEMUT_EXTRA_ARGS
 
-typemut:
+.typemut-store:
   extends: .typemut
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      variables:
-        TYPEMUT_EXTRA_ARGS: "--refresh"   # weekly pipeline schedule
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   artifacts:
     paths: [typemut.sqlite]
     when: always                   # failed and timed-out runs store their results too
     expire_in: 30 days
+
+typemut:
+  extends: .typemut-store
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+typemut-refresh:                   # weekly pipeline schedule on the default branch
+  extends: .typemut-store
+  timeout: 6h
+  variables:
+    RUNNER_SCRIPT_TIMEOUT: 5h50m
+    TYPEMUT_MAX_DURATION: "20400"  # 5h40m: a refresh rechecks only what fits
+    TYPEMUT_EXTRA_ARGS: "--refresh"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 typemut-mr:
   extends: .typemut
@@ -510,7 +587,9 @@ Works with caveats, so prefer artifacts:
   cache the default branch reads, unless every job but the default branch's
   uses `policy: pull`.
 - `fallback_keys` needs GitLab 16.0 or later, a variable in `cache:policy`
-  16.1 or later.
+  16.1 or later, `$CI_DEFAULT_BRANCH_SLUG` (the fallback key must be slugged
+  like the key the default branch saves under) 17.4 or later, and
+  `RUNNER_SCRIPT_TIMEOUT` GitLab Runner 16.4 or later.
 - Without a distributed cache (S3, GCS, ...), each runner has its own cache,
   and a job on another runner starts from nothing.
 
@@ -522,7 +601,7 @@ typemut:
     RUNNER_SCRIPT_TIMEOUT: 35m
   cache:
     key: typemut-db-$CI_COMMIT_REF_SLUG
-    fallback_keys: [typemut-db-$CI_DEFAULT_BRANCH]
+    fallback_keys: [typemut-db-$CI_DEFAULT_BRANCH_SLUG]
     paths: [typemut.sqlite]
     when: always
     policy: $TYPEMUT_CACHE_POLICY
