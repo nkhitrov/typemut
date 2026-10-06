@@ -76,12 +76,15 @@ class MypyChecker(TypeChecker):
         cache_dir = self._cache_dir(root)
         if cache_dir == os.devnull:
             return []
-        project = root.resolve()
-        path = (root / cache_dir).resolve()
-        if not self._inside_project(root, cache_dir):
-            logger.warning("mypy cache %s is outside the project %s; not using it", path, project)
+        inside = self._in_project(root, cache_dir)
+        if inside is None:
+            logger.warning(
+                "mypy cache %s is outside the project %s; not using it",
+                (root / cache_dir).resolve(),
+                root.resolve(),
+            )
             return []
-        return [root / path.relative_to(project)]
+        return [root / inside]
 
     def worktree_cache_paths(self, root: Path) -> Iterable[Path]:
         """mypy's cache directory if it is relative and inside *root*.
@@ -105,13 +108,17 @@ class MypyChecker(TypeChecker):
                 cache_dir,
             )
             return []
-        if not self._inside_project(root, cache_dir):
+        if self._in_project(root, cache_dir) is None:
             return []
         return [root / os.path.normpath(cache_dir)]
 
-    def _inside_project(self, root: Path, cache_dir: str) -> bool:
-        """Whether *cache_dir*, with symlinks resolved, is inside *root*."""
-        return (root / cache_dir).resolve().is_relative_to(root.resolve())
+    def _in_project(self, root: Path, cache_dir: str) -> Path | None:
+        """*cache_dir* with symlinks resolved, relative to *root*; None if outside it."""
+        project = root.resolve()
+        path = (root / cache_dir).resolve()
+        if not path.is_relative_to(project):
+            return None
+        return path.relative_to(project)
 
     def _cache_dir(self, root: Path) -> str:
         """The configured cache directory, expanded, possibly relative to *root*."""
