@@ -306,8 +306,13 @@ these rules:
   timeout.
 - **Runs on the default branch wait for each other.** Two overlapping runs
   would both upload a database, and the older commit's run could finish
-  last and become "the latest". Queue them (a concurrency group on GitHub)
-  and pick the newest run's database, not the newest upload.
+  last and become "the latest". Queue them (a concurrency group on GitHub, a
+  `resource_group` on GitLab), so a queued run downloads the database of the
+  run before it when it starts, and pick the newest run's database, not the
+  newest upload (the artifact examples do; the GitHub cache example restores
+  the newest upload, see its caveat). A queued run waits for the one ahead of
+  it, so a push that arrives during the weekly refresh waits until the refresh
+  is done.
 - **Recheck on a schedule**: a weekly `typemut run --refresh` on the default
   branch runs every mutant again and stores the results like a push. It
   rechecks only what fits in its `--max-duration`, so give it a limit (and job
@@ -438,6 +443,15 @@ never reads one. The triggers, time limits and concurrency group are those of
 the artifact workflow; only the database steps differ (no `actions: read`
 needed).
 
+The caveat: the restore step takes the newest *saved* cache, not the newest
+run's. The concurrency group does not stop a re-run of an older run on main
+(say, "Re-run failed jobs" on a run that failed): it saves last, so later runs
+restore it instead of the newer runs' caches. Nothing wrong gets reused,
+since kills are only copied for files whose hashes still match (and a changed
+typemut, checker version or lockfile resets the cache), but the progress of
+the runs in between is lost and their mutants run again. Re-run only the
+newest run on main, or use the artifact variant, which picks the newest run.
+
 ```yaml
 name: typemut
 
@@ -497,12 +511,25 @@ database as an artifact even when it fails (`when: always`); `typemut-mr` runs
 for merge requests and keeps nothing; `typemut-refresh` is the weekly
 `--refresh` from a pipeline schedule, with a longer time limit so that it
 rechecks the whole project (raise the project's and the runner's maximum job
-timeout to match). All download the artifact of the newest `typemut` or
-`typemut-refresh` job on the default branch that succeeded or failed: GitLab's
-"latest artifact of a branch" endpoint only knows successful pipelines, so the
-job is looked up through the API, in the 50 newest finished pipelines of the
-default branch (listed by the server, so merge request pipelines do not push
-them out); with none among them, the run is a full one. Listing pipelines and jobs needs a token with the
+timeout to match). All download the artifact of the `typemut` or
+`typemut-refresh` job of the newest default-branch pipeline in which that job
+succeeded or failed: GitLab's "latest artifact of a branch" endpoint only knows
+successful pipelines, so the job is looked up through the API, in the 50 newest
+pipelines of the default branch (listed by the server, so merge request
+pipelines do not push them out). A pipeline still running other jobs (a later
+stage, a deploy waiting on a manual job) counts once its typemut job is done;
+pipelines are ordered by id, so a retried job of an older pipeline does not
+win. With none among them, the run is a full one.
+`resource_group: typemut-db` is GitLab's counterpart to the GitHub concurrency
+group: the `typemut` and `typemut-refresh` jobs run one at a time, and a job
+waiting for the group downloads the database when its script starts, after
+the job ahead of it has uploaded. A push pipeline that starts during the
+weekly refresh therefore waits for it (up to its 6h timeout). The group's
+default process mode lets waiting jobs start in any order; set it to
+`oldest_first` (`curl --request PUT --header "PRIVATE-TOKEN: ..." --data
+"process_mode=oldest_first" "$CI_API_V4_URL/projects/<id>/resource_groups/typemut-db"`)
+so they run in pipeline order and the newest pipeline's database is also the
+last one written. Listing pipelines and jobs needs a token with the
 `read_api` scope (a project access token with the Reporter role, saved as the
 masked CI/CD variable `TYPEMUT_API_TOKEN`; leave it unprotected so merge
 request pipelines see it). Without it the script falls back to the job token
@@ -526,7 +553,7 @@ runners ignore it, and a job that hits `timeout` uploads nothing).
       api="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
       if [ -n "${TYPEMUT_API_TOKEN:-}" ]; then
         # Newest `typemut`/`typemut-refresh` job on the default branch,
-        # successful or failed, in its 50 newest finished pipelines.
+        # successful or failed, in its 50 newest pipelines.
         job_id="$(python3 - <<'PY'
       import json, os, urllib.parse, urllib.request
       api = os.environ["CI_API_V4_URL"] + "/projects/" + os.environ["CI_PROJECT_ID"]
@@ -535,7 +562,7 @@ runners ignore it, and a job that hits `timeout` uploads nothing).
           with urllib.request.urlopen(urllib.request.Request(api + path, headers=headers)) as response:
               return json.load(response)
       ref = urllib.parse.quote(os.environ["CI_DEFAULT_BRANCH"], safe="")
-      for pipeline in get(f"/pipelines?ref={ref}&scope=finished&order_by=id&sort=desc&per_page=50"):
+      for pipeline in get(f"/pipelines?ref={ref}&order_by=id&sort=desc&per_page=50"):
           jobs = get(f"/pipelines/{pipeline['id']}/jobs?scope[]=success&scope[]=failed&per_page=100")
           found = [job["id"] for job in jobs if job["name"] in ("typemut", "typemut-refresh")]
           if found:
@@ -562,6 +589,7 @@ runners ignore it, and a job that hits `timeout` uploads nothing).
 
 .typemut-store:
   extends: .typemut
+  resource_group: typemut-db       # one job at a time, like GitHub's concurrency group
   artifacts:
     paths: [typemut.sqlite]
     when: always                   # failed and timed-out runs store their results too
