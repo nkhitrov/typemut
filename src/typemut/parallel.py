@@ -132,10 +132,10 @@ class GitWorkspace:
     with a warning.
     """
 
-    def __init__(self, root: Path, runner: CommandRunner, carry: Collection[Path] = ()) -> None:
+    def __init__(self, root: Path, runner: CommandRunner, carry: Iterable[Path] = ()) -> None:
         self.root = root
         self._runner = runner
-        self._carry = carry
+        self._carry = tuple(carry)
 
     def ensure_clean(self) -> None:
         """Verify the working tree has no uncommitted or untracked files.
