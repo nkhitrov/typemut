@@ -314,7 +314,9 @@ class App:
     def _executor(self, tester: MutationTester, checker: TypeChecker, jobs: int) -> MutantExecutor:
         """Runs mutants in the project, or with *jobs* > 1 in worktrees given *checker*'s cache."""
         if jobs > 1:
-            workspace = GitWorkspace(self.root, self.runner, checker.cache_paths(self.root))
+            workspace = GitWorkspace(
+                self.root, self.runner, checker.worktree_cache_paths(self.root)
+            )
             return WorktreeExecutor(tester, workspace, self.worker_pool, jobs)
         return SequentialExecutor(tester, self.root)
 

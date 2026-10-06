@@ -72,18 +72,38 @@ class MypyChecker(TypeChecker):
         config file, or the default ``.mypy_cache``, in that order, with
         ``~`` and ``$VAR`` expanded in the checker's environment, as mypy does.
         """
-        cache_dir = self._expand_path(
+        project = root.resolve()
+        path = (root / self._cache_dir(root)).resolve()
+        if not path.is_relative_to(project):
+            logger.warning("mypy cache %s is outside the project %s; not using it", path, project)
+            return []
+        return [root / path.relative_to(project)]
+
+    def worktree_cache_paths(self, root: Path) -> Iterable[Path]:
+        """mypy's cache directory if it is relative, so each worktree resolves its own copy.
+
+        mypy in a worktree reads an absolute cache directory (from any source)
+        from the same place as in *root*, so all workers share that one
+        cache and a copy would never be read.
+        """
+        cache_dir = self._cache_dir(root)
+        if Path(cache_dir).is_absolute():
+            logger.warning(
+                "mypy cache %s is an absolute path: parallel workers share it "
+                "instead of getting their own copy",
+                cache_dir,
+            )
+            return []
+        return self.cache_paths(root)
+
+    def _cache_dir(self, root: Path) -> str:
+        """The configured cache directory, expanded, possibly relative to *root*."""
+        return self._expand_path(
             self._command.option(("--cache-dir",))
             or self._environment().get("MYPY_CACHE_DIR")
             or self._configured_cache_dir(root)
             or DEFAULT_CACHE_DIR,
         )
-        project = root.resolve()
-        path = (root / cache_dir).resolve()
-        if not path.is_relative_to(project):
-            logger.warning("mypy cache %s is outside the project %s; not using it", path, project)
-            return []
-        return [root / path.relative_to(project)]
 
     def _expand_path(self, path: str) -> str:
         """*path* with ``~`` and then ``$VAR`` expanded in the checker's environment."""

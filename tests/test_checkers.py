@@ -616,6 +616,45 @@ def test_pyright_has_no_cache(tmp_path: Path) -> None:
     assert PyrightChecker("pyright").cache_paths(tmp_path) == []
 
 
+def test_pyright_has_no_worktree_cache(tmp_path: Path) -> None:
+    assert PyrightChecker("pyright").worktree_cache_paths(tmp_path) == []
+
+
+def test_mypy_relative_cache_is_carried_into_worktrees(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[tool.mypy]\ncache_dir = ".cache/mypy"\n')
+    checker = MypyChecker("mypy .", environ={})
+    assert checker.worktree_cache_paths(tmp_path) == [tmp_path / ".cache" / "mypy"]
+
+
+@pytest.mark.parametrize(
+    ("test_command", "environ", "config"),
+    [
+        pytest.param("mypy --cache-dir {root}/.mypy_cache .", {}, "", id="option"),
+        pytest.param("mypy .", {"MYPY_CACHE_DIR": "{root}/.mypy_cache"}, "", id="environment"),
+        pytest.param("mypy .", {}, 'cache_dir = "{root}/.mypy_cache"', id="config"),
+        pytest.param(
+            "mypy .", {"ROOT": "{root}"}, 'cache_dir = "$ROOT/.mypy_cache"', id="variable"
+        ),
+    ],
+)
+def test_mypy_absolute_cache_in_project_is_shared_by_worktrees(
+    test_command: str,
+    environ: dict[str, str],
+    config: str,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    root = str(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(f"[tool.mypy]\n{config.format(root=root)}\n")
+    checker = MypyChecker(
+        test_command.format(root=root),
+        environ={name: value.format(root=root) for name, value in environ.items()},
+    )
+    assert checker.cache_paths(tmp_path) == [tmp_path / ".mypy_cache"]
+    assert checker.worktree_cache_paths(tmp_path) == []
+    assert "parallel workers share it" in caplog.text
+
+
 # --- dependencies ---
 
 
