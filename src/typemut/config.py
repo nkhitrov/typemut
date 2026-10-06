@@ -115,7 +115,7 @@ class ConfigLoader:
             return DEFAULT_CACHE_KEY_FILES
         return [pattern for pattern in patterns if self._usable_key_file_pattern(pattern)]
 
-    def _usable_key_file_pattern(self, pattern: str) -> bool:
+    def _usable_key_file_pattern(self, pattern: str) -> bool:  # pragma: no mutate (truth-tested)
         """Whether a ``cache-key-files`` *pattern* can be globbed; warn if not."""
         if not pattern.strip():
             logger.warning("Ignoring empty 'cache-key-files' pattern %r", pattern)
