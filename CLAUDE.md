@@ -14,7 +14,7 @@ typemut — mutation testing tool for Python type annotations. It mutates annota
 - `make lint` — run all linters (ruff, flake8/wps, mypy) on `src/typemut/`
 - `make lint-all` — run linters + tests on Python 3.11, 3.12, 3.13
 - `make fmt` — auto-format code (ruff)
-- `make mutate` — run typemut on its own sources (`typemut.toml`, `mypy src/typemut/`, `--jobs 4`) and fail on survivors missing from `typemut-baseline.json`; CI runs this too
+- `make mutate` — run typemut on its own sources (`typemut.toml`, `mypy src/typemut/`, `--jobs 4 --incremental`, extra options in `MUTATE_ARGS`) and fail on survivors missing from `typemut-baseline.json`; CI runs this too
 - `make run PROJECT=/path/to/project` — run typemut against another project (also `init`/`exec`/`report`/`html` targets)
 
 Pre-commit hooks (lefthook) run ruff, flake8 and mypy on staged files. Coverage has per-module minimums in `pyproject.toml` (`[tool.coverage-threshold]`), e.g. `config.py` must stay at 100%.

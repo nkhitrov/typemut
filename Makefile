@@ -30,11 +30,15 @@ fmt:
 
 # Mutation-test typemut's own annotations; fails on any survived mutant
 # that is not in the baseline. `make mutate-baseline` accepts the current ones.
+# Kills of earlier runs in typemut.sqlite are reused while their files are
+# unchanged (--incremental); extra options go in MUTATE_ARGS, e.g.
+#   make mutate MUTATE_ARGS="--refresh --max-duration 1500"
 JOBS ?= 4
 BASELINE ?= typemut-baseline.json
+MUTATE_ARGS ?=
 
 mutate:
-	uv run typemut run --jobs $(JOBS) --baseline $(BASELINE)
+	uv run typemut run --jobs $(JOBS) --incremental --baseline $(BASELINE) $(MUTATE_ARGS)
 
 mutate-baseline:
 	uv run typemut run --jobs $(JOBS) --baseline $(BASELINE) --update-baseline

@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Weekly recheck of every cached kill (`--refresh`), stored like a push to main.
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -33,6 +40,13 @@ jobs:
 
   typemut:
     runs-on: ubuntu-latest
+    # max-duration (25 min) < step timeout (35 min) < job timeout (45 min):
+    # typemut stops starting mutants, saves the finished ones, and the database
+    # is still uploaded.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read  # find and download the database artifact of main
 
     steps:
       - uses: actions/checkout@v4
@@ -46,8 +60,56 @@ jobs:
       - name: Install
         run: make install
 
+      # Every run (main included) starts from the latest database of main,
+      # whatever that run's outcome: a run stopped by max-duration saved its
+      # results too. Only artifacts of runs on this repository's main count, so
+      # a fork's PR from a branch named `main` cannot plant a database.
+      # No database means a full run: correct, only slower.
+      - name: Download the mutation database of main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_ID: ${{ github.repository_id }}
+        run: |
+          query='[.artifacts[]
+                  | select(.expired | not)
+                  | select(.workflow_run.head_branch == "main")
+                  | select(.workflow_run.head_repository_id == ($ENV.REPO_ID | tonumber))]
+                 | first // empty
+                 | "\(.id) \(.workflow_run.id)"'
+          if ! found="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=typemut-db&per_page=100" --jq "$query")"; then
+            echo "::warning::Could not list the typemut-db artifacts: running every mutant"
+            exit 0
+          fi
+          if [ -z "$found" ]; then
+            echo "::notice::No typemut database of main: running every mutant"
+            exit 0
+          fi
+          read -r artifact_id run_id <<< "$found"
+          if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > typemut-db.zip \
+              && unzip -o -q typemut-db.zip typemut.sqlite; then
+            echo "::notice::typemut database from run $run_id"
+          else
+            echo "::warning::Could not download the database of run $run_id: running every mutant"
+            rm -f typemut.sqlite
+          fi
+          rm -f typemut-db.zip
+
       - name: Mutation-test own type annotations
-        run: make mutate
+        timeout-minutes: 35
+        env:
+          REFRESH: ${{ github.event_name == 'schedule' && '--refresh' || '' }}
+        run: make mutate MUTATE_ARGS="--max-duration 1500 $REFRESH"
+
+      # Only trusted events on main store the database (push, schedule,
+      # workflow_dispatch); pull requests and other branches only read it.
+      - name: Upload the mutation database
+        if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: typemut-db
+          path: typemut.sqlite
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Build HTML report
         if: always()
