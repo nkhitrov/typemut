@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import configparser
 import logging
+import os
 import re
 import tomllib
 from collections.abc import Iterable, Mapping
@@ -80,11 +81,13 @@ class MypyChecker(TypeChecker):
         return [root / path.relative_to(project)]
 
     def worktree_cache_paths(self, root: Path) -> Iterable[Path]:
-        """mypy's cache directory if it is relative, so each worktree resolves its own copy.
+        """mypy's cache directory if it is relative and inside *root*.
 
         mypy in a worktree reads an absolute cache directory (from any source)
         from the same place as in *root*, so all workers share that one
-        cache and a copy would never be read.
+        cache and a copy would never be read. A relative one is carried by
+        its configured name, not by where symlinks lead: mypy in the worktree
+        looks for that name, and an untracked symlink is not there.
         """
         cache_dir = self._cache_dir(root)
         if Path(cache_dir).is_absolute():
@@ -94,7 +97,9 @@ class MypyChecker(TypeChecker):
                 cache_dir,
             )
             return []
-        return self.cache_paths(root)
+        if not self.cache_paths(root):
+            return []
+        return [root / os.path.normpath(cache_dir)]
 
     def _cache_dir(self, root: Path) -> str:
         """The configured cache directory, expanded, possibly relative to *root*."""

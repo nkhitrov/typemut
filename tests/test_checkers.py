@@ -620,10 +620,33 @@ def test_pyright_has_no_worktree_cache(tmp_path: Path) -> None:
     assert PyrightChecker("pyright").worktree_cache_paths(tmp_path) == []
 
 
-def test_mypy_relative_cache_is_carried_into_worktrees(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text('[tool.mypy]\ncache_dir = ".cache/mypy"\n')
+@pytest.mark.parametrize(
+    "cache_dir",
+    [
+        pytest.param(".cache/mypy", id="plain"),
+        pytest.param("build/../.cache/mypy", id="normalized"),
+    ],
+)
+def test_mypy_relative_cache_is_carried_into_worktrees(cache_dir: str, tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(f'[tool.mypy]\ncache_dir = "{cache_dir}"\n')
     checker = MypyChecker("mypy .", environ={})
     assert checker.worktree_cache_paths(tmp_path) == [tmp_path / ".cache" / "mypy"]
+
+
+def test_mypy_symlinked_cache_is_carried_by_its_name(tmp_path: Path) -> None:
+    (tmp_path / "build" / "mypy-cache").mkdir(parents=True)
+    (tmp_path / ".mypy_cache").symlink_to("build/mypy-cache")
+    checker = MypyChecker("mypy .", environ={})
+    assert checker.cache_paths(tmp_path) == [tmp_path / "build" / "mypy-cache"]
+    assert checker.worktree_cache_paths(tmp_path) == [tmp_path / ".mypy_cache"]
+
+
+def test_mypy_relative_cache_outside_root_is_not_carried(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    checker = MypyChecker("mypy --cache-dir ../outside .", environ={})
+    assert checker.worktree_cache_paths(tmp_path) == []
+    assert "is outside the project" in caplog.text
 
 
 @pytest.mark.parametrize(
