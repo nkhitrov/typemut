@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 from multiprocessing import Queue
 from pathlib import Path
@@ -138,6 +139,59 @@ class TestGitWorkspace:
         assert created == "x: int = 5\n"
         assert not worktree.parent.exists()
         assert _git(workspace.root, "worktree", "list").count("\n") == 1
+
+    def test_create_worktree_carries_directories(self, tmp_path: Path) -> None:
+        root = _git_project(tmp_path / "repo")
+        cache = root / ".mypy_cache" / "3.12"
+        cache.mkdir(parents=True)
+        (cache / "test.meta.json").write_text("{}")
+        os.utime(cache / "test.meta.json", (1_000_000, 1_000_000))
+        (cache / "link.json").symlink_to("test.meta.json")
+        carry = [root / ".mypy_cache", root / "missing"]
+        workspace = GitWorkspace(root, ShellRunner(), carry)
+
+        worktree = workspace.create_worktree(0)
+        copied = worktree / ".mypy_cache" / "3.12"
+        contents = (
+            (copied / "test.meta.json").read_text(),
+            (copied / "test.meta.json").stat().st_mtime,
+            os.readlink(copied / "link.json"),
+            (worktree / "missing").exists(),
+        )
+        workspace.remove_worktrees([worktree])
+
+        assert contents == ("{}", 1_000_000, "test.meta.json", False)
+
+    def test_create_worktree_warns_when_carry_fails(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        root = _git_project(tmp_path / "repo")
+        (root / "test.py").unlink()
+        (root / "test.py").mkdir()
+        workspace = GitWorkspace(root, ShellRunner(), [root / "test.py"])
+
+        worktree = workspace.create_worktree(0)
+        created = (worktree / "test.py").read_text()
+        workspace.remove_worktrees([worktree])
+
+        assert created == "x: int = 5\n"
+        assert f"Failed to copy {root / 'test.py'} into worktree {worktree}" in caplog.text
+
+    def test_create_worktree_skips_carry_outside_root(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        root = _git_project(tmp_path / "repo")
+        outside = tmp_path / "cache"
+        outside.mkdir()
+        (outside / "data.json").write_text("{}")
+        workspace = GitWorkspace(root, ShellRunner(), [outside])
+
+        worktree = workspace.create_worktree(0)
+        entries = sorted(path.name for path in worktree.iterdir())
+        workspace.remove_worktrees([worktree])
+
+        assert entries == [".git", "test.py"]
+        assert f"Not copying {outside} into worktrees: it is outside {root}" in caplog.text
 
     def test_create_worktree_outside_repo(self, tmp_path: Path) -> None:
         with pytest.raises(WorkspaceError, match="Failed to create git worktree"):

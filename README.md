@@ -68,9 +68,17 @@ at the end. What this means for your project:
   stash them first.
 - **`test-command` runs inside each worktree**, not in your project directory.
   Keep `module-path` and paths in `test-command` relative to the project root.
-  Git-ignored files (`.venv`, `.mypy_cache`, generated code) are not copied:
-  the type checker must be callable without them — e.g. installed in an
-  activated virtualenv or on `PATH` — and each worker starts with a cold cache.
+  Git-ignored files (`.venv`, generated code) are not copied: the type checker
+  must be callable without them — e.g. installed in an activated virtualenv or
+  on `PATH`.
+- **The type checker's cache is copied into each worktree**, so workers start
+  warm: the baseline check fills it in the project first, then every new
+  worktree gets a copy with modification times and symlinks kept (mypy drops
+  cache entries whose times differ). For mypy that is the directory shown as
+  `cache:` in the `Type checker:` line (see [Type checkers](#type-checkers));
+  a cache outside the project is not used. pyright and `generic` have no cache
+  to copy. A missing cache is skipped and a failed copy is logged as a warning;
+  that worker then starts cold.
 - **Pick N by CPU cores and memory**: every worker runs its own type checker
   process (mypy on a large project can take gigabytes of RAM). The number of
   CPU cores is a good start.
@@ -294,7 +302,8 @@ checker = "mypy"
 ```
 
 The run prints the checker it uses, with the config files it found and the
-cache directory it would use, relative to the project root
+cache directory it would use (and copy into each worktree with `--jobs`),
+relative to the project root
 (`Type checker: mypy (config: pyproject.toml; cache: .mypy_cache)`); the cache
 is listed even before mypy has created it. mypy's cache directory comes from
 `--cache-dir`, `MYPY_CACHE_DIR`, `cache_dir` in its config, or `.mypy_cache`,
@@ -352,7 +361,8 @@ its executables (e.g. `class StrictMypyChecker(MypyChecker)` with the
 inherited `mypy`): auto-detection then picks the subclass instead of its base.
 Two such subclasses of the same checker installed together match both, so set
 `checker = "<name>"` explicitly. `config_files`,
-`cache_paths`, `python_version` and `dependencies` (by default: the project
+`cache_paths` (directories inside the project copied into each worktree),
+`python_version` and `dependencies` (by default: the project
 files reachable through imports; `None` means that kill is not reused) can be
 overridden too. A checker that can never tell which files a kill depends on
 (e.g. its output carries no file paths) should set
