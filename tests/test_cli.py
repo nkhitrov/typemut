@@ -343,6 +343,87 @@ def test_run_parallel_in_worktrees(tmp_path: Path) -> None:
     assert "Survived mutants" in result.output
 
 
+def test_run_parallel_carries_checker_cache_into_worktrees(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".gitignore").write_text(".mypy_cache/\n")
+    _commit_project(project)
+    (project / "typemut.toml").write_text(
+        '[typemut]\nmodule-path = "src"\nchecker = "mypy"\n'
+        'test-command = "test -f .mypy_cache/marker"\n'
+    )
+    subprocess.run(["git", "commit", "-am", "mypy"], cwd=project, capture_output=True, check=True)
+    (project / ".mypy_cache").mkdir()
+    (project / ".mypy_cache" / "marker").write_text("")
+    make_app = partial(
+        App,
+        worker_pool=InlinePool(),
+        progress=RecordingProgressBar(),
+        checkers=CheckerRegistry.discover([], environ={}),
+    )
+    db_path = tmp_path / "typemut.sqlite"
+
+    result = CliRunner().invoke(
+        main, ["-C", str(project), "run", "--jobs", "2", "--db", str(db_path)], obj=make_app
+    )
+
+    assert result.exit_code == 0
+    assert "Type checker: mypy (cache: .mypy_cache)" in result.output
+    with Database(db_path) as db:
+        assert {row.status for row in db.get_all()} == {"survived"}
+
+
+def test_run_parallel_shares_absolute_checker_cache(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".gitignore").write_text(".mypy_cache/\n")
+    _commit_project(project)
+    (project / "typemut.toml").write_text(
+        '[typemut]\nmodule-path = "src"\nchecker = "mypy"\n'
+        'test-command = "test -f .mypy_cache/marker"\n'
+    )
+    subprocess.run(["git", "commit", "-am", "mypy"], cwd=project, capture_output=True, check=True)
+    (project / ".mypy_cache").mkdir()
+    (project / ".mypy_cache" / "marker").write_text("")
+    checkers = CheckerRegistry.discover([], environ={"MYPY_CACHE_DIR": str(project / ".mypy_cache")})
+    make_app = partial(
+        App, worker_pool=InlinePool(), progress=RecordingProgressBar(), checkers=checkers
+    )
+    db_path = tmp_path / "typemut.sqlite"
+
+    result = CliRunner().invoke(
+        main, ["-C", str(project), "run", "--jobs", "2", "--db", str(db_path)], obj=make_app
+    )
+
+    assert result.exit_code == 0
+    with Database(db_path) as db:
+        assert {row.status for row in db.get_all()} == {"killed"}
+
+
+def test_run_parallel_warns_once_about_checker_cache_outside_project(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _commit_project(project)
+    (project / "typemut.toml").write_text(
+        '[typemut]\nmodule-path = "src"\nchecker = "mypy"\ntest-command = "true"\n'
+    )
+    subprocess.run(["git", "commit", "-am", "mypy"], cwd=project, capture_output=True, check=True)
+    checkers = CheckerRegistry.discover([], environ={"MYPY_CACHE_DIR": "../outside"})
+    make_app = partial(
+        App, worker_pool=InlinePool(), progress=RecordingProgressBar(), checkers=checkers
+    )
+    db_path = tmp_path / "typemut.sqlite"
+
+    result = CliRunner().invoke(
+        main, ["-C", str(project), "run", "--jobs", "2", "--db", str(db_path)], obj=make_app
+    )
+
+    assert result.exit_code == 0
+    assert caplog.text.count("is outside the project") == 1
+
+
 def test_run_parallel_requires_git(tmp_path: Path) -> None:
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:

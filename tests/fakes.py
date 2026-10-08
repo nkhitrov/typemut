@@ -14,9 +14,10 @@ from typemut.checkers.mypy import MypyChecker
 from typemut.db import MutantRow
 from typemut.discovery import AnnotationContext, AnnotationNode
 from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.parallel import GitWorkspace
 from typemut.plugins.base import Plugin
 from typemut.registry import Registry
-from typemut.runner import CommandResult, Outcome
+from typemut.runner import CommandResult, CommandRunner, Outcome
 from typemut.signals import TerminateSignal
 
 
@@ -190,3 +191,15 @@ class StubSourceReader:
 
     def read(self, module_path: str) -> str | None:
         return self._sources.get(module_path)
+
+
+class InterruptedCopyWorkspace(GitWorkspace):
+    """GitWorkspace interrupted (as by Ctrl-C) while carrying a directory into a new worktree."""
+
+    def __init__(self, root: Path, runner: CommandRunner, carry: Iterable[Path] = ()) -> None:
+        super().__init__(root, runner, carry)
+        self.interrupted: list[Path] = []
+
+    def _copy_into(self, path: Path, worktree: Path) -> None:
+        self.interrupted.append(worktree)
+        raise KeyboardInterrupt

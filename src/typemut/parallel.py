@@ -124,11 +124,18 @@ class ProcessPool:
 
 
 class GitWorkspace:
-    """Creates and removes detached git worktrees of the project at *root*."""
+    """Creates and removes detached git worktrees of the project at *root*.
 
-    def __init__(self, root: Path, runner: CommandRunner) -> None:
+    Each new worktree gets a copy of the *carry* directories inside *root*
+    (e.g. the type checker's cache, which git ignores), so its workers do not
+    start cold. Missing ones are skipped, ones outside *root* are skipped
+    with a warning.
+    """
+
+    def __init__(self, root: Path, runner: CommandRunner, carry: Iterable[Path] = ()) -> None:
         self.root = root
         self._runner = runner
+        self._carry = tuple(carry)
 
     def ensure_clean(self) -> None:
         """Verify the working tree has no uncommitted or untracked files.
@@ -153,6 +160,13 @@ class GitWorkspace:
         if result.outcome is not Outcome.PASSED:
             shutil.rmtree(worktree.parent, ignore_errors=True)
             raise WorkspaceError("Failed to create git worktree", result.output.strip())
+        try:
+            for path in self._carry:
+                self._copy_into(path, worktree)
+        except BaseException:
+            # The caller never gets this worktree, so it could not remove it.
+            self.remove_worktrees([worktree])
+            raise
         return worktree
 
     def remove_worktrees(self, worktrees: Iterable[Path]) -> None:
@@ -163,6 +177,27 @@ class GitWorkspace:
                 logger.warning("Failed to remove worktree %s: %s", worktree, result.output.strip())
             shutil.rmtree(worktree.parent, ignore_errors=True)
         self._git("worktree", "prune")
+
+    def _copy_into(self, path: Path, worktree: Path) -> None:
+        """Copy the directory *path* of the project to the same place in *worktree*.
+
+        Modification times are kept (mypy drops cache entries whose times
+        differ) and symlinks stay symlinks. A missing directory is skipped;
+        one outside the project or a failed copy is only logged, the worker
+        then starts cold.
+        """
+        if not path.is_dir():
+            return
+        if not path.is_relative_to(self.root):
+            logger.warning("Not copying %s into worktrees: it is outside %s", path, self.root)
+            return
+        target = worktree / path.relative_to(self.root)
+        try:
+            shutil.copytree(
+                path, target, symlinks=True, copy_function=shutil.copy2, dirs_exist_ok=True
+            )
+        except OSError as error:
+            logger.warning("Failed to copy %s into worktree %s: %s", path, worktree, error)
 
     def _git(self, *args: str) -> CommandResult:
         return self._runner.run(shlex.join(("git", *args)), cwd=self.root)

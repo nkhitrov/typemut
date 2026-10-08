@@ -179,7 +179,9 @@ class App:
 
         self.console.print(f"Running [bold]{len(mutants)}[/bold] mutations...")
         progress = self.progress or RichProgressBar(self.console)
-        ResultRecorder(db, progress, cache=cache).record(mutants, self._executor(tester, jobs))
+        ResultRecorder(db, progress, cache=cache).record(
+            mutants, self._executor(tester, checker, jobs)
+        )
         not_run = db.count_pending()
         if not_run > 0:
             self.console.print(
@@ -309,9 +311,12 @@ class App:
         ]
         return f"{checker.name} ({'; '.join(details)})" if details else checker.name
 
-    def _executor(self, tester: MutationTester, jobs: int) -> MutantExecutor:
+    def _executor(self, tester: MutationTester, checker: TypeChecker, jobs: int) -> MutantExecutor:
+        """Runs mutants in the project, or with *jobs* > 1 in worktrees given *checker*'s cache."""
         if jobs > 1:
-            workspace = GitWorkspace(self.root, self.runner)
+            workspace = GitWorkspace(
+                self.root, self.runner, checker.worktree_cache_paths(self.root)
+            )
             return WorktreeExecutor(tester, workspace, self.worker_pool, jobs)
         return SequentialExecutor(tester, self.root)
 

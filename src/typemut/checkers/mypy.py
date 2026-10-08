@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import configparser
 import logging
+import os
 import re
 import tomllib
 from collections.abc import Iterable, Mapping
@@ -66,24 +67,67 @@ class MypyChecker(TypeChecker):
         ]
 
     def cache_paths(self, root: Path) -> Iterable[Path]:
-        """mypy's cache directory, if it is inside *root*.
+        """mypy's cache directory, if it is inside *root* (none for ``/dev/null``).
 
         Taken from ``--cache-dir``, ``MYPY_CACHE_DIR``, ``cache_dir`` in the
         config file, or the default ``.mypy_cache``, in that order, with
         ``~`` and ``$VAR`` expanded in the checker's environment, as mypy does.
         """
-        cache_dir = self._expand_path(
+        cache_dir = self._cache_dir(root)
+        if cache_dir == os.devnull:
+            return []
+        inside = self._in_project(root, cache_dir)
+        if inside is None:
+            logger.warning(
+                "mypy cache %s is outside the project %s; not using it",
+                (root / cache_dir).resolve(),
+                root.resolve(),
+            )
+            return []
+        return [root / inside]
+
+    def worktree_cache_paths(self, root: Path) -> Iterable[Path]:
+        """mypy's cache directory if it is relative and inside *root*.
+
+        mypy in a worktree reads an absolute cache directory (from any source)
+        from the same place as in *root*, so all workers share that one
+        cache and a copy would never be read. A relative one is carried by
+        its configured name, not by where symlinks lead: mypy in the worktree
+        looks for that name, and an untracked symlink is not there.
+
+        Only ``cache_paths`` warns about a cache outside *root*, and nothing
+        is said for ``/dev/null``, which turns mypy's cache off.
+        """
+        cache_dir = self._cache_dir(root)
+        if cache_dir == os.devnull:
+            return []
+        if Path(cache_dir).is_absolute():
+            logger.warning(
+                "mypy cache %s is an absolute path: parallel workers share it "
+                "instead of getting their own copy",
+                cache_dir,
+            )
+            return []
+        if self._in_project(root, cache_dir) is None:
+            return []
+        return [root / os.path.normpath(cache_dir)]
+
+    def _in_project(self, root: Path, cache_dir: str) -> Path | None:
+        """*cache_dir* with symlinks resolved, relative to *root*; None if outside it."""
+        project = root.resolve()
+        path = (root / cache_dir).resolve()
+        if not path.is_relative_to(project):
+            return None
+        return path.relative_to(project)
+
+    def _cache_dir(self, root: Path) -> str:
+        """The configured cache directory, expanded, possibly relative to *root*."""
+        return self._expand_path(
             self._command.option(("--cache-dir",))
             or self._environment().get("MYPY_CACHE_DIR")
             or self._configured_cache_dir(root)
             or DEFAULT_CACHE_DIR,
         )
-        project = root.resolve()
-        path = (root / cache_dir).resolve()
-        if not path.is_relative_to(project):
-            logger.warning("mypy cache %s is outside the project %s; not using it", path, project)
-            return []
-        return [root / path.relative_to(project)]
 
     def _expand_path(self, path: str) -> str:
         """*path* with ``~`` and then ``$VAR`` expanded in the checker's environment."""

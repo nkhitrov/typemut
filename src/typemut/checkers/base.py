@@ -174,6 +174,14 @@ class TypeChecker:
         """Checker cache directories inside *root* worth giving to workers."""
         return []
 
+    def worktree_cache_paths(self, root: Path) -> Iterable[Path]:
+        """The :meth:`cache_paths` a checker run in a worktree reads from its own root.
+
+        These are copied into each parallel worker's worktree; a cache the
+        checker finds by an absolute path is shared and should be left out.
+        """
+        return self.cache_paths(root)
+
     def dependencies(self, files: Iterable[str], root: Path) -> Iterable[str] | None:
         """*files* and the project files they import, relative to *root*.
 

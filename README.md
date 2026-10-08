@@ -68,9 +68,27 @@ at the end. What this means for your project:
   stash them first.
 - **`test-command` runs inside each worktree**, not in your project directory.
   Keep `module-path` and paths in `test-command` relative to the project root.
-  Git-ignored files (`.venv`, `.mypy_cache`, generated code) are not copied:
-  the type checker must be callable without them — e.g. installed in an
-  activated virtualenv or on `PATH` — and each worker starts with a cold cache.
+  Git-ignored files (`.venv`, generated code) are not copied: the type checker
+  must be callable without them — e.g. installed in an activated virtualenv or
+  on `PATH`.
+- **The type checker's cache is copied into each worktree**, so workers start
+  warm: the baseline check fills it in the project first, then every new
+  worktree gets a copy with modification times and symlinks kept (mypy drops
+  cache entries whose times differ). For mypy that is the directory shown as
+  `cache:` in the `Type checker:` line (see [Type checkers](#type-checkers)),
+  copied only when it is configured as a relative path inside the project,
+  under the configured name (a symlinked `.mypy_cache` lands in the worktree
+  as `.mypy_cache`, where mypy looks for it). mypy in a worktree finds an
+  absolute cache directory (`MYPY_CACHE_DIR=/abs/path`, an absolute
+  `--cache-dir` or `cache_dir`, or one built from `~` or `$VAR`) at the same
+  place as in the project, so all workers share that one cache instead (a
+  warning says so); use a relative path inside the project to give each
+  worker its own copy. A cache outside the project (`../mypy-cache`) is
+  neither listed nor copied, and workers start cold; `--cache-dir=/dev/null`
+  turns mypy's cache off, so there is nothing to copy or warn about. pyright
+  and `generic` have no cache to copy. A missing cache is skipped and a failed
+  copy is logged as a warning; that worker then starts cold. If the copy is
+  interrupted (Ctrl-C), the half-made worktree is removed.
 - **Pick N by CPU cores and memory**: every worker runs its own type checker
   process (mypy on a large project can take gigabytes of RAM). The number of
   CPU cores is a good start.
@@ -294,11 +312,12 @@ checker = "mypy"
 ```
 
 The run prints the checker it uses, with the config files it found and the
-cache directory it would use, relative to the project root
-(`Type checker: mypy (config: pyproject.toml; cache: .mypy_cache)`); the cache
-is listed even before mypy has created it. mypy's cache directory comes from
-`--cache-dir`, `MYPY_CACHE_DIR`, `cache_dir` in its config, or `.mypy_cache`,
-with `~` and `$VAR` expanded as mypy does.
+cache directory it would use (and, if configured as a relative path inside
+the project, copy into each worktree with `--jobs`), relative to the project
+root (`Type checker: mypy (config: pyproject.toml; cache: .mypy_cache)`); the
+cache is listed even before mypy has created it. mypy's cache directory comes
+from `--cache-dir`, `MYPY_CACHE_DIR`, `cache_dir` in its config, or
+`.mypy_cache`, with `~` and `$VAR` expanded as mypy does.
 An unknown `checker` name is logged as a warning and `generic` is used. mypy's
 `--pretty`, `--show-column-numbers` and `--show-error-end` output is understood;
 only errors count (mypy notes, pyright warnings and information are ignored).
@@ -351,10 +370,12 @@ unrelated checkers. The one exception is a subclass of a checker that shares
 its executables (e.g. `class StrictMypyChecker(MypyChecker)` with the
 inherited `mypy`): auto-detection then picks the subclass instead of its base.
 Two such subclasses of the same checker installed together match both, so set
-`checker = "<name>"` explicitly. `config_files`,
-`cache_paths`, `python_version` and `dependencies` (by default: the project
-files reachable through imports; `None` means that kill is not reused) can be
-overridden too. A checker that can never tell which files a kill depends on
+`checker = "<name>"` explicitly. `config_files`, `cache_paths` (cache
+directories inside the project), `worktree_cache_paths` (those copied into
+each worktree; by default all of `cache_paths`, mypy leaves out a cache
+configured by an absolute path), `python_version` and `dependencies` (by
+default: the project files reachable through imports; `None` means that kill
+is not reused) can be overridden too. A checker that can never tell which files a kill depends on
 (e.g. its output carries no file paths) should set
 `traces_dependencies = False`: incremental runs then neither reuse nor store
 its results and leave the cache alone, as with `generic`. The constructor takes
