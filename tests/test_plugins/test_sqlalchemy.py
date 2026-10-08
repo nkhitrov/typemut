@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from typemut.config import OperatorsConfig
 from typemut.db import MutantRow
 from typemut.discovery import AnnotationFinder
 from typemut.engine import MutationTester
@@ -24,7 +23,7 @@ REGISTRY = Registry(
 
 def plugin_mutations(source: str) -> set[tuple[str, str, str]]:
     """Mutations of every annotation in *source* with the SQLAlchemy plugin enabled."""
-    operators = OperatorRegistry().enabled(OperatorsConfig())
+    operators = OperatorRegistry().enabled({})
     plugins = PluginRegistry().get(["sqlalchemy"])
     return {
         (mutation.operator, mutation.original, mutation.mutated)
@@ -248,7 +247,7 @@ def test_plugin_has_no_extra_operators() -> None:
 def test_mutation_applies_inside_mapped(tmp_path: Path, source: str, expected: str) -> None:
     (tmp_path / "models.py").write_text(source)
     annotation = AnnotationFinder().find(Path("models.py"), source=source)[0]
-    mutation = MutationFinder(OperatorRegistry().enabled(OperatorsConfig()), Registry(), PluginRegistry().get(["sqlalchemy"])).find(annotation)[0]
+    mutation = MutationFinder(OperatorRegistry().enabled({}), Registry(), PluginRegistry().get(["sqlalchemy"])).find(annotation)[0]
     mutant = MutantRow(
         id=1,
         module_path="models.py",
