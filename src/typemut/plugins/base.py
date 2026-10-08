@@ -10,10 +10,7 @@ from parso.python.tree import BaseNode, Leaf
 from typemut.discovery import AnnotationNode
 from typemut.nodes import NodeSource
 from typemut.operators.base import Mutation, TypeMutationOperator
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from typemut.registry import Registry
+from typemut.registry import Registry
 
 
 class Plugin(NodeSource, ABC):

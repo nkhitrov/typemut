@@ -10,10 +10,7 @@ from parso.python.tree import BaseNode, Leaf
 
 from typemut.discovery import AnnotationContext
 from typemut.nodes import NodeSource
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    from typemut.registry import Registry
+from typemut.registry import Registry
 
 
 @dataclass
