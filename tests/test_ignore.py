@@ -13,8 +13,9 @@ from typemut.db import Database
 from typemut.discovery import AnnotationFinder
 from typemut.ignore import IgnoredTypes
 from typemut.imports import ModuleImports
+from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
-from typemut.plugins import MutationFinder, PluginRegistry
+from typemut.plugins import PluginRegistry
 from typemut.registry import Registry
 
 REGISTRY = Registry(

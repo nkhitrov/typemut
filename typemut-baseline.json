@@ -511,14 +511,14 @@
     "source": ") -> list[list[MutantRow]]:"
   },
   {
-    "file": "src/typemut/plugins/__init__.py",
+    "file": "src/typemut/mutations.py",
     "operator": "WidenContainerType",
     "original": "Collection[Plugin]",
     "mutated": "Iterable[Plugin]",
     "source": "plugins: Collection[Plugin] = (),"
   },
   {
-    "file": "src/typemut/plugins/__init__.py",
+    "file": "src/typemut/mutations.py",
     "operator": "WidenContainerType",
     "original": "list[Mutation]",
     "mutated": "Sequence[Mutation]",

@@ -8,8 +8,9 @@ import pytest
 
 from typemut.config import OperatorsConfig
 from typemut.discovery import AnnotationFinder
+from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
-from typemut.plugins import MutationFinder, PluginRegistry
+from typemut.plugins import PluginRegistry
 from typemut.registry import Registry
 
 ENDPOINT = "def endpoint(q: int | None) -> RedirectResponse: ...\n"
