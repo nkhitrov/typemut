@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 import webbrowser
 from collections.abc import Callable, Collection, Iterable
@@ -12,12 +13,15 @@ from rich.console import Console
 from rich.markup import escape
 
 from typemut.baseline import Baseline
+from typemut.checkers import CheckerRegistry
+from typemut.checkers.base import TypeChecker
 from typemut.config import Config, ConfigLoader
 from typemut.db import Database, MutantRow
 from typemut.discovery import AnnotationFinder, SourceFiles
 from typemut.engine import (
     MutantExecutor,
     MutationTester,
+    OutcomeClassifier,
     ProgressBar,
     ResultRecorder,
     RichProgressBar,
@@ -47,6 +51,7 @@ class App:
     runner: CommandRunner = field(default_factory=ShellRunner)
     operators: OperatorRegistry = field(default_factory=OperatorRegistry)
     plugins: PluginRegistry = field(default_factory=PluginRegistry.discover)
+    checkers: CheckerRegistry = field(default_factory=CheckerRegistry.discover)
     worker_pool: WorkerPool = field(default_factory=ProcessPool)
     # None draws a rich progress bar on the console.
     progress: ProgressBar | None = None
@@ -107,7 +112,13 @@ class App:
         if len(mutants) == 0:
             self.console.print("[yellow]No pending mutants: nothing to test.[/yellow]")
             return
-        tester = MutationTester(self.runner, cfg.test_command, cfg.timeout)
+        checker = self.checkers.get(
+            cfg.checker, cfg.test_command, cfg.checker_version_command, self.runner
+        )
+        self.console.print("Type checker: " + self._describe(checker))
+        tester = MutationTester(
+            self.runner, cfg.test_command, cfg.timeout, classifier=OutcomeClassifier(checker)
+        )
         self.console.print("Running baseline check...")
         ok, output = tester.check_baseline(self.root)
         if not ok:
@@ -181,6 +192,18 @@ class App:
                 f"{escape(mutant.original_annotation)} → {escape(mutant.mutated_annotation)}"
             )
         return not diff.new
+
+    def _describe(self, checker: TypeChecker) -> str:
+        """The checker's name with the config files it found and the cache it would use."""
+        details = [
+            f"{label}: {', '.join(os.path.relpath(path, self.root) for path in paths)}"
+            for label, paths in (
+                ("config", list(checker.config_files(self.root))),
+                ("cache", list(checker.cache_paths(self.root))),
+            )
+            if paths
+        ]
+        return f"{checker.name} ({'; '.join(details)})" if details else checker.name
 
     def _executor(self, tester: MutationTester, jobs: int) -> MutantExecutor:
         if jobs > 1:

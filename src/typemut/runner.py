@@ -18,8 +18,15 @@ class Outcome(Enum):
 @dataclass(frozen=True)
 class CommandResult:
     outcome: Outcome
-    # stderr, or stdout when stderr is empty
-    output: str
+    stdout: str = ""
+    stderr: str = ""
+
+    @property
+    def output(self) -> str:
+        """Both streams for showing to the user: stdout, then stderr."""
+        if self.stdout and self.stderr and not self.stdout.endswith("\n"):
+            return f"{self.stdout}\n{self.stderr}"
+        return self.stdout + self.stderr
 
 
 class CommandRunner(Protocol):
@@ -55,9 +62,10 @@ class ShellRunner:
                 cwd=cwd,
             )
         except subprocess.TimeoutExpired:
-            return CommandResult(Outcome.TIMED_OUT, "")
-        output = completed.stderr.decode(errors="replace")
-        if not output:
-            output = completed.stdout.decode(errors="replace")
+            return CommandResult(Outcome.TIMED_OUT)
         outcome = Outcome.PASSED if completed.returncode == 0 else Outcome.FAILED
-        return CommandResult(outcome, output)
+        return CommandResult(
+            outcome,
+            stdout=completed.stdout.decode(errors="replace"),
+            stderr=completed.stderr.decode(errors="replace"),
+        )

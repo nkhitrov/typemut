@@ -126,7 +126,7 @@ class GitWorkspace:
         result = self._git("status", "--porcelain")
         if result.outcome is not Outcome.PASSED:
             raise WorkspaceError("Failed to check git status", result.output.strip())
-        if result.output.strip():
+        if result.stdout.strip():
             raise DirtyWorkingTreeError(
                 "Working tree has uncommitted changes. "
                 "Please commit or stash them before running with --jobs > 1.",

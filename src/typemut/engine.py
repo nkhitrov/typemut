@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import time
 from collections.abc import Collection, Iterable
-from collections.abc import Set as AbstractSet
 from dataclasses import replace
 from pathlib import Path
 from typing import Final, Protocol
@@ -15,21 +13,11 @@ from typing import Final, Protocol
 from rich.console import Console
 from rich.progress import track
 
+from typemut.checkers.base import TypeChecker
+from typemut.checkers.generic import GenericChecker
 from typemut.db import Database, MutantRow
 from typemut.imports import ImportInjector
 from typemut.runner import CommandResult, CommandRunner, Outcome
-
-# mypy error codes that indicate the mutated code is broken (missing import,
-# syntax error, invalid type) rather than a genuine type-system kill.
-FALSE_KILL_CODES: AbstractSet[str] = frozenset(
-    {
-        "name-defined",  # Name "Sequence" is not defined
-        "syntax",  # Syntax error in mutated code
-        "valid-type",  # Not valid as a type
-    }
-)
-
-_ERROR_CODE_RE = re.compile(r"\[(\w[\w-]*)\]\s*$")
 
 # mypy trusts its incremental cache when a file's size and whole-second mtime
 # are unchanged. Mutants of one file often have equal sizes and are written
@@ -199,35 +187,26 @@ class MutationApplier:
 class OutcomeClassifier:
     """Turns a test command result into a mutant status.
 
-    *false_kill_codes* are mypy error codes that mean the mutated code is
-    broken rather than caught by the type checker.
+    *checker* reads the error codes in the output; by default the generic
+    checker, which reads mypy-style ``[code]`` line endings.
     """
 
-    def __init__(self, false_kill_codes: AbstractSet[str] = FALSE_KILL_CODES) -> None:
-        self._false_kill_codes = false_kill_codes
+    def __init__(self, checker: TypeChecker | None = None) -> None:
+        self._checker = checker or GenericChecker()
 
     def classify(self, result: CommandResult) -> tuple[str, str]:
         """Mutant status and output for the test command's *result*.
 
-        A failure whose error codes are all false-kill codes comes from
-        broken mutated code (missing import, syntax error), not from the type
-        system: it is an error, not a kill.
+        A failure whose errors are all false kills comes from broken mutated
+        code (missing import, syntax error), not from the type system: it is
+        an error, not a kill.
         """
         if result.outcome is Outcome.TIMED_OUT:
             return "killed", "timeout"
         status = _STATUS_BY_OUTCOME[result.outcome]
-        codes = self.error_codes(result.output)
-        if status == "killed" and codes <= self._false_kill_codes and codes:
+        if status == "killed" and self._checker.is_false_kill(result.stdout, result.stderr):
             return "error", result.output
         return status, result.output
-
-    def error_codes(self, output: str) -> AbstractSet[str]:
-        """mypy error codes (``[arg-type]``, ...) that end lines of *output*."""
-        return {
-            match.group(1)
-            for line in output.splitlines()
-            if (match := _ERROR_CODE_RE.search(line)) is not None
-        }
 
 
 class ResultRecorder:

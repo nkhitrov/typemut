@@ -326,12 +326,14 @@ class ModuleImports:
     def package_of(self, file: Path) -> str:
         """Return the dotted package a file belongs to, e.g. ``app/x/models.py`` -> ``app.x``.
 
-        The package root is the topmost directory still containing ``__init__.py``.
-        Used to resolve relative imports.
+        The package root is the topmost directory still containing ``__init__.py``
+        (or a ``__init__.pyi`` stub). Used to resolve relative imports.
         """
         parts: list[str] = []
         directory = file.parent
-        while directory.name and (directory / "__init__.py").exists():
+        while directory.name and any(
+            (directory / init).exists() for init in ("__init__.py", "__init__.pyi")
+        ):
             parts.append(directory.name)
             directory = directory.parent
         return ".".join(reversed(parts))
@@ -360,6 +362,24 @@ class ModuleImports:
                 else:
                     names[defined.value] = prefix + ".".join(leaf.value for leaf in path)
         return names
+
+    def imported_modules(self, tree: Module, package: str = "") -> set[str]:
+        """Dotted names of the modules imports in *tree* may load.
+
+        ``from app.models import User`` -> ``{"app.models", "app.models.User"}``
+        (``User`` may itself be a module), ``import app.api as api`` ->
+        ``{"app.api"}``, ``from . import *`` (in ``app``) -> ``{"app"}``.
+        """
+        modules: set[str] = set()
+        for imp in self._iter_imports(tree):
+            prefix = self._relative_prefix(imp, package)
+            paths = (
+                [leaf.value for leaf in imp.get_from_names()] if isinstance(imp, ImportFrom) else []
+            )
+            dotted_paths = [paths, *([leaf.value for leaf in path] for path in imp.get_paths())]
+            modules.update((prefix + ".".join(path)).rstrip(".") for path in dotted_paths)
+        modules.discard("")
+        return modules
 
     def _iter_imports(self, node: BaseNode | Leaf) -> Iterator[ImportFrom | ImportName]:
         if isinstance(node, ImportFrom | ImportName):

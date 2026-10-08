@@ -54,6 +54,9 @@ class Config:
     # {operator key or "all": [qualified type name patterns]}
     ignore_types: dict[str, list[str]] = field(default_factory=dict)
     db_path: str = "typemut.sqlite"
+    # type checker plugin name; None detects it from test_command
+    checker: str | None = None
+    checker_version_command: str | None = None
 
 
 class ConfigLoader:
@@ -84,7 +87,18 @@ class ConfigLoader:
             plugins=self._parse_plugins(section.get("plugins", [])),
             ignore_types=self._parse_ignore_types(section.get("ignore-types", {})),
             db_path=section.get("db", "typemut.sqlite"),
+            checker=self._optional_string(section.get("checker"), "checker"),
+            checker_version_command=self._optional_string(
+                section.get("checker-version-command"), "checker-version-command"
+            ),
         )
+
+    def _optional_string(self, raw: object, option: str) -> str | None:
+        """Return *raw* if it is a string or None, else warn and return None."""
+        if raw is None or isinstance(raw, str):
+            return raw
+        logger.warning("Ignoring invalid %r option %r: expected a string", option, raw)
+        return None
 
     def _parse_plugins(self, raw: object) -> list[str]:
         """Validate the ``plugins`` option; warn and ignore invalid values."""

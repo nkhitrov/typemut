@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from tests.fakes import RecordingProgressBar, StubRunner
 from typemut.app import App
+from typemut.checkers import CheckerRegistry
 from typemut.cli import main
 from typemut.db import Database, MutantRow
 from typemut.parallel import InlinePool
@@ -372,3 +373,59 @@ def test_html_output_and_open(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert opened == [out_path.as_uri()]
     assert out_path.exists()
+
+
+# Fails like pyright on an undefined name once ``x: int`` in src/app.py is mutated.
+_PYRIGHT_LIKE_COMMAND = (
+    "grep -q 'x: int$' src/app.py || "
+    "{ echo '  /p/src/app.py:2:5 - error: \"Foo\" is not defined (reportUndefinedVariable)'; exit 1; }"
+)
+
+
+@pytest.mark.parametrize(
+    ("checker_option", "checker", "status"),
+    [
+        pytest.param('checker = "pyright"\n', "pyright", "error", id="pyright"),
+        pytest.param("", "generic", "killed", id="detected-generic"),
+    ],
+)
+def test_run_classifies_output_with_checker(
+    tmp_path: Path, checker_option: str, checker: str, status: str
+) -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _write_project(Path(td))
+        (Path(td) / "typemut.toml").write_text(
+            '[typemut]\nmodule-path = "src"\n'
+            f"test-command = '''{_PYRIGHT_LIKE_COMMAND}'''\n{checker_option}"
+        )
+        result = runner.invoke(main, ["run"], obj=partial(App, progress=RecordingProgressBar()))
+        with Database(Path(td) / "typemut.sqlite") as db:
+            statuses = {mutant.status for mutant in db.get_all()}
+    assert f"Type checker: {checker}" in result.output
+    assert statuses == {status}
+
+
+@pytest.mark.parametrize(
+    ("test_command", "cache"),
+    [
+        pytest.param("mypy src", ".mypy_cache", id="default"),
+        pytest.param("mypy --cache-dir build/mypy src", "build/mypy", id="relative-path"),
+    ],
+)
+def test_run_describes_checker(test_command: str, cache: str, tmp_path: Path) -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _write_project(Path(td))
+        (Path(td) / "typemut.toml").write_text(
+            f'[typemut]\nmodule-path = "src"\ntest-command = "{test_command}"\n'
+        )
+        (Path(td) / "mypy.ini").write_text("[mypy]\n")
+        app = partial(
+            App,
+            runner=StubRunner(CommandResult(Outcome.PASSED)),
+            progress=RecordingProgressBar(),
+            checkers=CheckerRegistry(environ={}),
+        )
+        result = runner.invoke(main, ["run"], obj=app)
+    assert f"Type checker: mypy (config: mypy.ini; cache: {cache})" in result.output
