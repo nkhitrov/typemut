@@ -12,8 +12,8 @@ from parso.python.tree import BaseNode, Leaf
 from typemut.checkers.base import TypeChecker
 from typemut.checkers.mypy import MypyChecker
 from typemut.db import MutantRow, MutantStatus
-from typemut.discovery import AnnotationContext, AnnotationNode
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.model import AnnotationContext, AnnotationNode, Mutation
+from typemut.operators.base import TypeMutationOperator
 from typemut.parallel import GitWorkspace
 from typemut.plugins.base import Plugin
 from typemut.registry import Registry

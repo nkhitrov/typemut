@@ -22,9 +22,8 @@ from fnmatch import fnmatchcase
 from parso.python.tree import BaseNode, Leaf, Module
 
 from typemut.config import ALL_OPERATORS
-from typemut.discovery import AnnotationNode
 from typemut.imports import ImportInjector, ModuleImports
-from typemut.operators.base import Mutation
+from typemut.model import AnnotationNode, Mutation
 
 _FROM_IMPORT_RE = re.compile(r"^from\s+(\S+)\s+import\s+(\w+)")
 

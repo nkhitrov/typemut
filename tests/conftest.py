@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from typemut.db import Database
-from typemut.discovery import AnnotationContext, AnnotationFinder
+from typemut.discovery import AnnotationFinder
+from typemut.model import AnnotationContext
 from typemut.registry import Registry
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
