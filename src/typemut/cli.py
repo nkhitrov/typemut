@@ -36,6 +36,25 @@ _config_option = click.option(
     "--config", "config_path", default="typemut.toml", help="Config file."
 )
 _jobs_option = click.option("--jobs", default=1, help="Number of parallel jobs.")
+_incremental_option = click.option(
+    "--incremental/--no-incremental",
+    default=None,
+    help="Reuse kills of earlier runs whose files are unchanged [default: 'incremental' option].",
+)
+_refresh_option = click.option(
+    "--refresh",
+    is_flag=True,
+    help=(
+        "Run the mutants without reusing cached kills, and store the results "
+        "for later incremental runs."
+    ),
+)
+_max_duration_option = click.option(
+    "--max-duration",
+    type=click.FloatRange(min=0, min_open=True),
+    default=None,
+    help="Start no new mutant after this many seconds [default: 'max-duration' option].",
+)
 
 
 class _TypemutGroup(click.Group):
@@ -94,17 +113,23 @@ def init(
 @_config_option
 @click.option("--db", "db_path", default=None, help="Database file.")
 @_jobs_option
+@_incremental_option
+@_refresh_option
+@_max_duration_option
 @click.pass_obj
 def exec_cmd(
     app: App,
     config_path: str,
     db_path: str | None,  # pragma: no mutate  (click passes None when --db is omitted)
     jobs: int,
+    incremental: bool | None,  # pragma: no mutate  (click passes None when neither flag is given)
+    refresh: bool,
+    max_duration: float | None,  # pragma: no mutate  (click passes None when omitted)
 ) -> None:
     """Run type checker against each mutation."""
     cfg, db = app.load(config_path, db_path)
-    with db:
-        app.execute(cfg, db, jobs)
+    with db, app.terminate_signal.interrupts():
+        app.execute(cfg, db, jobs, incremental, refresh, max_duration)
     app.console.print("[green]Done.[/green]")
 
 
@@ -144,6 +169,9 @@ def html(app: App, db_path: str, out_path: str, open_browser: bool) -> None:
 @_config_option
 @click.option("--db", "db_path", default=None, help="Database file.")
 @_jobs_option
+@_incremental_option
+@_refresh_option
+@_max_duration_option
 @_fail_under_option
 @_baseline_option
 @_update_baseline_option
@@ -153,6 +181,9 @@ def run(
     config_path: str,
     db_path: str | None,
     jobs: int,
+    incremental: bool | None,  # pragma: no mutate  (click passes None when neither flag is given)
+    refresh: bool,
+    max_duration: float | None,  # pragma: no mutate  (click passes None when omitted)
     fail_under: float | None,
     baseline_path: str | None,
     update_baseline: bool,
@@ -160,9 +191,9 @@ def run(
     """Run full pipeline: discover mutations, execute, and report."""
     _require_baseline_path(baseline_path, update_baseline)
     cfg, db = app.load(config_path, db_path)
-    with db:
+    with db, app.terminate_signal.interrupts():
         app.discover(cfg, db)
-        app.execute(cfg, db, jobs)
+        app.execute(cfg, db, jobs, incremental, refresh, max_duration)
         app.console.print()
         app.report(db)
         passed = app.check_results(db, fail_under, baseline_path, update_baseline)

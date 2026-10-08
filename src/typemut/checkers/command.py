@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 import shlex
 from collections.abc import Iterable, Sequence
@@ -28,6 +29,8 @@ _RUNNERS: Final = {
     "npx": (),
     "bunx": (),
 }
+# Runners that run a tool in the project's environment, with its Python.
+_PROJECT_RUNNERS: Final = frozenset({"uv", "poetry", "pdm", "hatch", "rye"})
 # Runner options that take their value as the next word (``uv run --group dev``).
 _UV_VALUE_OPTIONS: Final = frozenset(
     {
@@ -127,13 +130,54 @@ class CommandLine:
         end = self.executable_index(executables)
         if end is None:
             return None
-        directory_changes = [
+        start = self._command_start(end)
+        return " && ".join(
+            [*self._directory_changes(end), self._text(start, end + 1) + " --version"]
+        )
+
+    def python_command(self, executables: Iterable[str]) -> str | None:
+        """A command printing the version of the Python the checker runs with.
+
+        ``python3.12 -m mypy`` -> ``python3.12 --version``; a project runner
+        runs the project's Python (``uv run mypy`` -> ``uv run python --version``);
+        an executable run by path runs the Python next to it
+        (``.venv/bin/mypy`` -> ``.venv/bin/python --version``); anything else
+        gets the ``python`` on ``PATH``, as pyright uses it.
+        ``cd`` and ``pushd`` before the checker are kept, as in
+        :meth:`version_command`.
+        """
+        end = self.executable_index(executables)
+        if end is None:
+            return None
+        start = self._command_start(end)
+        words = self.words()
+        prefix = words[start:end]
+        name = Path(words[end]).name
+        executable = self._text(end, end + 1)
+        if len(prefix) >= 2 and prefix[-1] == "-m" and _PYTHON_RE.fullmatch(Path(prefix[-2]).name):
+            python = self._text(start, end - 1)
+        elif any(
+            Path(word).name in _PROJECT_RUNNERS and following == "run"
+            for word, following in itertools.pairwise(prefix)
+        ):
+            python = self._text(start, end) + " python"
+        elif executable.endswith(f"/{name}"):
+            python = executable.removesuffix(name) + "python"
+        else:
+            python = "python"
+        return " && ".join([*self._directory_changes(end), python + " --version"])
+
+    def _command_start(self, index: int) -> int:
+        """Position of the first word of the command word *index* belongs to."""
+        return max(start for start, _ in self._commands() if start <= index)
+
+    def _directory_changes(self, end: int) -> Iterable[str]:
+        """The ``cd`` and ``pushd`` commands before word *end*, as written."""
+        return [
             self._text(start, start + len(command))
             for start, command in self._commands()
             if start < end and any(word in _DIRECTORY_CHANGES for word in command[:1])
         ]
-        start = max(start for start, _ in self._commands() if start <= end)
-        return " && ".join([*directory_changes, self._text(start, end + 1) + " --version"])
 
     def _text(self, first: int, last: int) -> str:
         """The command as written from word *first* up to (not including) word *last*."""

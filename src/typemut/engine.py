@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
-from collections.abc import Collection, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import Final, Protocol
@@ -13,6 +13,7 @@ from typing import Final, Protocol
 from rich.console import Console
 from rich.progress import track
 
+from typemut.cache import KillDependencies, ResultCache
 from typemut.checkers.base import TypeChecker
 from typemut.checkers.generic import GenericChecker
 from typemut.db import Database, MutantRow
@@ -72,8 +73,30 @@ class RichProgressBar:
         )
 
 
+class Deadline:
+    """The moment *seconds* after now on *clock*; None never comes.
+
+    Pickled to worker processes as is: the default monotonic clock is
+    shared by the processes of a machine.
+    """
+
+    def __init__(
+        self, seconds: float | None = None, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._clock = clock
+        self._end = None if seconds is None else clock() + seconds
+
+    def expired(self) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether the moment has come."""
+        return self._end is not None and self._clock() >= self._end
+
+
 class MutationTester:
-    """Applies one mutant at a time under a project root and runs the test command."""
+    """Applies one mutant at a time under a project root and runs the test command.
+
+    With *dependencies*, kills record the files they depend on; mutants
+    are left pending once *deadline* has expired.
+    """
 
     def __init__(
         self,
@@ -82,12 +105,16 @@ class MutationTester:
         timeout: int,
         applier: MutationApplier | None = None,
         classifier: OutcomeClassifier | None = None,
+        dependencies: KillDependencies | None = None,
+        deadline: Deadline | None = None,
     ) -> None:
         self.runner = runner
         self.test_command = test_command
         self.timeout = timeout
         self.applier = applier or MutationApplier()
         self.classifier = classifier or OutcomeClassifier()
+        self._dependencies = dependencies
+        self._deadline = deadline or Deadline()
 
     def check_baseline(self, root: Path) -> tuple[bool, str]:
         """Run the test command on unmodified code. Returns (ok, output)."""
@@ -99,8 +126,12 @@ class MutationTester:
     def run(self, mutant: MutantRow, root: Path) -> MutantRow:
         """Apply *mutant* to its file under *root*, run the test command, restore the file.
 
-        Returns the mutant with its status, output and duration set.
+        Returns the mutant with its status, output, duration and, for a kill
+        recorded with *dependencies*, the files it depends on set; the
+        mutant unchanged (pending) if the deadline has expired.
         """
+        if self._deadline.expired():
+            return mutant
         file_path = root / mutant.module_path
         original_source = file_path.read_text()
         try:
@@ -130,7 +161,12 @@ class MutationTester:
             file_path.write_text(original_source)
             os.utime(file_path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
         status, output = self.classifier.classify(result)
-        return replace(mutant, status=status, output=output, duration_seconds=duration)
+        depends = None
+        if status == "killed" and self._dependencies is not None:
+            depends = self._dependencies.depends(mutant, result, root)
+        return replace(
+            mutant, status=status, output=output, duration_seconds=duration, depends=depends
+        )
 
     def _content_mtime_ns(self, source: str, original_mtime_ns: int) -> int:
         """A whole-second mtime before *original_mtime_ns* that depends only on *source*."""
@@ -210,14 +246,22 @@ class OutcomeClassifier:
 
 
 class ResultRecorder:
-    """Stores mutant results in *db* as they arrive, in batches of *batch_size*."""
+    """Stores mutant results in *db* as they arrive, in batches of *batch_size*.
+
+    With *cache*, every batch is stored in the result cache too.
+    """
 
     def __init__(
-        self, db: Database, progress: ProgressBar, batch_size: int = DB_FLUSH_BATCH_SIZE
+        self,
+        db: Database,
+        progress: ProgressBar,
+        batch_size: int = DB_FLUSH_BATCH_SIZE,
+        cache: ResultCache | None = None,
     ) -> None:
         self._db = db
         self._progress = progress
         self._batch_size = batch_size
+        self._cache = cache
 
     def record(self, mutants: Collection[MutantRow], executor: MutantExecutor) -> None:
         """Execute *mutants* and store their results, flushing to the database in batches."""
@@ -226,7 +270,14 @@ class ResultRecorder:
             for result in self._progress.track(executor.execute(mutants), total=len(mutants)):
                 batch.append(result)
                 if len(batch) >= self._batch_size:
-                    self._db.update_results_batch(batch)
+                    self._flush(batch)
                     batch.clear()
         finally:
-            self._db.update_results_batch(batch)
+            self._flush(batch)
+
+    def _flush(self, batch: Collection[MutantRow]) -> None:
+        if len(batch) == 0:
+            return
+        self._db.update_results_batch(batch)
+        if self._cache is not None:
+            self._cache.save(batch)

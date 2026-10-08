@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from tests.fakes import RecordingProgressBar, StubRunner
+from tests.fakes import RecordingProgressBar, RecordingTerminateSignal, StubRunner
 from typemut.app import App
 from typemut.checkers import CheckerRegistry
 from typemut.cli import main
@@ -264,6 +264,23 @@ def test_exec_baseline_failure(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "Baseline check failed" in result.output
     assert "app.py:1: error [misc]" in result.output
+
+
+@pytest.mark.parametrize("command", ["exec", "run"])
+def test_sigterm_interrupts_while_mutants_run(command: str, tmp_path: Path) -> None:
+    runner = CliRunner()
+    terminate_signal = RecordingTerminateSignal()
+    make_app = partial(
+        App,
+        runner=StubRunner(CommandResult(Outcome.PASSED, "")),
+        progress=RecordingProgressBar(),
+        terminate_signal=terminate_signal,
+    )
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _write_project(Path(td))
+        result = runner.invoke(main, [command], obj=make_app)
+    assert result.exit_code == 0
+    assert (terminate_signal.entered, terminate_signal.exited) == (1, 1)
 
 
 def test_run_nothing_to_test(tmp_path: Path) -> None:

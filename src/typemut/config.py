@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import tomllib
-from collections.abc import Container
+from collections.abc import Container, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Final
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,9 @@ OPERATOR_KEYS: tuple[str, ...] = (
 
 # Key under [typemut.ignore-types] that applies to every operator.
 ALL_OPERATORS = "all"
+
+# Files whose change invalidates every cached result: the project's lockfiles.
+DEFAULT_CACHE_KEY_FILES: Final = ("uv.lock", "poetry.lock", "requirements*.txt")
 
 
 @dataclass
@@ -57,6 +61,12 @@ class Config:
     # type checker plugin name; None detects it from test_command
     checker: str | None = None
     checker_version_command: str | None = None
+    # reuse kills of earlier runs while the files they depend on are unchanged
+    incremental: bool = False  # pragma: no mutate (truth-tested)
+    # seconds after which no new mutant is started; None: no limit
+    max_duration: float | None = None
+    # glob patterns of files (relative to the project root) the cache depends on
+    cache_key_files: Iterable[str] = DEFAULT_CACHE_KEY_FILES
 
 
 class ConfigLoader:
@@ -91,7 +101,51 @@ class ConfigLoader:
             checker_version_command=self._optional_string(
                 section.get("checker-version-command"), "checker-version-command"
             ),
+            incremental=self._bool(section.get("incremental", False), "incremental"),
+            max_duration=self._max_duration(section.get("max-duration")),
+            cache_key_files=self._cache_key_files(section.get("cache-key-files")),
         )
+
+    def _cache_key_files(self, raw: object) -> Iterable[str]:
+        """Validate ``cache-key-files``; the default lockfiles if unset or invalid."""
+        if raw is None:
+            return DEFAULT_CACHE_KEY_FILES
+        patterns = self._string_list(raw, "cache-key-files")
+        if patterns is None:
+            return DEFAULT_CACHE_KEY_FILES
+        return [pattern for pattern in patterns if self._usable_key_file_pattern(pattern)]
+
+    def _usable_key_file_pattern(self, pattern: str) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether a ``cache-key-files`` *pattern* can be globbed; warn if not."""
+        if not pattern.strip():
+            logger.warning("Ignoring empty 'cache-key-files' pattern %r", pattern)
+            return False
+        if Path(pattern).is_absolute():
+            logger.warning(
+                "Ignoring absolute 'cache-key-files' pattern %r: "
+                "patterns are relative to the project root",
+                pattern,
+            )
+            return False
+        return True
+
+    def _bool(self, raw: object, option: str) -> bool:
+        """Return *raw* if it is a boolean, else warn and return False."""
+        if isinstance(raw, bool):
+            return raw
+        logger.warning("Ignoring invalid %r option %r: expected true or false", option, raw)
+        return False
+
+    def _max_duration(self, raw: object) -> float | None:
+        """Validate ``max-duration``: a positive number of seconds."""
+        if raw is None:
+            return None
+        if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0:
+            return float(raw)
+        logger.warning(
+            "Ignoring invalid 'max-duration' option %r: expected a positive number of seconds", raw
+        )
+        return None
 
     def _optional_string(self, raw: object, option: str) -> str | None:
         """Return *raw* if it is a string or None, else warn and return None."""

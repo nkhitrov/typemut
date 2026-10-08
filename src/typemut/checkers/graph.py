@@ -25,9 +25,10 @@ class ImportGraph:
     ``lib``), so namespace packages (no ``__init__.py``) resolve and files
     outside a ``src`` layout (``tests``, scripts) reach the packages in it.
     A module is its ``.py`` file and its ``.pyi`` stub, either of which may
-    be missing; it also loads the ``__init__`` of each of its parent
-    packages. When in doubt a file counts as a dependency: an extra one only
-    costs a re-run.
+    be missing (a missing one still counts: creating it changes the
+    import); it also loads the ``__init__`` of each of its parent packages.
+    When in doubt a file counts as a dependency: an extra one only costs a
+    re-run.
     """
 
     def __init__(self, imports: ModuleImports | None = None) -> None:
@@ -93,17 +94,28 @@ class ImportGraph:
         ]
 
     def _module_files(self, module: str, roots: Iterable[Path]) -> Iterable[Path]:
-        """Existing files of *module* and of its parent packages under any of *roots*."""
+        """Files of *module* and of its parent packages under any of *roots*.
+
+        A module or package that exists counts with both its ``.py`` and its
+        ``.pyi`` file, even if one is missing: creating it changes what the
+        import resolves to.
+        """
         parts = module.split(".")
         found: list[Path] = []
         for directory in roots:
-            packages = [
-                directory.joinpath(*parts[:end], init)
-                for end in range(1, len(parts))
-                for init in _INIT_FILES
-            ]
             base = directory.joinpath(*parts)
-            modules = [base.parent / f"{base.name}{suffix}" for suffix in _SUFFIXES]
-            candidates = [*packages, *modules, *(base / init for init in _INIT_FILES)]
-            found.extend(candidate.resolve() for candidate in candidates if candidate.is_file())
+            groups = [
+                *(
+                    [directory.joinpath(*parts[:end], init) for init in _INIT_FILES]
+                    for end in range(1, len(parts))
+                ),
+                [base.parent / f"{base.name}{suffix}" for suffix in _SUFFIXES],
+                [base / init for init in _INIT_FILES],
+            ]
+            found.extend(
+                candidate.resolve()
+                for group in groups
+                if any(candidate.is_file() for candidate in group)
+                for candidate in group
+            )
         return found

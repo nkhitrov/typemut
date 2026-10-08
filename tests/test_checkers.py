@@ -645,10 +645,14 @@ def project(tmp_path: Path) -> Path:
 def test_dependencies_follow_project_imports(project: Path) -> None:
     assert MypyChecker().dependencies(["src/app/models.py"], project) == {
         "src/app/__init__.py",
+        "src/app/__init__.pyi",
         "src/app/base.py",
+        "src/app/base.pyi",
         "src/app/models.py",
         "src/app/types.py",
+        "src/app/types.pyi",
         "src/app/util.py",
+        "src/app/util.pyi",
     }
 
 
@@ -656,12 +660,17 @@ def test_dependencies_of_several_files(project: Path) -> None:
     deps = PyrightChecker().dependencies(["src/app/api.py", "src/app/unrelated.py"], project)
     assert deps == {
         "src/app/__init__.py",
+        "src/app/__init__.pyi",
         "src/app/api.py",
         "src/app/base.py",
+        "src/app/base.pyi",
         "src/app/models.py",
+        "src/app/models.pyi",
         "src/app/types.py",
+        "src/app/types.pyi",
         "src/app/unrelated.py",
         "src/app/util.py",
+        "src/app/util.pyi",
     }
 
 
@@ -684,8 +693,10 @@ def test_dependencies_in_namespace_packages(tmp_path: Path) -> None:
     assert ImportGraph().closure(["ns/a.py", "src/space/c.py"], tmp_path) == {
         "ns/a.py",
         "ns/b.py",
+        "ns/b.pyi",
         "src/space/c.py",
         "src/space/d.py",
+        "src/space/d.pyi",
     }
 
 
@@ -698,7 +709,13 @@ def test_dependencies_include_parent_packages(tmp_path: Path) -> None:
             "app/api.py": "",
         },
     )
-    assert ImportGraph().closure(["x.py"], tmp_path) == {"x.py", "app/__init__.py", "app/api.py"}
+    assert ImportGraph().closure(["x.py"], tmp_path) == {
+        "x.py",
+        "app/__init__.py",
+        "app/__init__.pyi",
+        "app/api.py",
+        "app/api.pyi",
+    }
 
 
 def test_dependencies_from_outside_src_layout(tmp_path: Path) -> None:
@@ -718,8 +735,11 @@ def test_dependencies_from_outside_src_layout(tmp_path: Path) -> None:
     assert ImportGraph().closure(["tests/test_x.py"], tmp_path) == {
         "tests/test_x.py",
         "src/app/__init__.py",
+        "src/app/__init__.pyi",
         "src/app/models.py",
+        "src/app/models.pyi",
         "src/app/base.py",
+        "src/app/base.pyi",
     }
 
 
@@ -740,13 +760,19 @@ def test_dependencies_include_stubs(tmp_path: Path) -> None:
     )
     assert ImportGraph().closure(["pkg/use.py"], tmp_path) == {
         "pkg/__init__.py",
+        "pkg/__init__.pyi",
         "pkg/use.py",
         "pkg/fast.py",
         "pkg/fast.pyi",
+        "pkg/ext.py",
         "pkg/ext.pyi",
         "pkg/types.py",
+        "pkg/types.pyi",
+        "stubs/__init__.py",
         "stubs/__init__.pyi",
+        "stubs/mod.py",
         "stubs/mod.pyi",
+        "stubs/base.py",
         "stubs/base.pyi",
     }
 
@@ -767,7 +793,16 @@ def test_dependencies_through_symlinked_root(project: Path, tmp_path_factory: py
         pytest.param(
             MypyChecker(),
             "src/app/types.py:1: error: x  [misc]\n",
-            {"src/app/__init__.py", "src/app/base.py", "src/app/types.py", "src/app/util.py"},
+            {
+                "src/app/__init__.py",
+                "src/app/__init__.pyi",
+                "src/app/base.py",
+                "src/app/base.pyi",
+                "src/app/types.py",
+                "src/app/types.pyi",
+                "src/app/util.py",
+                "src/app/util.pyi",
+            },
             id="mypy",
         ),
         pytest.param(
@@ -960,3 +995,55 @@ def test_discover_skips_broken_entry_points(
     registry = CheckerRegistry.discover([_entry_point("bad", value)])
     assert type(registry.get("bad", "mypy .")) is GenericChecker
     assert message in caplog.text
+
+
+# --- python version ---
+
+
+@pytest.mark.parametrize(
+    ("checker", "test_command", "python_command"),
+    [
+        pytest.param(MypyChecker, "mypy src", "python --version", id="bare"),
+        pytest.param(MypyChecker, "uv run mypy src", "uv run python --version", id="uv-run"),
+        pytest.param(
+            MypyChecker,
+            "X=1 poetry run --directory app mypy .",
+            "X=1 poetry run --directory app python --version",
+            id="poetry-run-with-options",
+        ),
+        pytest.param(
+            MypyChecker, "python3.12 -m mypy -p app", "python3.12 --version", id="python-m"
+        ),
+        pytest.param(
+            MypyChecker, "uv run python -m mypy .", "uv run python --version", id="uv-python-m"
+        ),
+        pytest.param(PyrightChecker, "npx pyright src", "python --version", id="npx"),
+        pytest.param(
+            MypyChecker, "X=1 .venv/bin/mypy src", ".venv/bin/python --version", id="by-path"
+        ),
+        pytest.param(
+            MypyChecker, "$VENV/bin/dmypy run", "$VENV/bin/python --version", id="by-path-var"
+        ),
+        pytest.param(MypyChecker, "'.venv/bin/mypy' src", "python --version", id="quoted-path"),
+        pytest.param(
+            MypyChecker,
+            "cd backend && uv run mypy .",
+            "cd backend && uv run python --version",
+            id="cd",
+        ),
+    ],
+)
+def test_python_version(
+    checker: type[TypeChecker], test_command: str, python_command: str, tmp_path: Path
+) -> None:
+    runner = _passing("Python 3.12.4\n")
+    assert checker(test_command, runner=runner).python_version(tmp_path) == "3.12.4"
+    assert runner.calls == [(python_command, VERSION_TIMEOUT, tmp_path)]
+
+
+def test_no_python_version_without_checker_command(tmp_path: Path) -> None:
+    runner = _passing("Python 3.12.4\n")
+    assert GenericChecker("make typecheck", "mypy --version", runner).python_version(
+        tmp_path
+    ) is None
+    assert runner.calls == []

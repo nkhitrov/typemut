@@ -18,6 +18,7 @@ from typemut.db import MutantRow
 from typemut.engine import MutationTester
 from typemut.errors import TypemutError
 from typemut.runner import CommandResult, CommandRunner, Outcome
+from typemut.signals import TerminateSignal
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class WorkerJob:
     root: Path
 
     def run(self, tester: MutationTester, results: Queue[MutantRow]) -> None:
-        """Worker process body: run the mutants and put each result on *results*."""
+        """Run the mutants and put each result on *results*."""
         for mutant in self.mutants:
             results.put(tester.run(mutant, self.root))
 
@@ -71,16 +72,23 @@ class ProcessPool:
     """Runs each job in its own process.
 
     Waits for results *poll_interval* seconds at a time, checking in between
-    that some worker is still alive.
+    that some worker is still alive. In the workers *terminate_signal* makes
+    SIGTERM end them as usual, even if the parent turned it into
+    KeyboardInterrupt and they were forked with that handler.
     """
 
-    def __init__(self, poll_interval: float = 1.0) -> None:
+    def __init__(
+        self,
+        poll_interval: float = 1.0,
+        terminate_signal: TerminateSignal | None = None,
+    ) -> None:
         self._poll_interval = poll_interval
+        self._terminate_signal = terminate_signal or TerminateSignal()
 
     def run(self, tester: MutationTester, jobs: Iterable[WorkerJob]) -> Iterable[MutantRow]:
         results: Queue[MutantRow] = Queue()
         active = [job for job in jobs if job.mutants]
-        processes = [Process(target=job.run, args=(tester, results)) for job in active]
+        processes = [Process(target=self._work, args=(job, tester, results)) for job in active]
         for process in processes:
             process.start()
         try:
@@ -101,6 +109,11 @@ class ProcessPool:
                 if process.is_alive():
                     process.terminate()
                     process.join(timeout=_TERMINATE_TIMEOUT)
+
+    def _work(self, job: WorkerJob, tester: MutationTester, results: Queue[MutantRow]) -> None:
+        """Worker process body."""
+        self._terminate_signal.ends_process()
+        job.run(tester, results)
 
     def _next_result(self, results: Queue[MutantRow]) -> MutantRow | None:
         """The next result, or None if none arrived within the poll interval."""

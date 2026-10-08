@@ -10,9 +10,12 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from tests.fakes import RecordingProgressBar, StubExecutor, StubRunner, make_mutant
+from tests.fakes import RecordingProgressBar, StepClock, StubExecutor, StubRunner, make_mutant
+from typemut.cache import KillDependencies, ResultCache
+from typemut.checkers.mypy import MypyChecker
 from typemut.db import Database, MutantRow
 from typemut.engine import (
+    Deadline,
     MutationApplyError,
     MutationTester,
     RichProgressBar,
@@ -231,3 +234,61 @@ def test_rich_progress_bar_yields_results() -> None:
     results = [make_mutant()]
     progress = RichProgressBar(Console(file=StringIO()))
     assert list(progress.track(results, total=1)) == results
+
+
+class TestDeadline:
+    def test_never_expires_without_seconds(self) -> None:
+        assert not Deadline().expired()
+
+    def test_expires_after_seconds(self) -> None:
+        deadline = Deadline(2.0, StepClock())
+        assert [deadline.expired() for _ in range(3)] == [False, True, True]
+
+    def test_default_clock(self) -> None:
+        assert (Deadline(0.0).expired(), Deadline(3600.0).expired()) == (True, False)
+
+
+class TestRunRecordsDependencies:
+    _ERROR = "test.py:1: error: Incompatible types  [assignment]\n"
+
+    def _tester(
+        self, result: CommandResult, dependencies: KillDependencies | None = None
+    ) -> MutationTester:
+        return MutationTester(StubRunner(result), "mypy .", timeout=5, dependencies=dependencies)
+
+    def test_kill_depends_on_unmutated_files(self, project: Path) -> None:
+        tester = self._tester(
+            CommandResult(Outcome.FAILED, self._ERROR), KillDependencies(MypyChecker())
+        )
+        result = tester.run(make_mutant(module_path="test.py"), project)
+        assert result.status == "killed"
+        assert result.depends == {
+            "test.py": "7a0ed4b785fee645e6aff331abc77eccf7a857439cddd244ad591b544dfe28df"
+        }
+
+    def test_survivor_has_no_dependencies(self, project: Path) -> None:
+        tester = self._tester(CommandResult(Outcome.PASSED), KillDependencies(MypyChecker()))
+        assert tester.run(make_mutant(), project).depends is None
+
+    def test_no_dependencies_by_default(self, project: Path) -> None:
+        tester = self._tester(CommandResult(Outcome.FAILED, self._ERROR))
+        assert tester.run(make_mutant(), project).depends is None
+
+
+def test_mutant_left_pending_after_deadline(project: Path) -> None:
+    runner = StubRunner(CommandResult(Outcome.FAILED))
+    tester = MutationTester(runner, "mypy .", timeout=5, deadline=Deadline(0.0, StepClock()))
+    assert tester.run(make_mutant(), project) == make_mutant()
+    assert runner.calls == []
+    assert (project / "test.py").read_text() == "x: int = 5\n"
+
+
+def test_recorder_stores_results_in_cache(tmp_db: Database, tmp_path: Path) -> None:
+    tmp_db.insert_many([make_mutant(None, line=line) for line in range(1, 4)])
+    cache = ResultCache(tmp_db, tmp_path)
+
+    ResultRecorder(tmp_db, RecordingProgressBar(), batch_size=2, cache=cache).record(
+        tmp_db.get_pending(), StubExecutor("killed")
+    )
+
+    assert sorted(m.line for m in tmp_db.cache.load().values()) == [1, 2, 3]

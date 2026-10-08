@@ -25,6 +25,7 @@ class GenericChecker(TypeChecker):
 
     name = "generic"
     false_kill_codes = FALSE_KILL_CODES
+    traces_dependencies = False
 
     def parse_output(self, output: str) -> Iterable[Diagnostic]:
         """One diagnostic per line ending with ``[code]``; the file is unknown."""

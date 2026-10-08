@@ -66,6 +66,9 @@ class TypeChecker:
     false_kill_codes: ClassVar[AbstractSet[str]] = frozenset()
     # Config files the checker looks for in the project root, in its order.
     config_names: ClassVar[Iterable[str]] = ()
+    # Whether :meth:`dependencies` can tell the files a kill depends on, so
+    # incremental runs may reuse the checker's kills.
+    traces_dependencies: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -99,15 +102,16 @@ class TypeChecker:
                 self.test_command,
             )
             return None
-        result = self._runner.run(command, timeout=VERSION_TIMEOUT, cwd=root)
-        if result.outcome is not Outcome.PASSED:
-            logger.warning("Version command %r failed: %s", command, result.output.strip())
-            return None
-        match = VERSION_RE.search(result.stdout) or VERSION_RE.search(result.stderr)
-        if match is None:
-            logger.warning("No version number in the output of %r", command)
-            return None
-        return match.group()
+        return self._run_version(command, root)
+
+    def python_version(self, root: Path) -> str | None:
+        """The version of the Python the checker runs with, or None if it cannot be found.
+
+        Its standard library stubs and installed packages depend on it.
+        Derived from ``test-command`` (see :meth:`CommandLine.python_command`).
+        """
+        command = self._command.python_command(self.executables)
+        return None if command is None else self._run_version(command, root)
 
     def is_false_kill(
         self,
@@ -176,6 +180,18 @@ class TypeChecker:
         None means the checker cannot tell, so no result may be reused.
         """
         return frozenset(self._graph.closure(files, root))
+
+    def _run_version(self, command: str, root: Path) -> str | None:
+        """The first ``X.Y.Z`` *command* prints in *root*; None with a warning if none."""
+        result = self._runner.run(command, timeout=VERSION_TIMEOUT, cwd=root)
+        if result.outcome is not Outcome.PASSED:
+            logger.warning("Version command %r failed: %s", command, result.output.strip())
+            return None
+        match = VERSION_RE.search(result.stdout) or VERSION_RE.search(result.stderr)
+        if match is None:
+            logger.warning("No version number in the output of %r", command)
+            return None
+        return match.group()
 
     def _environment(self) -> Mapping[str, str]:
         """The environment variables the checker runs with."""

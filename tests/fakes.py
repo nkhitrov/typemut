@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from typemut.operators.base import Mutation, TypeMutationOperator
 from typemut.plugins.base import Plugin
 from typemut.registry import Registry
 from typemut.runner import CommandResult, Outcome
+from typemut.signals import TerminateSignal
 
 
 class StubRunner:
@@ -75,6 +77,34 @@ class StrictMypyChecker(MypyChecker):
     """A third-party extension of the mypy checker, run by the same ``mypy`` executable."""
 
     name = "mypy-strict"
+
+
+class StepClock:
+    """Clock whose time advances by *step* seconds each time it is read, from 0."""
+
+    def __init__(self, step: float = 1.0) -> None:
+        self._step = step
+        self._now = -step
+
+    def __call__(self) -> float:
+        self._now += self._step
+        return self._now
+
+
+class RecordingTerminateSignal(TerminateSignal):
+    """TerminateSignal that installs no handler, only counts the blocks it guards."""
+
+    def __init__(self) -> None:
+        self.entered = 0
+        self.exited = 0
+
+    @contextmanager
+    def interrupts(self) -> Iterator[None]:
+        self.entered += 1
+        try:
+            yield
+        finally:
+            self.exited += 1
 
 
 class RecordingProgressBar:
