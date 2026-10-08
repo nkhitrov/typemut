@@ -8,7 +8,6 @@ import pytest
 from click.testing import CliRunner
 
 from typemut.cli import main
-from typemut.config import OperatorsConfig
 from typemut.db import Database
 from typemut.discovery import AnnotationFinder
 from typemut.ignore import IgnoredTypes
@@ -34,7 +33,7 @@ def mutated(
     plugins: list[str] | None = None,
 ) -> set[str]:
     """Mutated annotations of every annotation in *source* with the given ignore rules."""
-    operators = OperatorRegistry().enabled(OperatorsConfig())
+    operators = OperatorRegistry().enabled({})
     ignored = IgnoredTypes(ignore)
     return {
         mutation.mutated
@@ -204,3 +203,11 @@ def test_init_applies_ignore_types(tmp_path: Path) -> None:
             mutants = {mutant.mutated_annotation for mutant in db.get_all()}
     assert result.exit_code == 0
     assert mutants == {"str | None"}
+
+
+def test_warn_unknown_keys(caplog: pytest.LogCaptureFixture) -> None:
+    ignored = IgnoredTypes({"all": ["x.*"], "add-optional": ["x.Y"], "widen-typ": ["x.Z"]})
+    ignored.warn_unknown_keys(frozenset({"add-optional"}))
+    assert "Ignoring unknown operator 'widen-typ' in 'ignore-types'. Valid keys: add-optional, all" in caplog.text
+    assert "'add-optional' in" not in caplog.text
+    assert "'all' in" not in caplog.text
