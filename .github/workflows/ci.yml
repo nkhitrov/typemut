@@ -5,6 +5,21 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Weekly recheck of every cached kill (`--refresh`, with a longer time limit
+  # than other runs), stored like a push to main.
+  schedule:
+    - cron: "0 3 * * 1"
+  # A manual run with `refresh` re-triggers a refresh that was replaced in the
+  # concurrency queue (see below).
+  workflow_dispatch:
+    inputs:
+      refresh:
+        description: Recheck every cached kill (--refresh, 5.5-hour limit)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -33,6 +48,24 @@ jobs:
 
   typemut:
     runs-on: ubuntu-latest
+    # max-duration (25 min) < step timeout (35 min) < job timeout (45 min):
+    # typemut stops starting mutants, saves the finished ones, and the database
+    # is still uploaded. The weekly --refresh gets 5.5 h < 340 min < 350 min,
+    # since a refresh rechecks only the mutants that fit in its max-duration.
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 350 || 45 }}
+    # Runs of one ref wait for each other, so every run on main downloads the
+    # database the previous one uploaded, not one an older run uploads later.
+    # GitHub keeps one waiting run per group: a newer one cancels it. For a
+    # push that is harmless (the newer run covers it), but a waiting refresh
+    # can be cancelled by a push: re-run it by hand with `refresh`. A separate
+    # group for refreshes would be worse: a push during the refresh would
+    # upload a newer run's database built without the refresh's results.
+    concurrency:
+      group: typemut-db-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read  # find and download the database artifact of main
 
     steps:
       - uses: actions/checkout@v4
@@ -46,8 +79,59 @@ jobs:
       - name: Install
         run: make install
 
+      # Every run (main included) starts from the latest database of main,
+      # whatever that run's outcome: a run stopped by max-duration saved its
+      # results too. Only artifacts of runs on this repository's main count, so
+      # a fork's PR from a branch named `main` cannot plant a database. The
+      # newest run (highest run id) wins, not the newest upload: a re-run of an
+      # old run uploads later but keeps its old run id.
+      # No database means a full run: correct, only slower.
+      - name: Download the mutation database of main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_ID: ${{ github.repository_id }}
+        run: |
+          query='[.artifacts[]
+                  | select(.expired | not)
+                  | select(.workflow_run.head_branch == "main")
+                  | select(.workflow_run.head_repository_id == ($ENV.REPO_ID | tonumber))]
+                 | max_by(.workflow_run.id) // empty
+                 | "\(.id) \(.workflow_run.id)"'
+          if ! found="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=typemut-db&per_page=100" --jq "$query")"; then
+            echo "::warning::Could not list the typemut-db artifacts: running every mutant"
+            exit 0
+          fi
+          if [ -z "$found" ]; then
+            echo "::notice::No typemut database of main: running every mutant"
+            exit 0
+          fi
+          read -r artifact_id run_id <<< "$found"
+          if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > typemut-db.zip \
+              && unzip -o -q typemut-db.zip typemut.sqlite; then
+            echo "::notice::typemut database from run $run_id"
+          else
+            echo "::warning::Could not download the database of run $run_id: running every mutant"
+            rm -f typemut.sqlite
+          fi
+          rm -f typemut-db.zip
+
       - name: Mutation-test own type annotations
-        run: make mutate
+        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 340 || 35 }}
+        env:
+          ARGS: ${{ (github.event_name == 'schedule' || inputs.refresh) && '--refresh --max-duration 19800' || '--max-duration 1500' }}
+        run: make mutate MUTATE_ARGS="$ARGS"
+
+      # Only trusted events on main store the database (push, schedule,
+      # workflow_dispatch); pull requests and other branches only read it.
+      - name: Upload the mutation database
+        if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: typemut-db
+          path: typemut.sqlite
+          retention-days: 30
+          if-no-files-found: ignore
+          overwrite: true  # a re-run of failed jobs reuses the run
 
       - name: Build HTML report
         if: always()
@@ -59,3 +143,4 @@ jobs:
         with:
           name: typemut-report
           path: typemut-report.html
+          overwrite: true
