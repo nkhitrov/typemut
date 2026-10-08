@@ -6,6 +6,7 @@ import json
 import sqlite3
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import TypeAlias
 
@@ -66,6 +67,16 @@ _MIGRATIONS = [
 MutantKey: TypeAlias = tuple[str, int, int, str, str, str, str]
 
 
+class MutantStatus(StrEnum):
+    """Result of testing a mutant, as stored in the ``status`` column."""
+
+    PENDING = "pending"
+    KILLED = "killed"
+    SURVIVED = "survived"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
 @dataclass
 class MutantRow:
     id: int | None
@@ -77,7 +88,7 @@ class MutantRow:
     mutated_annotation: str
     description: str
     required_import: str | None = None
-    status: str = "pending"
+    status: MutantStatus = MutantStatus.PENDING
     output: str | None = None
     duration_seconds: float | None = None
     # {project file: sha256} a kill was computed from; None if it cannot be reused.
@@ -165,29 +176,21 @@ class Database:
         )
         self.conn.commit()
 
-    def update_result(
-        self,
-        mutant_id: int,
-        status: str,
-        output: str | None = None,
-        duration: float | None = None,
-    ) -> None:
-        self.conn.execute(
-            """UPDATE mutants
-               SET status = ?, output = ?, duration_seconds = ?
-               WHERE id = ?""",
-            (status, output, duration, mutant_id),
-        )
-        self.conn.commit()
-
     def get_pending(self) -> Collection[MutantRow]:
         rows = self.conn.execute(
-            "SELECT * FROM mutants WHERE status = 'pending' ORDER BY id"
+            "SELECT * FROM mutants WHERE status = ? ORDER BY id", (MutantStatus.PENDING,)
         ).fetchall()
         return [self._row_to_mutant(r) for r in rows]
 
     def get_all(self) -> list[MutantRow]:
         rows = self.conn.execute("SELECT * FROM mutants ORDER BY id").fetchall()
+        return [self._row_to_mutant(r) for r in rows]
+
+    def get_survived(self) -> Collection[MutantRow]:
+        """The mutants the type checker did not catch, in id order."""
+        rows = self.conn.execute(
+            "SELECT * FROM mutants WHERE status = ? ORDER BY id", (MutantStatus.SURVIVED,)
+        ).fetchall()
         return [self._row_to_mutant(r) for r in rows]
 
     def get_summary(self) -> dict[str, dict[str, int]]:
@@ -222,7 +225,9 @@ class Database:
 
     def count_pending(self) -> int:
         """Number of mutants not run yet."""
-        row = self.conn.execute("SELECT COUNT(*) FROM mutants WHERE status = 'pending'").fetchone()
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM mutants WHERE status = ?", (MutantStatus.PENDING,)
+        ).fetchone()
         return int(row[0])
 
     def clear(self) -> None:
@@ -245,7 +250,7 @@ class Database:
             mutated_annotation=row["mutated_annotation"],
             description=row["description"],
             required_import=row["required_import"],
-            status=row["status"],
+            status=MutantStatus(row["status"]),
             output=row["output"],
             duration_seconds=row["duration_seconds"],
             depends=DependsColumn.load(row),
@@ -307,7 +312,7 @@ class CacheTables:
                 mutated_annotation=row["mutated_annotation"],
                 description="",
                 required_import=row["required_import"] or None,
-                status=row["status"],
+                status=MutantStatus(row["status"]),
                 output=row["output"],
                 depends=DependsColumn.load(row),
             )

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from typemut.baseline import Baseline, BaselineEntry
-from typemut.db import MutantRow
+from typemut.db import MutantRow, MutantStatus
 
 
 def _survivor(module: Path, line: int, mutated: str = "int | None") -> MutantRow:
@@ -22,7 +22,7 @@ def _survivor(module: Path, line: int, mutated: str = "int | None") -> MutantRow
         original_annotation="int",
         mutated_annotation=mutated,
         description="",
-        status="survived",
+        status=MutantStatus.SURVIVED,
     )
 
 

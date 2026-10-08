@@ -14,7 +14,7 @@ from tests.fakes import RecordingProgressBar, RecordingTerminateSignal, StubRunn
 from typemut.app import App
 from typemut.checkers import CheckerRegistry
 from typemut.cli import main
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 from typemut.parallel import InlinePool
 from typemut.runner import CommandResult, Outcome
 
@@ -120,13 +120,13 @@ def test_report_fail_under(tmp_path: Path, fail_under: str, exit_code: int) -> N
         db.insert_many(
             [
                 MutantRow(
-                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="killed"
+                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status=MutantStatus.KILLED
                 ),
                 MutantRow(
-                    None, "a.py", "AddOptional", 2, 3, "int", "int | None", "", status="survived"
+                    None, "a.py", "AddOptional", 2, 3, "int", "int | None", "", status=MutantStatus.SURVIVED
                 ),
                 MutantRow(
-                    None, "a.py", "AddOptional", 3, 3, "int", "int | None", "", status="error"
+                    None, "a.py", "AddOptional", 3, 3, "int", "int | None", "", status=MutantStatus.ERROR
                 ),
             ]
         )
@@ -184,7 +184,7 @@ def test_report_baseline_with_fail_under(tmp_path: Path) -> None:
         db.insert_many(
             [
                 MutantRow(
-                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="survived"
+                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status=MutantStatus.SURVIVED
                 ),
             ]
         )
@@ -440,7 +440,7 @@ def _html_db(path: Path) -> None:
         db.insert_many(
             [
                 MutantRow(
-                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status="survived"
+                    None, "a.py", "AddOptional", 1, 3, "int", "int | None", "", status=MutantStatus.SURVIVED
                 ),
             ]
         )
