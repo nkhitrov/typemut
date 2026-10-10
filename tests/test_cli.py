@@ -457,6 +457,15 @@ def test_html_default_output(tmp_path: Path) -> None:
     assert "a.py" in report
 
 
+def test_report_default_db(tmp_path: Path) -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        _html_db(Path(td) / "typemut.sqlite")
+        result = runner.invoke(main, ["report"], obj=_app())
+    assert result.exit_code == 0
+    assert "a.py:1  AddOptional" in result.output
+
+
 def test_html_output_and_open(tmp_path: Path) -> None:
     opened: list[str] = []
     make_app = partial(App, open_browser=opened.append)
