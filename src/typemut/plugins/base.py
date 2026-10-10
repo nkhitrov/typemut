@@ -7,9 +7,9 @@ from collections.abc import Collection
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationNode
+from typemut.model import AnnotationNode, Mutation
 from typemut.nodes import NodeSource
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.operators.base import TypeMutationOperator
 from typemut.registry import Registry
 
 

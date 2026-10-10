@@ -4,27 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationContext
+from typemut.model import AnnotationContext, Mutation
 from typemut.nodes import NodeSource
 from typemut.registry import Registry
-
-
-@dataclass
-class Mutation:
-    file: str
-    operator: str
-    line: int
-    col: int
-    original: str
-    mutated: str
-    description: str
-    # Full import line needed for the mutated type, e.g. "from abc import ABC".
-    # None when no import is needed (builtins or already in scope).
-    required_import: str | None = None
 
 
 class TypeMutationOperator(NodeSource, ABC):

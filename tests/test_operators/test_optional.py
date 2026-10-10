@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 import pytest
 
-from typemut.discovery import AnnotationContext, AnnotationFinder
+from typemut.discovery import AnnotationFinder
+from typemut.model import AnnotationContext
 from typemut.operators.optional import AddOptional, RemoveOptional
 from typemut.registry import Registry
 

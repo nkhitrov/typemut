@@ -6,8 +6,8 @@ from collections.abc import Mapping
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationContext
-from typemut.operators.base import Mutation, TypeMutationOperator
+from typemut.model import AnnotationContext, Mutation
+from typemut.operators.base import TypeMutationOperator
 from typemut.registry import Registry
 
 # Widening map: one step up the MRO toward more abstract types.

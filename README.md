@@ -929,6 +929,8 @@ registry. The `Plugin` base class also provides parso helpers
 (`_node_code`, `_trailer_target`) that a plugin can use or override. Operators
 a plugin returns from `operators()` subclass `TypeMutationOperator`, which
 provides `_node_code`, `_is_qualified_name`, `_union_members` and `_type_params`.
+The data types plugins and operators work with (`AnnotationNode`,
+`AnnotationContext`, `Mutation`) live in `typemut.model`.
 
 ### sqlalchemy
 
