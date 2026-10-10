@@ -16,7 +16,7 @@ from rich.progress import track
 from typemut.cache import KillDependencies, ResultCache
 from typemut.checkers.base import TypeChecker
 from typemut.checkers.generic import GenericChecker
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 from typemut.imports import ImportInjector
 from typemut.runner import CommandResult, CommandRunner, Outcome
 
@@ -32,9 +32,9 @@ DB_FLUSH_BATCH_SIZE = 50
 
 # Mutant status by test-command outcome, before false-kill detection.
 _STATUS_BY_OUTCOME: Final = {
-    Outcome.PASSED: "survived",  # no type errors: the mutant went unnoticed
-    Outcome.FAILED: "killed",
-    Outcome.TIMED_OUT: "killed",
+    Outcome.PASSED: MutantStatus.SURVIVED,  # no type errors: the mutant went unnoticed
+    Outcome.FAILED: MutantStatus.KILLED,
+    Outcome.TIMED_OUT: MutantStatus.KILLED,
 }
 
 
@@ -137,14 +137,14 @@ class MutationTester:
         try:
             mutated_source = self.applier.apply(original_source, mutant)
         except MutationApplyError as exc:
-            return replace(mutant, status="error", output=str(exc), duration_seconds=0.0)
+            return replace(mutant, status=MutantStatus.ERROR, output=str(exc), duration_seconds=0.0)
 
         original_stat = file_path.stat()
         try:
             file_path.write_text(mutated_source)
         except OSError as exc:
             output = f"Failed to write mutation: {exc}"
-            return replace(mutant, status="error", output=output, duration_seconds=0.0)
+            return replace(mutant, status=MutantStatus.ERROR, output=output, duration_seconds=0.0)
         os.utime(
             file_path,
             ns=(
@@ -162,7 +162,7 @@ class MutationTester:
             os.utime(file_path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
         status, output = self.classifier.classify(result)
         depends = None
-        if status == "killed" and self._dependencies is not None:
+        if status is MutantStatus.KILLED and self._dependencies is not None:
             depends = self._dependencies.depends(mutant, result, root)
         return replace(
             mutant, status=status, output=output, duration_seconds=duration, depends=depends
@@ -230,7 +230,7 @@ class OutcomeClassifier:
     def __init__(self, checker: TypeChecker | None = None) -> None:
         self._checker = checker or GenericChecker()
 
-    def classify(self, result: CommandResult) -> tuple[str, str]:
+    def classify(self, result: CommandResult) -> tuple[MutantStatus, str]:
         """Mutant status and output for the test command's *result*.
 
         A failure whose errors are all false kills comes from broken mutated
@@ -238,10 +238,12 @@ class OutcomeClassifier:
         an error, not a kill.
         """
         if result.outcome is Outcome.TIMED_OUT:
-            return "killed", "timeout"
+            return MutantStatus.KILLED, "timeout"
         status = _STATUS_BY_OUTCOME[result.outcome]
-        if status == "killed" and self._checker.is_false_kill(result.stdout, result.stderr):
-            return "error", result.output
+        if status is MutantStatus.KILLED and self._checker.is_false_kill(
+            result.stdout, result.stderr
+        ):
+            return MutantStatus.ERROR, result.output
         return status, result.output
 
 

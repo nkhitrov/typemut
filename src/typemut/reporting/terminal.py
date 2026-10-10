@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from rich.console import Console
 from rich.table import Table
 
-from typemut.db import Database
+from typemut.db import Database, MutantStatus
 
 
 class MutationScore:
@@ -21,8 +21,10 @@ class MutationScore:
 
         Only killed and survived mutants count; pending, skipped and error ones don't.
         """
-        killed = sum(statuses.get("killed", 0) for statuses in self._summary.values())
-        survived = sum(statuses.get("survived", 0) for statuses in self._summary.values())
+        killed = sum(statuses.get(MutantStatus.KILLED, 0) for statuses in self._summary.values())
+        survived = sum(
+            statuses.get(MutantStatus.SURVIVED, 0) for statuses in self._summary.values()
+        )
         if killed + survived == 0:
             return None
         return killed / (killed + survived) * 100
@@ -53,11 +55,11 @@ class TerminalReport:
         total_all = 0
 
         for module, statuses in sorted(summary.items()):
-            killed = statuses.get("killed", 0)
-            survived = statuses.get("survived", 0)
-            pending = statuses.get("pending", 0)
-            skipped = statuses.get("skipped", 0)
-            error = statuses.get("error", 0)
+            killed = statuses.get(MutantStatus.KILLED, 0)
+            survived = statuses.get(MutantStatus.SURVIVED, 0)
+            pending = statuses.get(MutantStatus.PENDING, 0)
+            skipped = statuses.get(MutantStatus.SKIPPED, 0)
+            error = statuses.get(MutantStatus.ERROR, 0)
             module_total = killed + survived + pending + skipped + error
             score = (killed / (killed + survived) * 100) if (killed + survived) > 0 else 0
 
@@ -85,8 +87,7 @@ class TerminalReport:
         self._console.print(table)
 
         # Show survived mutants
-        all_mutants = db.get_all()
-        survived_mutants = [m for m in all_mutants if m.status == "survived"]
+        survived_mutants = db.get_survived()
         if survived_mutants:
             self._console.print("\n[bold red]Survived mutants:[/bold red]")
             for m in survived_mutants:

@@ -213,7 +213,7 @@ class App:
             )
             return False
         score = MutationScore(db.get_summary()).total()
-        survivors = [mutant for mutant in db.get_all() if mutant.status == "survived"]
+        survivors = db.get_survived()
 
         if update_baseline and baseline_path is not None:
             Baseline(Path(baseline_path)).save(survivors)

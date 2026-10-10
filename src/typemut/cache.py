@@ -12,7 +12,7 @@ from typing import Final
 
 from typemut.checkers.base import TypeChecker
 from typemut.config import Config
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 from typemut.runner import CommandResult, Outcome
 
 logger = logging.getLogger(__name__)
@@ -204,7 +204,7 @@ class ResultCache:
         untraceable = 0
         for mutant in pending:
             hit = cached.get(mutant.key())
-            if hit is None or hit.status != "killed":
+            if hit is None or hit.status is not MutantStatus.KILLED:
                 remaining.append(mutant)
                 continue
             if hit.depends is None:
@@ -227,7 +227,9 @@ class ResultCache:
 
     def save(self, mutants: Iterable[MutantRow]) -> None:
         """Store the results of the finished *mutants*; pending ones are skipped."""
-        self._db.cache.upsert(mutant for mutant in mutants if mutant.status != "pending")
+        self._db.cache.upsert(
+            mutant for mutant in mutants if mutant.status is not MutantStatus.PENDING
+        )
 
     def carry_over(self, mutants: Iterable[MutantRow]) -> None:
         """Store the kills of *mutants* recorded with the files they depend on.

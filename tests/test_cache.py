@@ -23,7 +23,7 @@ from typemut.cache import (
 from typemut.checkers.generic import GenericChecker
 from typemut.checkers.mypy import MypyChecker
 from typemut.config import Config
-from typemut.db import Database, MutantRow
+from typemut.db import Database, MutantRow, MutantStatus
 from typemut.runner import CommandResult, Outcome
 
 
@@ -150,7 +150,7 @@ def _cache(project: Path) -> tuple[Database, ResultCache]:
     return db, ResultCache(db, project)
 
 
-def _result(status: str, depends: dict[str, str] | None, line: int = 2) -> MutantRow:
+def _result(status: MutantStatus, depends: dict[str, str] | None, line: int = 2) -> MutantRow:
     """A finished mutant of ``test.py``."""
     mutant = make_mutant(None, "test.py", line=line)
     return replace(mutant, status=status, output=f"{status} output", depends=depends)
@@ -160,7 +160,7 @@ def test_validate(project: Path) -> None:
     db, cache = _cache(project)
     with db:
         first = cache.validate({"checker": "mypy", "timeout": "30"})
-        cache.save([_result("killed", {})])
+        cache.save([_result(MutantStatus.KILLED, {})])
         same = cache.validate({"checker": "mypy", "timeout": "30"})
         kept = len(db.cache.load())
         changed = cache.validate({"checker": "mypy", "file uv.lock": "x"})
@@ -173,22 +173,22 @@ def test_validate(project: Path) -> None:
 def test_save_skips_pending(project: Path) -> None:
     db, cache = _cache(project)
     with db:
-        cache.save([_result("pending", None), _result("survived", None, line=3)])
+        cache.save([_result(MutantStatus.PENDING, None), _result(MutantStatus.SURVIVED, None, line=3)])
         cached = db.cache.load()
-    assert [mutant.status for mutant in cached.values()] == ["survived"]
+    assert [mutant.status for mutant in cached.values()] == [MutantStatus.SURVIVED]
 
 
 def test_carry_over_keeps_only_traced_kills(project: Path) -> None:
     db, cache = _cache(project)
-    traced = _result("killed", {"test.py": "1"}, line=1)
+    traced = _result(MutantStatus.KILLED, {"test.py": "1"}, line=1)
     with db:
-        cache.save([traced, _result("killed", {"dep.py": "2"}, line=2)])
+        cache.save([traced, _result(MutantStatus.KILLED, {"dep.py": "2"}, line=2)])
         cache.carry_over(
             [
                 replace(traced, depends=None, output="untracked run"),
-                _result("killed", None, line=2),
-                _result("survived", None, line=3),
-                _result("killed", {"other.py": "3"}, line=4),
+                _result(MutantStatus.KILLED, None, line=2),
+                _result(MutantStatus.SURVIVED, None, line=3),
+                _result(MutantStatus.KILLED, {"other.py": "3"}, line=4),
             ]
         )
         cached = db.cache.load()
@@ -205,12 +205,12 @@ def test_reuse(project: Path) -> None:
     with db:
         cache.save(
             [
-                _result("killed", unchanged, line=1),
-                _result("killed", {**unchanged, "dep.py": _sha("y = 2\n")}, line=2),
-                _result("killed", {"gone.py": _sha("")}, line=3),
-                _result("killed", None, line=4),
-                _result("survived", unchanged, line=5),
-                _result("error", unchanged, line=6),
+                _result(MutantStatus.KILLED, unchanged, line=1),
+                _result(MutantStatus.KILLED, {**unchanged, "dep.py": _sha("y = 2\n")}, line=2),
+                _result(MutantStatus.KILLED, {"gone.py": _sha("")}, line=3),
+                _result(MutantStatus.KILLED, None, line=4),
+                _result(MutantStatus.SURVIVED, unchanged, line=5),
+                _result(MutantStatus.ERROR, unchanged, line=6),
             ]
         )
         pending = [make_mutant(index, "test.py", line=index) for index in range(1, 8)]
@@ -219,7 +219,7 @@ def test_reuse(project: Path) -> None:
         [
             replace(
                 pending[0],
-                status="killed",
+                status=MutantStatus.KILLED,
                 output="killed output",
                 duration_seconds=0.0,
                 depends=unchanged,
