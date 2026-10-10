@@ -12,7 +12,6 @@ from click.testing import CliRunner
 from tests.fakes import StubPlugin
 from typemut.app import App
 from typemut.cli import main
-from typemut.config import OperatorsConfig
 from typemut.db import Database
 from typemut.discovery import AnnotationFinder
 from typemut.mutations import MutationFinder
@@ -81,7 +80,7 @@ def test_discover_skips_broken_entry_points(
 
 def test_find_mutations_without_plugins_uses_core_operators() -> None:
     annotation = AnnotationFinder().find(Path("models.py"), source="id: Mapped[int]\n")[0]
-    mutations = MutationFinder(OperatorRegistry().enabled(OperatorsConfig()), Registry()).find(annotation)
+    mutations = MutationFinder(OperatorRegistry().enabled({}), Registry()).find(annotation)
     assert {(m.operator, m.original, m.mutated) for m in mutations} == {
         ("AddOptional", "Mapped[int]", "Mapped[int] | None"),
     }
