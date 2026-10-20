@@ -288,20 +288,6 @@
   },
   {
     "file": "src/typemut/ignore.py",
-    "operator": "RemoveUnionMember",
-    "original": "BaseNode | Leaf",
-    "mutated": "BaseNode",
-    "source": "def _attribute_name(self, node: BaseNode | Leaf) -> str | None:"
-  },
-  {
-    "file": "src/typemut/ignore.py",
-    "operator": "RemoveUnionMember",
-    "original": "BaseNode | Leaf",
-    "mutated": "Leaf",
-    "source": "def _attribute_name(self, node: BaseNode | Leaf) -> str | None:"
-  },
-  {
-    "file": "src/typemut/ignore.py",
     "operator": "SwapIteratorGenerator",
     "original": "Iterator[str]",
     "mutated": "Iterable[str]",
@@ -313,13 +299,6 @@
     "original": "dict[str, str]",
     "mutated": "Mapping[str, str]",
     "source": "def _imported_names(self, annotation: AnnotationNode) -> dict[str, str]:"
-  },
-  {
-    "file": "src/typemut/ignore.py",
-    "operator": "WidenContainerType",
-    "original": "list[str]",
-    "mutated": "Sequence[str]",
-    "source": "def _dotted_head(self, node: BaseNode) -> list[str] | None:"
   },
   {
     "file": "src/typemut/ignore.py",
