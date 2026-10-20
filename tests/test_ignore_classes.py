@@ -24,7 +24,7 @@ RESPONSE = "pydantic.BaseModel"
 
 def finder(
     ignore: Mapping[str, list[str]],
-    hierarchy: ClassHierarchy | None = None,
+    hierarchy: ClassHierarchy,
     plugins: list[str] | None = None,
 ) -> MutationFinder:
     operators = OperatorRegistry().enabled(OperatorsConfig())
@@ -40,7 +40,7 @@ def mutated(
     source: str, ignore: Mapping[str, list[str]], plugins: list[str] | None = None
 ) -> set[str]:
     """Mutated annotations of *source* (a single module) with the given ignore rules."""
-    found = finder(ignore, plugins=plugins)
+    found = finder(ignore, ClassHierarchy(), plugins)
     return {
         mutation.mutated
         for annotation in AnnotationFinder().find(Path("models.py"), source=source)

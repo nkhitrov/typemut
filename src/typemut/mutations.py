@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
+from typemut.hierarchy import ClassHierarchy
 from typemut.ignore import IgnoredClasses, IgnoredTypes
 from typemut.model import AnnotationNode, Mutation
 from typemut.operators.base import TypeMutationOperator
@@ -32,7 +33,7 @@ class MutationFinder:
         self._registry = registry
         self._plugins = plugins
         self._ignored = ignored or IgnoredTypes()
-        self._ignored_classes = ignored_classes or IgnoredClasses()
+        self._ignored_classes = ignored_classes or IgnoredClasses({}, ClassHierarchy())
 
     def find(self, annotation: AnnotationNode) -> list[Mutation]:
         """Return all mutations for an annotation."""

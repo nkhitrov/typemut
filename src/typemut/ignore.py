@@ -41,8 +41,8 @@ _NamesCache = dict[int, tuple[Module, dict[str, str]]]
 class OperatorPatterns:
     """Qualified name patterns per operator config key (``add-optional``, ...)."""
 
-    def __init__(self, patterns: Mapping[str, Iterable[str]] | None = None) -> None:
-        self._patterns = {key: tuple(values) for key, values in (patterns or {}).items()}
+    def __init__(self, patterns: Mapping[str, Iterable[str]]) -> None:
+        self._patterns = {key: tuple(values) for key, values in patterns.items()}
 
     def patterns_for(self, operator_key: str) -> tuple[str, ...]:
         """Patterns that apply to an operator: the ``all`` ones plus its own."""
@@ -63,7 +63,7 @@ class IgnoredTypes(OperatorPatterns, NodeSource):
         imports: ModuleImports | None = None,
         injector: ImportInjector | None = None,
     ) -> None:
-        super().__init__(patterns)
+        super().__init__(patterns or {})
         self._imports = imports or ModuleImports()
         self._injector = injector or ImportInjector()
         self._names: _NamesCache = {}
@@ -104,8 +104,8 @@ class IgnoredTypes(OperatorPatterns, NodeSource):
         children = node.children
         head = self._dotted_head(node)
         if head is not None:
-            yield ".".join(head)
-            children = children[len(head) :]
+            yield head
+            children = children[head.count(".") + 1 :]
         for child in children:
             yield from self._dotted_names(child)
 
@@ -140,15 +140,17 @@ class IgnoredClasses(OperatorPatterns):
 
     def __init__(
         self,
-        patterns: Mapping[str, Iterable[str]] | None = None,
-        hierarchy: ClassHierarchy | None = None,
+        patterns: Mapping[str, Iterable[str]],
+        hierarchy: ClassHierarchy,
         names: ClassNames | None = None,
     ) -> None:
         super().__init__(patterns)
-        self._hierarchy = hierarchy or ClassHierarchy()
+        self._hierarchy = hierarchy
         self._names = names or ClassNames()
 
-    def is_ignored(self, annotation: AnnotationNode, operator_key: str) -> bool:
+    def is_ignored(
+        self, annotation: AnnotationNode, operator_key: str
+    ) -> bool:  # pragma: no mutate (truth-tested)
         """Whether the annotation is a field of a class the operator must not touch."""
         if annotation.context is not AnnotationContext.VARIABLE:
             return False

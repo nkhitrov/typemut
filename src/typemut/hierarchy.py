@@ -16,14 +16,8 @@ from parso.python.tree import BaseNode, Class, ClassOrFunc, Leaf, Module
 from typemut.imports import ModuleImports
 from typemut.nodes import NodeSource
 
-
-@dataclass
-class _ModuleScope:
-    """What a module binds at the top level: imported names and class names."""
-
-    module: str
-    imported: Mapping[str, str]
-    classes: frozenset[str]
+# id(module tree) -> (module tree, {top-level name: qualified name})
+_ScopeCache = dict[int, tuple[Module, dict[str, str]]]
 
 
 class ClassNames(NodeSource):
@@ -31,8 +25,7 @@ class ClassNames(NodeSource):
 
     def __init__(self, imports: ModuleImports | None = None) -> None:
         self._imports = imports or ModuleImports()
-        # id(module tree) -> (module tree, its scope)
-        self._scopes: dict[int, tuple[Module, _ModuleScope]] = {}
+        self._scopes: _ScopeCache = {}
 
     def module_name(self, file: Path) -> str:
         """Dotted module name of a file: ``app/api/models.py`` -> ``app.api.models``."""
@@ -73,31 +66,31 @@ class ClassNames(NodeSource):
         dotted = (self._dotted_name(item) for item in items)
         return tuple(self._qualify(name, scope) for name in dotted if name is not None)
 
-    def _dotted_name(self, node: BaseNode | Leaf) -> str | None:
+    # parso's children are untyped, so a narrower parameter type would pass mypy too.
+    def _dotted_name(self, node: BaseNode | Leaf) -> str | None:  # pragma: no mutate
         """``orm.Base`` for ``orm.Base`` or ``orm.Base[T]``, None for anything else."""
         if isinstance(node, Leaf):
             return node.value if node.type == "name" else None
-        head = self._dotted_head(node)
-        return ".".join(head) if head is not None else None
+        return self._dotted_head(node)
 
-    def _qualify(self, dotted: str, scope: _ModuleScope) -> str:
+    def _qualify(self, dotted: str, scope: Mapping[str, str]) -> str:
+        """Resolve the head of *dotted* through *scope*; unknown names stay as written."""
         head, _, tail = dotted.partition(".")
-        imported = scope.imported.get(head)
-        if imported is not None:
-            return f"{imported}.{tail}" if tail else imported
-        if head in scope.classes and scope.module:
-            return f"{scope.module}.{dotted}"
-        return dotted
+        qualified = scope.get(head)
+        if qualified is None:
+            return dotted
+        return f"{qualified}.{tail}" if tail else qualified
 
-    def _scope(self, root: Module, file: Path) -> _ModuleScope:
+    def _scope(self, root: Module, file: Path) -> dict[str, str]:
+        """Qualified names of the module's top-level classes and imported names."""
         cached = self._scopes.get(id(root))
         if cached is None or cached[0] is not root:
-            scope = _ModuleScope(
-                module=self.module_name(file),
-                imported=self._imports.names(root, self._imports.package_of(file)),
-                classes=frozenset(classdef.name.value for classdef in root.iter_classdefs()),
-            )
-            cached = (root, scope)
+            classes = {
+                classdef.name.value: self.qualified_name(classdef, file)
+                for classdef in root.iter_classdefs()
+            }
+            imported = self._imports.names(root, self._imports.package_of(file))
+            cached = (root, classes | imported)
             self._scopes[id(root)] = cached
         return cached[1]
 
@@ -106,8 +99,9 @@ class ClassNames(NodeSource):
 class ClassHierarchy:
     """Bases of the project's classes, by qualified name."""
 
-    # {qualified class name: qualified names of its bases}
-    bases: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # {qualified class name: qualified names of its bases}; only ever iterated,
+    # so Sequence would pass mypy too.
+    bases: dict[str, tuple[str, ...]] = field(default_factory=dict)  # pragma: no mutate
 
     # {name a project module binds by import: qualified name it imports},
     # e.g. {"app.api.BaseResponse": "app.api.base.BaseResponse"} for a re-export
@@ -161,7 +155,8 @@ class ClassHierarchyBuilder:
             name = self._names.qualified_name(classdef, file)
             hierarchy.bases[name] = self._names.bases(classdef, file)
 
-    def _classdefs(self, node: BaseNode | Leaf) -> Iterable[Class]:
+    # parso's children are untyped, so a narrower parameter type would pass mypy too.
+    def _classdefs(self, node: BaseNode | Leaf) -> Iterable[Class]:  # pragma: no mutate
         if isinstance(node, Class):
             yield node
         if isinstance(node, BaseNode):

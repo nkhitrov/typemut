@@ -22,8 +22,8 @@ class NodeSource:
                 code = code[len(prefix) :]
         return code
 
-    def _dotted_head(self, node: BaseNode) -> list[str] | None:
-        """Return ``["orm", "Mapped"]`` for ``orm.Mapped[...]``, None if not a name chain."""
+    def _dotted_head(self, node: BaseNode) -> str | None:
+        """Return ``orm.Mapped`` for ``orm.Mapped[...]``, None if not a name chain."""
         head = node.children[0]
         if (
             node.type not in {"atom_expr", "power"}
@@ -37,9 +37,10 @@ class NodeSource:
             if attribute is None:
                 break
             parts.append(attribute)
-        return parts
+        return ".".join(parts)
 
-    def _attribute_name(self, node: BaseNode | Leaf) -> str | None:
+    # parso's children are untyped, so a narrower parameter type would pass mypy too.
+    def _attribute_name(self, node: BaseNode | Leaf) -> str | None:  # pragma: no mutate
         """Return ``x`` for a ``.x`` trailer, None for anything else."""
         if isinstance(node, Leaf) or node.type != "trailer":
             return None
