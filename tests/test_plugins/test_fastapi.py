@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from typemut.config import OperatorsConfig
 from typemut.discovery import AnnotationFinder
 from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
@@ -23,7 +22,7 @@ CORE_ENDPOINT_MUTATIONS = {
 
 def mutations(file: Path, plugins: list[str]) -> set[tuple[str, str, str]]:
     """Mutations of every annotation in *file* (read from disk)."""
-    operators = OperatorRegistry().enabled(OperatorsConfig())
+    operators = OperatorRegistry().enabled({})
     loaded = PluginRegistry().get(plugins)
     return {
         (mutation.operator, mutation.original, mutation.mutated)

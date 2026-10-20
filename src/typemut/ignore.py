@@ -15,8 +15,10 @@ from an ignored library). Plugins see annotations first and are not affected.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Set as AbstractSet
 from fnmatch import fnmatchcase
 
 from parso.python.tree import BaseNode, Leaf, Module
@@ -24,6 +26,8 @@ from parso.python.tree import BaseNode, Leaf, Module
 from typemut.config import ALL_OPERATORS
 from typemut.imports import ImportInjector, ModuleImports
 from typemut.model import AnnotationNode, Mutation
+
+logger = logging.getLogger(__name__)
 
 _FROM_IMPORT_RE = re.compile(r"^from\s+(\S+)\s+import\s+(\w+)")
 
@@ -44,6 +48,20 @@ class IgnoredTypes:
         self._injector = injector or ImportInjector()
         self._patterns = {key: tuple(values) for key, values in (patterns or {}).items()}
         self._names: _NamesCache = {}
+
+    def warn_unknown_keys(self, known: AbstractSet[str]) -> None:
+        """Warn about pattern keys that are neither ``all`` nor one of the *known* operator keys.
+
+        Such patterns stay, but apply to no operator.
+        """
+        valid = known | {ALL_OPERATORS}
+        for key in self._patterns:
+            if key not in valid:
+                logger.warning(
+                    "Ignoring unknown operator %r in 'ignore-types'. Valid keys: %s",
+                    key,
+                    ", ".join(sorted(valid)),
+                )
 
     def patterns_for(self, operator_key: str) -> tuple[str, ...]:
         """Patterns that apply to an operator: the ``all`` ones plus its own."""
