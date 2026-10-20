@@ -119,16 +119,17 @@ class App:
         plugins = self.plugins.get(cfg.plugins)
         if plugins:
             self.console.print(f"Enabled plugins: {', '.join(plugin.name for plugin in plugins)}")
-        operators = self.operators.enabled(cfg.operators)
-        operators.extend(op for plugin in plugins for op in plugin.operators())
+        plugin_operators = [op for plugin in plugins for op in plugin.operators()]
+        operators = self.operators.enabled(cfg.operators, plugin_operators)
         self.console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
+        operator_keys = self.operators.config_keys(plugin_operators)
+        ignored = IgnoredTypes(cfg.ignore_types)
+        ignored.warn_unknown_keys(operator_keys)
+        ignored_classes = IgnoredClasses(cfg.ignore_classes, self.hierarchy_builder.build(files))
+        ignored_classes.warn_unknown_keys(operator_keys)
 
         finder = MutationFinder(
-            operators,
-            self.registry_builder.build(files),
-            plugins,
-            IgnoredTypes(cfg.ignore_types),
-            IgnoredClasses(cfg.ignore_classes, self.hierarchy_builder.build(files)),
+            operators, self.registry_builder.build(files), plugins, ignored, ignored_classes
         )
         mutants = self._find_mutants(files, cfg, finder)
         ResultCache(db, self.root).carry_over(db.get_all())

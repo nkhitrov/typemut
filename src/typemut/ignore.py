@@ -20,8 +20,10 @@ Plugins see annotations first and are not affected.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Set as AbstractSet
 from fnmatch import fnmatchcase
 
 from parso.python.tree import BaseNode, Leaf, Module
@@ -32,6 +34,8 @@ from typemut.imports import ImportInjector, ModuleImports
 from typemut.model import AnnotationContext, AnnotationNode, Mutation
 from typemut.nodes import NodeSource
 
+logger = logging.getLogger(__name__)
+
 _FROM_IMPORT_RE = re.compile(r"^from\s+(\S+)\s+import\s+(\w+)")
 
 # id(module tree) -> (module tree, {local name: qualified name})
@@ -39,10 +43,30 @@ _NamesCache = dict[int, tuple[Module, dict[str, str]]]
 
 
 class OperatorPatterns:
-    """Qualified name patterns per operator config key (``add-optional``, ...)."""
+    """Qualified name patterns per operator config key (``add-optional``, ...).
+
+    Subclasses name the config table they come from in *option*.
+    """
+
+    option = "patterns"
 
     def __init__(self, patterns: Mapping[str, Iterable[str]]) -> None:
         self._patterns = {key: tuple(values) for key, values in patterns.items()}
+
+    def warn_unknown_keys(self, known: AbstractSet[str]) -> None:
+        """Warn about pattern keys that are neither ``all`` nor one of the *known* operator keys.
+
+        Such patterns stay, but apply to no operator.
+        """
+        valid = known | {ALL_OPERATORS}
+        for key in self._patterns:
+            if key not in valid:
+                logger.warning(
+                    "Ignoring unknown operator %r in %r. Valid keys: %s",
+                    key,
+                    self.option,
+                    ", ".join(sorted(valid)),
+                )
 
     def patterns_for(self, operator_key: str) -> tuple[str, ...]:
         """Patterns that apply to an operator: the ``all`` ones plus its own."""
@@ -56,6 +80,8 @@ class OperatorPatterns:
 
 class IgnoredTypes(OperatorPatterns, NodeSource):
     """Ignored type patterns per operator config key."""
+
+    option = "ignore-types"
 
     def __init__(
         self,
@@ -137,6 +163,8 @@ class IgnoredClasses(OperatorPatterns):
     known from *hierarchy* (the project's classes), matches a pattern.
     Parameters and return types of methods are mutated as usual.
     """
+
+    option = "ignore-classes"
 
     def __init__(
         self,

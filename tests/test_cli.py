@@ -8,14 +8,15 @@ from functools import partial
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
-from tests.fakes import RecordingProgressBar, RecordingTerminateSignal, StubRunner
+from tests.fakes import RecordingProgressBar, RecordingTerminateSignal, StubPlugin, StubRunner
 from typemut.app import App
 from typemut.checkers import CheckerRegistry
 from typemut.cli import main
 from typemut.db import Database, MutantRow, MutantStatus
 from typemut.parallel import InlinePool
+from typemut.plugins import PluginRegistry
 from typemut.runner import CommandResult, Outcome
 
 
@@ -73,6 +74,51 @@ def test_init_with_minimal_project(tmp_path: Path) -> None:
         result = runner.invoke(main, ["init", "--config", "typemut.toml"])
     assert result.exit_code == 0
     assert "Found" in result.output
+
+
+def _init_with_config(tmp_path: Path, extra_config: str) -> Result:
+    """Run ``init`` on a one-file project with the stub plugin available."""
+    runner = CliRunner()
+    make_app = partial(App, plugins=PluginRegistry({"stub": StubPlugin}))
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        root = Path(td)
+        (root / "typemut.toml").write_text(
+            f'[typemut]\nmodule-path = "src"\ntest-command = "true"\n{extra_config}'
+        )
+        (root / "src").mkdir()
+        (root / "src" / "app.py").write_text("x: int = 5\n")
+        return runner.invoke(main, ["init"], obj=make_app)
+
+
+def test_init_warns_about_unknown_operator_keys(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    result = _init_with_config(
+        tmp_path,
+        'ignore-types = { all = ["x.*"], widen-typ = ["x.Y"] }\n\n'
+        "[typemut.operators]\nadd-optionl = false\n",
+    )
+    assert result.exit_code == 0
+    assert "Ignoring unknown operator 'add-optionl' in 'operators'" in caplog.text
+    assert "Ignoring unknown operator 'widen-typ' in 'ignore-types'" in caplog.text
+    assert "unknown operator 'all'" not in caplog.text
+
+
+def test_init_accepts_plugin_operator_key(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    result = _init_with_config(tmp_path, 'plugins = ["stub"]\nignore-types = { stub = ["x.Y"] }\n')
+    assert result.exit_code == 0
+    assert "Enabled operators: " in result.output
+    assert ", Stub\n" in result.output
+    assert "unknown operator" not in caplog.text
+
+
+def test_init_disables_plugin_operator(tmp_path: Path) -> None:
+    result = _init_with_config(tmp_path, 'plugins = ["stub"]\n\n[typemut.operators]\nstub = false\n')
+    assert result.exit_code == 0
+    assert "Enabled operators: " in result.output
+    assert "Stub" not in result.output
 
 
 def _write_project(root: Path) -> None:

@@ -240,6 +240,13 @@ def test_bases_are_resolved_across_project_modules(
     assert mutated_in_project(tmp_path, PROJECT, "app/views.py", ignore) == expected
 
 
+def test_warn_unknown_keys(caplog: pytest.LogCaptureFixture) -> None:
+    ignored = IgnoredClasses({"all": ["x.*"], "widen-typ": ["x.Z"]}, ClassHierarchy())
+    ignored.warn_unknown_keys(frozenset({"widen-type"}))
+    assert "Ignoring unknown operator 'widen-typ' in 'ignore-classes'" in caplog.text
+    assert "'all' in" not in caplog.text
+
+
 def test_qualified_name_of_package_module(tmp_path: Path) -> None:
     write_project(tmp_path, {"app/__init__.py": "", "app/sub/__init__.py": ""})
     assert ClassNames().module_name(tmp_path / "app" / "sub" / "__init__.py") == "app.sub"
