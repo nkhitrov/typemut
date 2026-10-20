@@ -61,7 +61,7 @@ class Config:
     # {operator key or "all": [qualified type name patterns]}
     ignore_types: dict[str, list[str]] = field(default_factory=dict)
     # {operator key or "all": [qualified class name patterns]}: skip fields of their subclasses
-    ignore_classes: Mapping[str, list[str]] = field(default_factory=dict)
+    ignore_classes: Mapping[str, Iterable[str]] = field(default_factory=dict)
     db_path: str = DEFAULT_DB_PATH
     # type checker plugin name; None detects it from test_command
     checker: str | None = None

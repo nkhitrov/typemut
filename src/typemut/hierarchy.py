@@ -49,7 +49,8 @@ class ClassNames(NodeSource):
             if isinstance(parent, ClassOrFunc):
                 parts.append(parent.name.value)
             parent = parent.parent
-        return ".".join(filter(None, [self.module_name(file), *reversed(parts)]))
+        # A module outside any package has an empty name: drop its dot.
+        return ".".join([self.module_name(file), *reversed(parts)]).lstrip(".")
 
     def bases(self, classdef: Class, file: Path) -> tuple[str, ...]:
         """Qualified names of the bases of a class, resolved through its module's imports.
@@ -81,7 +82,7 @@ class ClassNames(NodeSource):
             return dotted
         return f"{qualified}.{tail}" if tail else qualified
 
-    def _scope(self, root: Module, file: Path) -> dict[str, str]:
+    def _scope(self, root: Module, file: Path) -> Mapping[str, str]:
         """Qualified names of the module's top-level classes and imported names."""
         cached = self._scopes.get(id(root))
         if cached is None or cached[0] is not root:
