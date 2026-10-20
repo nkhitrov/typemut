@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from typemut.config import Config, ConfigLoader
+from typemut.config import Config, ConfigLoader, EntrypointsConfig
 
 
 def test_load_config_defaults():
@@ -177,6 +177,62 @@ def test_load_config_invalid_ignore_types_warns(
 ) -> None:
     cfg = load_toml(f'[typemut]\nmodule-path = "src"\n{toml_value}\n', tmp_path)
     assert cfg.ignore_types == expected
+    assert message in caplog.text
+    assert cfg.module_path == "src"
+
+
+def test_load_config_entrypoints(tmp_path: Path) -> None:
+    cfg = load_toml(
+        "[typemut.entrypoints]\n"
+        'decorators = ["mylib.rpc.*.method"]\n'
+        'base-classes = ["mylib.rpc.Endpoint"]\n'
+        'parameter-types = ["mylib.rpc.Dependency"]\n',
+        tmp_path,
+    )
+    assert cfg.entrypoints == EntrypointsConfig(
+        decorators=["mylib.rpc.*.method"],
+        base_classes=["mylib.rpc.Endpoint"],
+        parameter_types=["mylib.rpc.Dependency"],
+    )
+
+
+def test_load_config_entrypoints_default_empty(tmp_path: Path) -> None:
+    cfg = load_toml('[typemut]\nmodule-path = "src"\n', tmp_path)
+    assert cfg.entrypoints == EntrypointsConfig()
+
+
+@pytest.mark.parametrize(
+    "toml_value,expected,message",
+    [
+        pytest.param(
+            'entrypoints = ["mylib.rpc.*.method"]',
+            EntrypointsConfig(),
+            "Ignoring invalid 'entrypoints' option",
+            id="not-a-table",
+        ),
+        pytest.param(
+            'entrypoints = { decorator = ["x.y"], base-classes = ["x.Z"] }',
+            EntrypointsConfig(base_classes=["x.Z"]),
+            "Ignoring unknown key 'decorator' in 'entrypoints'",
+            id="unknown-key",
+        ),
+        pytest.param(
+            'entrypoints = { parameter-types = "x.Y", decorators = ["x.z"] }',
+            EntrypointsConfig(decorators=["x.z"]),
+            "Ignoring invalid 'entrypoints.parameter-types' option",
+            id="value-not-a-list",
+        ),
+    ],
+)
+def test_load_config_invalid_entrypoints_warns(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    toml_value: str,
+    expected: EntrypointsConfig,
+    message: str,
+) -> None:
+    cfg = load_toml(f'[typemut]\nmodule-path = "src"\n{toml_value}\n', tmp_path)
+    assert cfg.entrypoints == expected
     assert message in caplog.text
     assert cfg.module_path == "src"
 

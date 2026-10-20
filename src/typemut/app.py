@@ -117,7 +117,7 @@ class App:
         files = SourceFiles(module_dir, cfg.excluded_modules).find()
         self.console.print(f"Found [bold]{len(files)}[/bold] Python files in {module_dir}")
 
-        plugins = self.plugins.get(cfg.plugins)
+        plugins = self.plugins.get(cfg.plugins, cfg.entrypoints)
         if plugins:
             self.console.print(f"Enabled plugins: {', '.join(plugin.name for plugin in plugins)}")
         plugin_operators = [op for plugin in plugins for op in plugin.operators()]

@@ -76,6 +76,23 @@ def test_init_with_minimal_project(tmp_path: Path) -> None:
     assert "Found" in result.output
 
 
+def test_init_skips_configured_entrypoints(tmp_path: Path) -> None:
+    (tmp_path / "typemut.toml").write_text(
+        '[typemut]\nmodule-path = "src"\ntest-command = "true"\n'
+        '[typemut.entrypoints]\nbase-classes = ["mylib.rpc.Endpoint"]\n'
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text(
+        "from mylib.rpc import Endpoint\n"
+        "class Items(Endpoint):\n"
+        "    def get(self, q: int | None) -> int | None: ...\n"
+        "x: int | None = None\n"
+    )
+    result = CliRunner().invoke(main, ["--project-dir", str(tmp_path), "init"], obj=_app())
+    assert result.exit_code == 0, result.output
+    assert "Found 1 type annotation mutations" in result.output
+
+
 def _init_with_config(tmp_path: Path, extra_config: str) -> Result:
     """Run ``init`` on a one-file project with the stub plugin available."""
     runner = CliRunner()

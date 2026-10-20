@@ -21,6 +21,19 @@ ALL_OPERATORS = "all"
 DEFAULT_CACHE_KEY_FILES: Final = ("uv.lock", "poetry.lock", "requirements*.txt")
 
 
+@dataclass(frozen=True)
+class EntrypointsConfig:
+    """``[typemut.entrypoints]``: qualified name patterns of framework-called handlers."""
+
+    decorators: Iterable[str] = ()
+    base_classes: Iterable[str] = ()
+    parameter_types: Iterable[str] = ()
+
+
+# Keys under [typemut.entrypoints].
+ENTRYPOINT_KEYS: Final = ("decorators", "base-classes", "parameter-types")
+
+
 @dataclass
 class Config:
     module_path: str = "src"
@@ -35,6 +48,7 @@ class Config:
     ignore_types: dict[str, list[str]] = field(default_factory=dict)
     # {operator key or "all": [qualified class name patterns]}: skip fields of their subclasses
     ignore_classes: Mapping[str, Iterable[str]] = field(default_factory=dict)
+    entrypoints: EntrypointsConfig = field(default_factory=EntrypointsConfig)
     db_path: str = DEFAULT_DB_PATH
     # type checker plugin name; None detects it from test_command
     checker: str | None = None
@@ -71,6 +85,7 @@ class ConfigLoader:
             ignore_classes=self._operator_patterns(
                 section.get("ignore-classes", {}), "ignore-classes"
             ),
+            entrypoints=self._parse_entrypoints(section.get("entrypoints", {})),
             db_path=section.get("db", DEFAULT_DB_PATH),
             checker=self._optional_string(section.get("checker"), "checker"),
             checker_version_command=self._optional_string(
@@ -167,6 +182,25 @@ class ConfigLoader:
             if patterns is not None:
                 patterns_by_key[key] = patterns
         return patterns_by_key
+
+    def _parse_entrypoints(self, raw: object) -> EntrypointsConfig:
+        """Validate ``[typemut.entrypoints]``; warn about and skip invalid entries."""
+        if not isinstance(raw, dict):
+            logger.warning("Ignoring invalid 'entrypoints' option %r: expected a table", raw)
+            return EntrypointsConfig()
+        patterns: dict[str, Iterable[str]] = {}
+        for key, value in raw.items():
+            if key not in ENTRYPOINT_KEYS:
+                logger.warning(
+                    "Ignoring unknown key %r in 'entrypoints'. Valid keys: %s",
+                    key,
+                    ", ".join(ENTRYPOINT_KEYS),
+                )
+                continue
+            valid = self._string_list(value, f"entrypoints.{key}")
+            if valid is not None:
+                patterns[key.replace("-", "_")] = valid
+        return EntrypointsConfig(**patterns)
 
     def _string_list(self, raw: object, option: str) -> list[str] | None:
         """Return *raw* if it is a list of strings, else warn and return None."""
