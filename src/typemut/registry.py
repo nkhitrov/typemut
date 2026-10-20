@@ -9,6 +9,8 @@ from pathlib import Path
 import parso
 from parso.python.tree import BaseNode, Leaf
 
+from typemut.imports import ModuleImports
+
 
 @dataclass
 class Registry:
@@ -24,6 +26,10 @@ class Registry:
     # Populated by scanning imports in files that define child classes.
     base_import_lines: dict[str, str] = field(default_factory=dict)
 
+    # {class_name: "from module import class_name"} — where each project class is defined.
+    # The fallback for bases that the child's module defines rather than imports.
+    class_import_lines: dict[str, str] = field(default_factory=dict)
+
     def get_siblings(self, class_name: str) -> list[str]:
         """Get sibling classes (same base, excluding self)."""
         base = self.class_to_base.get(class_name)
@@ -37,7 +43,7 @@ class Registry:
 
     def get_base_import_line(self, base_name: str) -> str | None:
         """Get the import line needed to bring *base_name* into scope."""
-        return self.base_import_lines.get(base_name)
+        return self.base_import_lines.get(base_name) or self.class_import_lines.get(base_name)
 
 
 # Module-level compound statements whose bodies may hold imports, e.g.
@@ -47,7 +53,14 @@ _CONDITIONAL_BLOCK_TYPES = frozenset({"try_stmt", "if_stmt", "suite"})
 
 
 class RegistryBuilder:
-    """Builds a :class:`Registry` from the class definitions in a set of files."""
+    """Builds a :class:`Registry` from the class definitions in a set of files.
+
+    *modules* names the package of each file, so the registry knows the
+    module that defines each class.
+    """
+
+    def __init__(self, modules: ModuleImports | None = None) -> None:
+        self._modules = modules or ModuleImports()
 
     def build(self, files: Iterable[Path]) -> Registry:
         """Registry of the classes defined in *files*; unreadable files are skipped."""
@@ -60,7 +73,24 @@ class RegistryBuilder:
             tree = parso.parse(source)
             file_imports = self._extract_imports(tree)
             self._extract_hierarchy(tree, reg, file_imports)
+            self._extract_definitions(tree, reg, self._module_of(f))
         return reg
+
+    def _module_of(self, file: Path) -> str:
+        """Dotted module name of *file*, e.g. ``pkg/models.py`` -> ``pkg.models``."""
+        package = self._modules.package_of(file)
+        if file.stem == "__init__":
+            return package
+        return f"{package}.{file.stem}" if package else file.stem
+
+    def _extract_definitions(self, tree: BaseNode, reg: Registry, module: str) -> None:
+        """Record the import line of each module-level class defined in *tree*."""
+        for child in tree.children:
+            if isinstance(child, BaseNode) and child.type == "decorated":
+                child = child.children[-1]
+            if isinstance(child, BaseNode) and child.type == "classdef":
+                name = child.children[1].value
+                reg.class_import_lines.setdefault(name, f"from {module} import {name}")
 
     def _extract_imports(self, tree: BaseNode) -> dict[str, str]:
         """Extract all ``from X import Y`` mappings from the module-level AST.
@@ -181,5 +211,6 @@ class RegistryBuilder:
         """Record *class_name* as a child of *base_name*, with the import of the base."""
         reg.hierarchy.setdefault(base_name, []).append(class_name)
         reg.class_to_base[class_name] = base_name
-        if base_name in file_imports:
+        # A relative import only works in the child's own package.
+        if base_name in file_imports and not file_imports[base_name].startswith("from ."):
             reg.base_import_lines.setdefault(base_name, file_imports[base_name])

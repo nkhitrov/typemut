@@ -11,8 +11,8 @@ from typemut.registry import Registry
 # This operator targets user-defined classes from the project's class
 # hierarchy (via Registry), not standard library types. The parent class
 # may not be imported in the file where the mutation is applied.
-# The required import line is resolved from the Registry's base_import_lines
-# (extracted from the file that defines the child class).
+# The required import line is resolved from the Registry: the import of the
+# base in the file that defines the child class, else the module defining it.
 
 # Bases that carry no useful interface of their own: widening to them is
 # either invalid as a type (Generic, Protocol, NamedTuple, TypedDict) or

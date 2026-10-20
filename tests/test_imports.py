@@ -220,6 +220,13 @@ def test_resolve_required_import_already_present():
     assert inserted_at is None
 
 
+def test_resolve_required_import_of_class_defined_in_source():
+    source = "class Animal:\n    pass\n\n\nclass Cat(Animal):\n    pass\n\n\npet: Cat\n"
+    new_source, inserted_at = ImportInjector().resolve(source, "Animal", "from pkg.models import Animal")
+    assert new_source == source
+    assert inserted_at is None
+
+
 def test_resolve_falls_back_to_import_sources():
     source = "import os\n\nx: list\n"
     new_source, inserted_at = ImportInjector().resolve(source, "Sequence[int]", None)
