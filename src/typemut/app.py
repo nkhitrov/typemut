@@ -40,6 +40,7 @@ from typemut.hierarchy import ClassHierarchyBuilder
 from typemut.ignore import IgnoredClasses, IgnoredTypes
 from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
+from typemut.operators.base import TypeMutationOperator
 from typemut.parallel import GitWorkspace, ProcessPool, WorkerPool, WorktreeExecutor
 from typemut.plugins import PluginRegistry
 from typemut.registry import RegistryBuilder
@@ -122,11 +123,7 @@ class App:
         plugin_operators = [op for plugin in plugins for op in plugin.operators()]
         operators = self.operators.enabled(cfg.operators, plugin_operators)
         self.console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")
-        operator_keys = self.operators.config_keys(plugin_operators)
-        ignored = IgnoredTypes(cfg.ignore_types)
-        ignored.warn_unknown_keys(operator_keys)
-        ignored_classes = IgnoredClasses(cfg.ignore_classes, self.hierarchy_builder.build(files))
-        ignored_classes.warn_unknown_keys(operator_keys)
+        ignored, ignored_classes = self._ignore_rules(cfg, files, plugin_operators)
 
         finder = MutationFinder(
             operators, self.registry_builder.build(files), plugins, ignored, ignored_classes
@@ -136,6 +133,17 @@ class App:
         db.clear()
         db.insert_many(mutants)
         self.console.print(f"[green]Found {len(mutants)} type annotation mutations[/green]")
+
+    def _ignore_rules(
+        self, cfg: Config, files: Iterable[Path], plugin_operators: Iterable[TypeMutationOperator]
+    ) -> tuple[IgnoredTypes, IgnoredClasses]:
+        """The ``ignore-types`` and ``ignore-classes`` rules, warning about unknown operators."""
+        operator_keys = self.operators.config_keys(plugin_operators)
+        ignored = IgnoredTypes(cfg.ignore_types)
+        ignored.warn_unknown_keys(operator_keys)
+        ignored_classes = IgnoredClasses(cfg.ignore_classes, self.hierarchy_builder.build(files))
+        ignored_classes.warn_unknown_keys(operator_keys)
+        return ignored, ignored_classes
 
     def execute(
         self,

@@ -42,8 +42,9 @@ class OperatorRegistry:
     def config_keys(self, extra: Iterable[TypeMutationOperator] = ()) -> AbstractSet[str]:
         """Keys of the registered and *extra* operators in ``[typemut.operators]``.
 
-        The same keys select operators in ``[typemut.ignore-types]``. An
-        operator without a key cannot be configured, so empty keys are left out.
+        The same keys select operators in ``[typemut.ignore-types]`` and
+        ``[typemut.ignore-classes]``. An operator without a key cannot be
+        configured, so empty keys are left out.
         """
         keys = {operator.config_key for operator in self._operators}
         keys.update(operator.config_key for operator in extra)

@@ -9,7 +9,6 @@ import pytest
 from click.testing import CliRunner
 
 from typemut.cli import main
-from typemut.config import OperatorsConfig
 from typemut.db import Database
 from typemut.discovery import AnnotationFinder
 from typemut.hierarchy import ClassHierarchy, ClassHierarchyBuilder, ClassNames
@@ -27,7 +26,7 @@ def finder(
     hierarchy: ClassHierarchy,
     plugins: list[str] | None = None,
 ) -> MutationFinder:
-    operators = OperatorRegistry().enabled(OperatorsConfig())
+    operators = OperatorRegistry().enabled({})
     return MutationFinder(
         operators,
         Registry(),
