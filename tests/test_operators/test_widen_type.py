@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from typemut.discovery import AnnotationFinder
+from typemut.model import AnnotationContext
 from typemut.operators.widen_type import WidenType
 from typemut.registry import Registry, RegistryBuilder
 
@@ -68,3 +70,34 @@ def test_no_widen_to_protocol_from_files(tmp_path: Path, protocol_base: str) -> 
     reg = RegistryBuilder().build([src])
 
     assert_mutations("c: Coder\n", WidenType, expected=[], registry=reg)
+
+
+def test_widen_imports_base_from_defining_module(tmp_path: Path) -> None:
+    """Regression test for #36: the base defined next to the subclass gets imported."""
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "models.py").write_text(
+        "class Animal:\n"
+        '    name: str = ""\n'
+        "\n"
+        "\n"
+        "class Cat(Animal):\n"
+        "    lives: int = 9\n"
+    )
+    service = package / "service.py"
+    service.write_text(
+        "from pkg.models import Cat\n"
+        "\n"
+        "\n"
+        "def adopt() -> Cat:\n"
+        "    return Cat()\n"
+    )
+    reg = RegistryBuilder().build(sorted(package.glob("*.py")))
+    annotation = AnnotationFinder().find(service)[0]
+
+    mutations = WidenType().find_mutations(annotation.node, AnnotationContext.RETURN, reg)
+
+    assert [(m.mutated, m.required_import) for m in mutations] == [
+        ("Animal", "from pkg.models import Animal"),
+    ]

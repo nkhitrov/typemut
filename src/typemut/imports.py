@@ -256,7 +256,11 @@ class ImportInjector:
         - ``from X import type_name``
         - ``from X import (..., type_name, ...)``
         - ``import X`` where X == module containing type_name (qualified usage)
+        - ``class type_name`` defined at module level, so no import is needed
         """
+        if re.search(r"^class\s+" + re.escape(type_name) + r"\b", source, re.MULTILINE):
+            return True
+
         # Pattern: from <module> import <...type_name...>
         # Handles both single-line and multi-line (parenthesized) imports.
         pattern = re.compile(
