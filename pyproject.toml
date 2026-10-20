@@ -172,6 +172,7 @@ no_implicit_reexport = false
 [[tool.mypy.overrides]]
 module = [
     "typemut.discovery",
+    "typemut.hierarchy",
     "typemut.imports",
     "typemut.nodes",
     "typemut.registry",

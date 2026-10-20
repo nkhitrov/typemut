@@ -99,6 +99,54 @@ def test_load_config_ignore_types(tmp_path: Path) -> None:
     }
 
 
+def test_load_config_ignore_classes(tmp_path: Path) -> None:
+    cfg = load_toml(
+        '[typemut]\nmodule-path = "src"\n\n'
+        "[typemut.ignore-classes]\n"
+        'all = ["app.api.*"]\n'
+        'add-optional = ["app.api.BaseResponse"]\n',
+        tmp_path,
+    )
+    assert cfg.ignore_classes == {
+        "all": ["app.api.*"],
+        "add-optional": ["app.api.BaseResponse"],
+    }
+    assert cfg.ignore_types == {}
+
+
+def test_load_config_ignore_classes_default_empty(tmp_path: Path) -> None:
+    assert load_toml('[typemut]\nmodule-path = "src"\n', tmp_path).ignore_classes == {}
+
+
+@pytest.mark.parametrize(
+    "toml_value,expected,message",
+    [
+        pytest.param(
+            'ignore-classes = ["app.api.BaseResponse"]',
+            {},
+            "Ignoring invalid 'ignore-classes' option",
+            id="not-a-table",
+        ),
+        pytest.param(
+            'ignore-classes = { add-optional = "x.Y", all = ["x.Z"] }',
+            {"all": ["x.Z"]},
+            "Ignoring invalid 'ignore-classes.add-optional' option",
+            id="value-not-a-list",
+        ),
+    ],
+)
+def test_load_config_invalid_ignore_classes_warns(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    toml_value: str,
+    expected: dict[str, list[str]],
+    message: str,
+) -> None:
+    cfg = load_toml(f'[typemut]\nmodule-path = "src"\n{toml_value}\n', tmp_path)
+    assert cfg.ignore_classes == expected
+    assert message in caplog.text
+
+
 def test_load_config_ignore_types_default_empty(tmp_path: Path) -> None:
     assert load_toml('[typemut]\nmodule-path = "src"\n', tmp_path).ignore_types == {}
 

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Results database, relative to the project root.
 DEFAULT_DB_PATH = "typemut.sqlite"
 
-# Key under [typemut.ignore-types] that applies to every operator.
+# Key under [typemut.ignore-types] and [typemut.ignore-classes] that applies to every operator.
 ALL_OPERATORS = "all"
 
 # Files whose change invalidates every cached result: the project's lockfiles.
@@ -33,6 +33,8 @@ class Config:
     plugins: list[str] = field(default_factory=list)
     # {operator key or "all": [qualified type name patterns]}
     ignore_types: dict[str, list[str]] = field(default_factory=dict)
+    # {operator key or "all": [qualified class name patterns]}: skip fields of their subclasses
+    ignore_classes: Mapping[str, Iterable[str]] = field(default_factory=dict)
     db_path: str = DEFAULT_DB_PATH
     # type checker plugin name; None detects it from test_command
     checker: str | None = None
@@ -65,7 +67,10 @@ class ConfigLoader:
             skip_comments=section.get("skip-comments", ["type: ignore", "pragma: no mutate"]),
             operators=self._parse_operators(section.get("operators", {})),
             plugins=self._parse_plugins(section.get("plugins", [])),
-            ignore_types=self._parse_ignore_types(section.get("ignore-types", {})),
+            ignore_types=self._operator_patterns(section.get("ignore-types", {}), "ignore-types"),
+            ignore_classes=self._operator_patterns(
+                section.get("ignore-classes", {}), "ignore-classes"
+            ),
             db_path=section.get("db", DEFAULT_DB_PATH),
             checker=self._optional_string(section.get("checker"), "checker"),
             checker_version_command=self._optional_string(
@@ -147,20 +152,21 @@ class ConfigLoader:
                 )
         return operators
 
-    def _parse_ignore_types(self, raw: object) -> dict[str, list[str]]:
-        """Validate ``[typemut.ignore-types]``; warn about and skip invalid entries.
+    def _operator_patterns(self, raw: object, option: str) -> dict[str, list[str]]:
+        """Validate a table of patterns per operator key, like ``[typemut.ignore-types]``.
 
-        Operator keys are checked later, like those of ``[typemut.operators]``.
+        Invalid entries are logged and skipped. Operator keys are checked
+        later, like those of ``[typemut.operators]``.
         """
         if not isinstance(raw, dict):
-            logger.warning("Ignoring invalid 'ignore-types' option %r: expected a table", raw)
+            logger.warning("Ignoring invalid %r option %r: expected a table", option, raw)
             return {}
-        ignore_types: dict[str, list[str]] = {}
+        patterns_by_key: dict[str, list[str]] = {}
         for key, value in raw.items():
-            patterns = self._string_list(value, f"ignore-types.{key}")
+            patterns = self._string_list(value, f"{option}.{key}")
             if patterns is not None:
-                ignore_types[key] = patterns
-        return ignore_types
+                patterns_by_key[key] = patterns
+        return patterns_by_key
 
     def _string_list(self, raw: object, option: str) -> list[str] | None:
         """Return *raw* if it is a list of strings, else warn and return None."""
