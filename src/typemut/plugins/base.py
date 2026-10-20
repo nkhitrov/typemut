@@ -3,14 +3,26 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Collection
+from collections.abc import Collection, Container, Iterable
+from pathlib import Path
+from typing import NamedTuple
 
-from parso.python.tree import BaseNode, Leaf
+from parso.python.tree import BaseNode, Function, Leaf, Name
 
-from typemut.model import AnnotationNode, Mutation
+from typemut.model import AnnotationContext, AnnotationNode, Mutation
 from typemut.nodes import NodeSource
 from typemut.operators.base import TypeMutationOperator
 from typemut.registry import Registry
+from typemut.symbols import MemberOf, ScopeReader, SymbolResolver
+
+SIGNATURE = frozenset((AnnotationContext.PARAMETER, AnnotationContext.RETURN))
+
+
+class DecoratorReference(NamedTuple):
+    """What a decorator refers to: ``@rpc.method()`` -> ``("rpc.method", called=True)``."""
+
+    name: str
+    called: bool
 
 
 class Plugin(NodeSource, ABC):
@@ -60,3 +72,85 @@ class Plugin(NodeSource, ABC):
         if not isinstance(target, Leaf) or target.type != "name":
             return None
         return target.value, trailer
+
+
+class HandlerPlugin(Plugin):
+    """Skips the signatures of handlers: functions a framework calls, not Python code.
+
+    No caller means the type checker has nothing to check a mutated signature
+    against, so every mutation of a handler's parameter and return annotations
+    survives. Annotations inside the handler's body are mutated as usual.
+    Subclasses decide which functions are handlers; names are resolved
+    statically with :class:`SymbolResolver`, never by variable names.
+    """
+
+    def __init__(
+        self, resolver: SymbolResolver | None = None, scopes: ScopeReader | None = None
+    ) -> None:
+        self._scopes = scopes or ScopeReader()
+        self._resolver = resolver or SymbolResolver(scopes=self._scopes)
+
+    def find_mutations(
+        self,
+        annotation: AnnotationNode,
+        # Unused: the signature mirrors Plugin.find_mutations.
+        operators: Collection[TypeMutationOperator],  # pragma: no mutate
+        registry: Registry,
+    ) -> list[Mutation] | None:
+        """No mutations for handler signatures; leave other annotations to the core."""
+        if annotation.context not in SIGNATURE:
+            return None
+        # Parameter and return annotations only occur in function signatures.
+        funcdef = annotation.node.search_ancestor("funcdef")
+        assert isinstance(funcdef, Function)
+        if self._is_handler(funcdef, annotation.file):
+            return []
+        return None
+
+    @abstractmethod
+    def _is_handler(
+        self, funcdef: Function, file: Path
+    ) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether the framework calls *funcdef*, defined in *file*."""
+        ...
+
+    def _decorators(self, funcdef: Function) -> Iterable[BaseNode]:
+        """Decorators of a function."""
+        decorated = funcdef.parent
+        if decorated is not None and decorated.type == "async_funcdef":
+            decorated = decorated.parent
+        if decorated is None or decorated.type != "decorated":
+            return []
+        decorators = decorated.children[0]
+        if decorators.type == "decorator":
+            return [decorators]
+        return list(decorators.children)
+
+    def _decorator_reference(self, decorator: BaseNode) -> DecoratorReference | None:
+        """Dotted name a decorator refers to, None unless it is ``@name``/``@a.b[(...)]``."""
+        expression = decorator.children[1]
+        if isinstance(expression, Name):
+            return DecoratorReference(expression.value, called=False)
+        if expression.type not in {"atom_expr", "power"}:
+            return None
+        nodes = expression.children
+        called = self._trailer_target(expression, "(") is not None
+        name = self._scopes.dotted_name(nodes[:-1] if called else nodes)
+        return None if name is None else DecoratorReference(name, called)
+
+    def _is_instance_member(
+        self, dotted: str, node: BaseNode | Leaf, file: Path, names: Container[str]
+    ) -> bool:
+        """Whether *dotted* is ``<instance>.<member>`` and ``<its class>.<member>`` is in *names*.
+
+        ``rpc.method`` with ``rpc = Router()`` is ``mylib.Router.method``; a
+        class inherits the members of its bases, so with ``class Router(Base)``
+        it is ``mylib.Base.method`` as well.
+        """
+        receiver, _, member = dotted.rpartition(".")
+        if not receiver:
+            return False
+        class_name = self._resolver.instance_class(receiver, node, file)
+        return class_name is not None and self._resolver.inherits_from(
+            class_name, MemberOf(names, member), file
+        )

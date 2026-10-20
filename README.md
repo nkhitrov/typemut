@@ -1005,6 +1005,61 @@ import) are not treated as endpoints. The same goes for functions registered
 without a decorator (`app.add_api_route(...)`) or used only through `Depends(...)`.
 Mark those with `# pragma: no mutate`.
 
+### Other frameworks: `[typemut.entrypoints]`
+
+Other frameworks register handlers the same way: in-house RPC layers, message
+consumers, task queues. Name them in `[typemut.entrypoints]` to skip the
+parameter and return annotations of their handlers, without a plugin per
+framework (no entry in `plugins` needed):
+
+```toml
+[typemut.entrypoints]
+# functions decorated with one of these
+decorators = ["mylib.rpc.*.method", "faststream.*.subscriber", "taskiq.*.task"]
+# methods of classes inheriting from one of these
+base-classes = ["mylib.rpc.Endpoint"]
+# functions with a parameter whose annotation references one of these (DI markers)
+parameter-types = ["mylib.rpc.*.Dependency", "dishka.FromDishka"]
+```
+
+```python
+from mylib.rpc import Endpoint, Router
+
+rpc = Router()
+
+
+@rpc.method()  # mylib.rpc.Router.method
+async def get_item(item_id: int, service: rpc.Dependency[ItemService]) -> ItemSchema:  # not mutated
+    item: ItemSchema | None = await service.get(item_id)  # still mutated
+    ...
+
+
+class Items(Endpoint):
+    async def get_item(self, item_id: int) -> ItemSchema: ...  # not mutated
+```
+
+Patterns are `fnmatch` globs (`*` matches dots too) against qualified names,
+resolved statically like the `fastapi` plugin does (imports, aliases, relative
+imports, re-exports and objects imported from other project modules):
+
+- **decorators**: `@x`, `@x.y` or `@x.y(...)`. The decorator matches as the
+  qualified name of what it refers to (`from taskiq import task` → `taskiq.task`),
+  and, when its receiver is an instance (`rpc = Router()`, `rpc: Router = make()`,
+  `def register(rpc: Router)`), as `<class>.<attribute>` for the instance's class
+  and each of its base classes: `@rpc.method()` → `mylib.rpc.Router.method`, also
+  with `rpc = AppRouter()` where `class AppRouter(Router)` is a project class.
+  Classes are named as they are imported (`from mylib.rpc import Router` →
+  `mylib.rpc.Router`), not where they are defined.
+- **base-classes**: methods (not nested functions) of a class whose bases
+  inherit from a matching class, directly or through project classes in other
+  modules. Methods of the matching class itself are mutated.
+- **parameter-types**: every name the annotation references counts
+  (`Dependency[Service]`, `Annotated[Service, Inject]`), resolved like decorators:
+  `rpc.Dependency` with `rpc = Router()` is `mylib.rpc.Router.Dependency`.
+  String annotations and default values (`= Depends(...)`) are not looked at.
+- Unresolvable names (factory calls, `self.router`, star imports) don't match.
+- Unknown keys and invalid values are logged as warnings and skipped.
+
 ## Filtering
 
 Annotations are automatically skipped when:
@@ -1117,6 +1172,12 @@ add-optional = ["sqlalchemy.orm.Mapped"]
 # must not touch; "all" applies to every operator
 all = []
 add-optional = ["myproject.api.BaseResponse"]
+
+[typemut.entrypoints]
+# qualified name patterns of framework-called handlers whose signatures are not mutated
+decorators = []                         # functions decorated with these
+base-classes = []                       # methods of classes inheriting from these
+parameter-types = []                    # functions with a parameter annotated with these
 ```
 
 ## HTML Report
