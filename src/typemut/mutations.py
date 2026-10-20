@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from typemut.ignore import IgnoredTypes
+from typemut.ignore import IgnoredClasses, IgnoredTypes
 from typemut.model import AnnotationNode, Mutation
 from typemut.operators.base import TypeMutationOperator
 from typemut.plugins.base import Plugin
@@ -16,7 +16,8 @@ class MutationFinder:
 
     The first plugin that claims an annotation decides its mutations;
     otherwise every operator runs on the annotation as is, except operators
-    that ignore a type the annotation references (see ``typemut.ignore``).
+    that ignore a type the annotation references or the class it is a field
+    of (see ``typemut.ignore``).
     """
 
     def __init__(
@@ -25,11 +26,13 @@ class MutationFinder:
         registry: Registry,
         plugins: Collection[Plugin] = (),
         ignored: IgnoredTypes | None = None,
+        ignored_classes: IgnoredClasses | None = None,
     ) -> None:
         self._operators = operators
         self._registry = registry
         self._plugins = plugins
         self._ignored = ignored or IgnoredTypes()
+        self._ignored_classes = ignored_classes or IgnoredClasses()
 
     def find(self, annotation: AnnotationNode) -> list[Mutation]:
         """Return all mutations for an annotation."""
@@ -43,6 +46,8 @@ class MutationFinder:
         mutations: list[Mutation] = []
         for op in self._operators:
             if self._ignored.is_ignored(annotation, op.config_key):
+                continue
+            if self._ignored_classes.is_ignored(annotation, op.config_key):
                 continue
             found = op.find_mutations(annotation.node, annotation.context, self._registry)
             mutations.extend(

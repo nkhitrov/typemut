@@ -1,4 +1,4 @@
-"""Per-operator ignore rules for types from specific libraries.
+"""Per-operator ignore rules for library types and for fields of class hierarchies.
 
 Configured in ``typemut.toml``::
 
@@ -6,11 +6,16 @@ Configured in ``typemut.toml``::
     all = ["django.db.models.*"]
     add-optional = ["sqlalchemy.orm.Mapped"]
 
-Patterns are ``fnmatch`` globs matched against the qualified name a type is
-imported under (``sqlalchemy.orm.Mapped``), not where it is defined.
-An operator skips every annotation that references one of its ignored types,
-and drops mutations that would introduce one (e.g. WidenType to a base class
-from an ignored library). Plugins see annotations first and are not affected.
+    [typemut.ignore-classes]
+    add-optional = ["myproject.api.BaseResponse"]
+
+Patterns are ``fnmatch`` globs matched against qualified names: for types, the
+name a type is imported under (``sqlalchemy.orm.Mapped``), not where it is
+defined. An operator skips every annotation that references one of its ignored
+types, and drops mutations that would introduce one (e.g. WidenType to a base
+class from an ignored library). It also skips the fields (class-level
+annotations) of classes that are, or inherit from, one of its ignored classes.
+Plugins see annotations first and are not affected.
 """
 
 from __future__ import annotations
@@ -22,8 +27,10 @@ from fnmatch import fnmatchcase
 from parso.python.tree import BaseNode, Leaf, Module
 
 from typemut.config import ALL_OPERATORS
+from typemut.hierarchy import ClassHierarchy, ClassNames
 from typemut.imports import ImportInjector, ModuleImports
-from typemut.model import AnnotationNode, Mutation
+from typemut.model import AnnotationContext, AnnotationNode, Mutation
+from typemut.nodes import NodeSource
 
 _FROM_IMPORT_RE = re.compile(r"^from\s+(\S+)\s+import\s+(\w+)")
 
@@ -31,19 +38,11 @@ _FROM_IMPORT_RE = re.compile(r"^from\s+(\S+)\s+import\s+(\w+)")
 _NamesCache = dict[int, tuple[Module, dict[str, str]]]
 
 
-class IgnoredTypes:
-    """Ignored type patterns per operator config key (``add-optional``, ...)."""
+class OperatorPatterns:
+    """Qualified name patterns per operator config key (``add-optional``, ...)."""
 
-    def __init__(
-        self,
-        patterns: Mapping[str, Iterable[str]] | None = None,
-        imports: ModuleImports | None = None,
-        injector: ImportInjector | None = None,
-    ) -> None:
-        self._imports = imports or ModuleImports()
-        self._injector = injector or ImportInjector()
+    def __init__(self, patterns: Mapping[str, Iterable[str]] | None = None) -> None:
         self._patterns = {key: tuple(values) for key, values in (patterns or {}).items()}
-        self._names: _NamesCache = {}
 
     def patterns_for(self, operator_key: str) -> tuple[str, ...]:
         """Patterns that apply to an operator: the ``all`` ones plus its own."""
@@ -53,6 +52,21 @@ class IgnoredTypes:
         return any(
             fnmatchcase(qualified_name, pattern) for pattern in self.patterns_for(operator_key)
         )
+
+
+class IgnoredTypes(OperatorPatterns, NodeSource):
+    """Ignored type patterns per operator config key."""
+
+    def __init__(
+        self,
+        patterns: Mapping[str, Iterable[str]] | None = None,
+        imports: ModuleImports | None = None,
+        injector: ImportInjector | None = None,
+    ) -> None:
+        super().__init__(patterns)
+        self._imports = imports or ModuleImports()
+        self._injector = injector or ImportInjector()
+        self._names: _NamesCache = {}
 
     def is_ignored(self, annotation: AnnotationNode, operator_key: str) -> bool:
         """Whether the annotation references a type the operator must not touch."""
@@ -95,32 +109,6 @@ class IgnoredTypes:
         for child in children:
             yield from self._dotted_names(child)
 
-    def _dotted_head(self, node: BaseNode) -> list[str] | None:
-        """Return ``["orm", "Mapped"]`` for ``orm.Mapped[...]``, None if not a name chain."""
-        head = node.children[0]
-        if (
-            node.type not in {"atom_expr", "power"}
-            or not isinstance(head, Leaf)
-            or head.type != "name"
-        ):
-            return None
-        parts = [head.value]
-        for trailer in node.children[1:]:
-            attribute = self._attribute_name(trailer)
-            if attribute is None:
-                break
-            parts.append(attribute)
-        return parts
-
-    def _attribute_name(self, node: BaseNode | Leaf) -> str | None:
-        """Return ``x`` for a ``.x`` trailer, None for anything else."""
-        if isinstance(node, Leaf) or node.type != "trailer":
-            return None
-        dot, name = node.children[0], node.children[-1]
-        if isinstance(dot, Leaf) and dot.value == "." and isinstance(name, Leaf):
-            return name.value
-        return None
-
     def _introduced_type(self, mutation: Mutation, names: Mapping[str, str]) -> str | None:
         """Qualified name of the type a mutation brings into the annotation, if known."""
         if mutation.required_import is not None:
@@ -140,3 +128,37 @@ class IgnoredTypes:
         if base is None:
             return None
         return f"{base}.{tail}" if tail else base
+
+
+class IgnoredClasses(OperatorPatterns):
+    """Ignored class patterns per operator config key: their fields are not mutated.
+
+    A field is ignored when the class it is declared in, or any of its bases
+    known from *hierarchy* (the project's classes), matches a pattern.
+    Parameters and return types of methods are mutated as usual.
+    """
+
+    def __init__(
+        self,
+        patterns: Mapping[str, Iterable[str]] | None = None,
+        hierarchy: ClassHierarchy | None = None,
+        names: ClassNames | None = None,
+    ) -> None:
+        super().__init__(patterns)
+        self._hierarchy = hierarchy or ClassHierarchy()
+        self._names = names or ClassNames()
+
+    def is_ignored(self, annotation: AnnotationNode, operator_key: str) -> bool:
+        """Whether the annotation is a field of a class the operator must not touch."""
+        if annotation.context is not AnnotationContext.VARIABLE:
+            return False
+        if not self.patterns_for(operator_key):
+            return False
+        owner = self._names.enclosing_class(annotation.node)
+        if owner is None:
+            return False
+        lineage = self._hierarchy.lineage(
+            self._names.qualified_name(owner, annotation.file),
+            self._names.bases(owner, annotation.file),
+        )
+        return any(self.matches(name, operator_key) for name in lineage)

@@ -36,7 +36,8 @@ from typemut.engine import (
     SequentialExecutor,
 )
 from typemut.errors import TypemutError
-from typemut.ignore import IgnoredTypes
+from typemut.hierarchy import ClassHierarchyBuilder
+from typemut.ignore import IgnoredClasses, IgnoredTypes
 from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
 from typemut.parallel import GitWorkspace, ProcessPool, WorkerPool, WorktreeExecutor
@@ -69,6 +70,7 @@ class App:
     open_browser: Callable[[str], object] = webbrowser.open
     config_loader: ConfigLoader = field(default_factory=ConfigLoader)
     registry_builder: RegistryBuilder = field(default_factory=RegistryBuilder)
+    hierarchy_builder: ClassHierarchyBuilder = field(default_factory=ClassHierarchyBuilder)
     html_report: HtmlReport = field(default_factory=HtmlReport)
     # SIGTERM handling while mutants run.
     terminate_signal: TerminateSignal = field(default_factory=TerminateSignal)
@@ -126,6 +128,7 @@ class App:
             self.registry_builder.build(files),
             plugins,
             IgnoredTypes(cfg.ignore_types),
+            IgnoredClasses(cfg.ignore_classes, self.hierarchy_builder.build(files)),
         )
         mutants = self._find_mutants(files, cfg, finder)
         ResultCache(db, self.root).carry_over(db.get_all())
