@@ -323,6 +323,16 @@ PACKAGE = {"app/__init__.py": ""}
         ),
         pytest.param(
             {
+                "app/base.py": "import fastapi\nclass BaseRouter(fastapi.APIRouter, Generic[T]): ...\n",
+                "app/custom.py": "from app.base import BaseRouter\nclass Router(BaseRouter[User]): ...\n",
+                "app/views.py": (
+                    f'from app.custom import Router\nrouter = Router()\n@router.get("/")\n{ENDPOINT}'
+                ),
+            },
+            id="generic-subclass-across-modules",
+        ),
+        pytest.param(
+            {
                 "app/base.py": "from fastapi import FastAPI\nclass App(FastAPI): ...\n",
                 "app/core/__init__.py": "from app.base import App\n",
                 "app/views.py": f'from app.core import App\napp = App()\n@app.get("/")\n{ENDPOINT}',

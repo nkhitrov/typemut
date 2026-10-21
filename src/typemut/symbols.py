@@ -128,7 +128,11 @@ class ScopeReader:
                 yield from self._scope_nodes(child)
 
     def bases(self, classdef: BaseNode) -> list[str]:
-        """Dotted names of the base classes (keyword arguments like ``metaclass=`` skipped)."""
+        """Dotted names of the base classes (keyword arguments like ``metaclass=`` skipped).
+
+        A generic base is named without its type arguments: ``Controller[S]``
+        is ``Controller``, ``mod.Base[T]`` is ``mod.Base``.
+        """
         children = classdef.children
         if children[2].type != "operator" or children[2].value != "(":
             return []
@@ -138,12 +142,19 @@ class ScopeReader:
         return [name for name in names if name is not None]
 
     def _expression_name(self, node: BaseNode | Leaf) -> str | None:
-        """Dotted name of an expression: ``FastAPI``, ``fastapi.APIRouter``, else None."""
+        """Dotted name of an expression: ``FastAPI``, ``fastapi.APIRouter``, else None.
+
+        Type arguments are dropped: ``Controller[S]`` is ``Controller``.
+        """
         if isinstance(node, Leaf):
             return node.value if isinstance(node, Name) else None
         if node.type not in {"atom_expr", "power"}:
             return None
-        return self.dotted_name(node.children)
+        children = node.children
+        trailer = children[-1]
+        if trailer.type == "trailer" and trailer.children[0].value == "[":
+            children = children[:-1]
+        return self.dotted_name(children)
 
     def _called_class(self, node: BaseNode | Leaf) -> str | None:
         """``Class(...)`` / ``mod.Class(...)`` -> the callee's dotted name, else None."""

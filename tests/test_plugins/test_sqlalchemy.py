@@ -247,7 +247,9 @@ def test_plugin_has_no_extra_operators() -> None:
 def test_mutation_applies_inside_mapped(tmp_path: Path, source: str, expected: str) -> None:
     (tmp_path / "models.py").write_text(source)
     annotation = AnnotationFinder().find(Path("models.py"), source=source)[0]
-    mutation = MutationFinder(OperatorRegistry().enabled({}), Registry(), PluginRegistry().get(["sqlalchemy"])).find(annotation)[0]
+    mutation = MutationFinder(
+        OperatorRegistry().enabled({}), Registry(), PluginRegistry().get(["sqlalchemy"])
+    ).find(annotation)[0]
     mutant = MutantRow(
         id=1,
         module_path="models.py",
