@@ -64,6 +64,18 @@ def feed(pet: Animal) -> None: ...
 
 **Survived = the code doesn't rely on the concrete subclass.** The function could accept the broader base type, suggesting the annotation is more specific than necessary.
 
+- Only project classes are widened, to their first base. A name is resolved through the
+  imports of the annotated file, so same-named classes of different modules (or a library
+  class imported under a project class's name) are not mixed up.
+- The base is written as the file can name it (an alias, `enum.IntEnum` after `import enum`),
+  otherwise its import is added. Bases that cannot be imported are skipped: aliases
+  (`_Base = UserDict`), classes defined under `if`/`try` or nested in another class, and
+  bases whose name the file already uses for something else.
+- `Page[str]` becomes `BaseModel` for `class Page(BaseModel, Generic[T])`; when the class
+  passes type arguments to its base (`class Items(list[T])`), `Items[int]` is not widened.
+- Names inside `Literal[...]`, call arguments (`Depends(Service)`) and parts of dotted
+  names are not widened.
+
 ## RemoveLiteralMember
 
 Removes one value from a multi-value `Literal[...]`.

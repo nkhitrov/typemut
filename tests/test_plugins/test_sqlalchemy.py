@@ -12,13 +12,14 @@ from typemut.engine import MutationTester
 from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
 from typemut.plugins import PluginRegistry
-from typemut.registry import Registry
+from typemut.registry import RegistryBuilder
 from typemut.runner import ShellRunner
 
-REGISTRY = Registry(
-    hierarchy={"BaseDB": ["UserDB"], "StrEnum": ["StatusEnum"]},
-    class_to_base={"UserDB": "BaseDB", "StatusEnum": "StrEnum"},
-)
+from tests.conftest import FIXTURES_DIR
+
+# The annotations in the sources below are written in this module.
+MODELS = FIXTURES_DIR / "registry" / "sqlalchemy_models.py"
+REGISTRY = RegistryBuilder().build([MODELS])
 
 
 def plugin_mutations(source: str) -> set[tuple[str, str, str]]:
@@ -27,7 +28,7 @@ def plugin_mutations(source: str) -> set[tuple[str, str, str]]:
     plugins = PluginRegistry().get(["sqlalchemy"])
     return {
         (mutation.operator, mutation.original, mutation.mutated)
-        for annotation in AnnotationFinder().find(Path("models.py"), source=source)
+        for annotation in AnnotationFinder().find(MODELS, source=source)
         for mutation in MutationFinder(operators, REGISTRY, plugins).find(annotation)
     }
 
@@ -247,7 +248,7 @@ def test_plugin_has_no_extra_operators() -> None:
 def test_mutation_applies_inside_mapped(tmp_path: Path, source: str, expected: str) -> None:
     (tmp_path / "models.py").write_text(source)
     annotation = AnnotationFinder().find(Path("models.py"), source=source)[0]
-    mutation = MutationFinder(OperatorRegistry().enabled({}), Registry(), PluginRegistry().get(["sqlalchemy"])).find(annotation)[0]
+    mutation = MutationFinder(OperatorRegistry().enabled({}), RegistryBuilder().build([]), PluginRegistry().get(["sqlalchemy"])).find(annotation)[0]
     mutant = MutantRow(
         id=1,
         module_path="models.py",
