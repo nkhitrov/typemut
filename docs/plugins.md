@@ -6,7 +6,7 @@ means. Plugins teach typemut these rules. They are opt-in:
 
 ```toml
 [typemut]
-plugins = ["sqlalchemy", "fastapi"]
+plugins = ["sqlalchemy", "fastapi", "taskiq"]
 ```
 
 An unknown plugin name is logged as a warning and skipped. A plugin can claim an annotation and decide
@@ -30,8 +30,10 @@ An entry point that fails to import or does not name a `Plugin` subclass is
 logged as a warning and skipped.
 
 A plugin's `find_mutations` receives the enabled operators and the class
-registry. The `Plugin` base class also provides parso helpers
-(`_node_code`, `_trailer_target`) that a plugin can use or override. Operators
+registry. Before any annotation, `scan(files)` receives the project's source
+files, for rules that depend on other modules (it does nothing by default).
+The `Plugin` base class also provides parso helpers (`_node_code`,
+`_trailer_target`) that a plugin can use or override. Operators
 a plugin returns from `operators()` subclass `TypeMutationOperator`, which
 provides `_node_code`, `_is_qualified_name`, `_union_members` and `_type_params`.
 The data types plugins and operators work with (`AnnotationNode`,
@@ -109,6 +111,63 @@ Unresolvable receivers (a factory call without annotation, `self.router`, a star
 import) are not treated as endpoints. The same goes for functions registered
 without a decorator (`app.add_api_route(...)`) or used only through `Depends(...)`.
 Mark those with `# pragma: no mutate`.
+
+## taskiq
+
+Task signatures (`@broker.task`) need no plugin: `.kiq()` is typed with the
+task's `ParamSpec`, so the type checker checks every call. The `taskiq` plugin
+handles dependency injection (`TaskiqDepends` from taskiq-dependencies), which
+nothing checks the same way:
+
+```python
+from typing import Annotated
+from taskiq import Context, TaskiqDepends
+
+def get_conn(
+    context: Annotated[Context, TaskiqDepends()],  # not mutated
+) -> Connection:  # not mutated
+    ...
+
+def get_cache() -> Cache:  # still mutated: checked through `cache: Cache = ...` below
+    ...
+
+@broker.task
+async def save(
+    item: Item,  # still mutated
+    conn: Annotated[Connection, TaskiqDepends(get_conn)],
+    cache: Cache = TaskiqDepends(get_cache),
+    context: Context = TaskiqDepends(),  # not mutated
+) -> None:  # still mutated
+    ...
+```
+
+- **Provider returns**: functions and callable instances (their `__call__`) passed to
+  `TaskiqDepends(...)` in any function's parameter are called by taskiq. Their return
+  annotation is skipped unless some parameter has the provider as its default
+  (`x: Cache = TaskiqDepends(get_cache)`, where `TaskiqDepends` returns what
+  `get_cache` returns): in `Annotated[Connection, TaskiqDepends(get_conn)]` nothing
+  relates `Connection` to `get_conn`, so `-> Connection` → `-> Connection | None`
+  always survives. Provider parameters are still mutated: defaults and body use
+  check them.
+- **Dependencies taken from the annotation**: with `TaskiqDepends()` (no provider)
+  taskiq looks the type up (`Context`, `TaskiqState`) or constructs it (also generic
+  classes: `GenericDep[Dep]`). Any mutation of such an annotation (`Context | None`, a
+  base class) changes what gets injected, so the parameter is not mutated.
+
+Event handlers (`@broker.on_event(...)`) and `TaskiqMiddleware` hooks need no rules:
+`on_event` takes a typed callable and hooks override typed base methods, so the type
+checker checks both.
+
+`TaskiqDepends` (also `taskiq_dependencies.Depends`) and providers are resolved
+statically from imports across the project's files. Providers defined inside
+functions or nested classes, built by a call (`TaskiqDepends(make())`) or imported
+through a re-export are not recognized.
+
+Compared with `[typemut.entrypoints]`: `parameter-types = ["taskiq.TaskiqDepends"]`
+would skip the whole signature of every function with an `Annotated[..., TaskiqDepends(...)]`
+parameter, tasks included (whose calls `.kiq()` does check), and it does not see
+`= TaskiqDepends(...)` defaults. The plugin skips only what nothing checks: returns of the
+providers those calls reference, and parameters whose annotation is the dependency.
 
 ## Other frameworks: `[typemut.entrypoints]`
 

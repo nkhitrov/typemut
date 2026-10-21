@@ -37,6 +37,14 @@ class Plugin(NodeSource, ABC):
 
     name: str = ""
 
+    def scan(self, files: Iterable[Path]) -> None:
+        """Look at the project's source *files* before any annotation is offered.
+
+        For rules that depend on other modules, e.g. which functions a
+        framework calls because they are registered elsewhere. Does nothing
+        by default.
+        """
+
     def operators(self) -> list[TypeMutationOperator]:
         """Return extra, library-specific operators run on every annotation."""
         return []

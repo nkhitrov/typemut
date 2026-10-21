@@ -12,6 +12,7 @@ from typemut.plugins.base import Plugin
 from typemut.plugins.entrypoints import EntrypointsPlugin
 from typemut.plugins.fastapi import FastAPIPlugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
+from typemut.plugins.taskiq import TaskiqPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ NO_ENTRYPOINTS: Final = EntrypointsConfig()
 BUILTIN_PLUGINS: Mapping[str, type[Plugin]] = {
     FastAPIPlugin.name: FastAPIPlugin,
     SQLAlchemyPlugin.name: SQLAlchemyPlugin,
+    TaskiqPlugin.name: TaskiqPlugin,
 }
 
 
