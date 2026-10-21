@@ -21,7 +21,7 @@ re-exports (see ``typemut.symbols``).
 
 from __future__ import annotations
 
-from collections.abc import Collection, Container, Iterator
+from collections.abc import Container, Iterable
 from pathlib import Path
 from typing import Final
 
@@ -57,7 +57,7 @@ class DependencyProviders:
         # Project bindings referenced outside marker arguments.
         self._referenced: set[str] = set()
 
-    def scan(self, files: Collection[Path]) -> None:
+    def scan(self, files: Iterable[Path]) -> None:
         """Find the providers in *files* and every other use of project names."""
         self._providers.clear()
         self._referenced.clear()
@@ -67,7 +67,9 @@ class DependencyProviders:
             if tree is not None:
                 self._scan_module(tree, path)
 
-    def is_provider(self, funcdef: Function, file: Path) -> bool:
+    def is_provider(
+        self, funcdef: Function, file: Path
+    ) -> bool:  # pragma: no mutate (truth-tested)
         """Whether the framework is the only caller of *funcdef*, defined in *file*."""
         key = self._key(funcdef, file.resolve())
         names = None if key is None else self._providers.get(key)
@@ -76,16 +78,16 @@ class DependencyProviders:
     def _key(self, funcdef: Function, file: Path) -> str | None:
         """``mod.f`` for a module function, ``mod.Checker.__call__`` for a
         ``__call__`` method of a module class; None for other functions."""
-        module = self._resolver.module_name(file)
         name = funcdef.name.value
         scope = funcdef.search_ancestor("classdef", "funcdef")
         if scope is None:
-            return f"{module}.{name}"
+            return self._resolver.qualify(name, file)
         if scope.type != "classdef" or name != "__call__":
             return None
         if scope.search_ancestor("classdef", "funcdef") is not None:
             return None
-        return f"{module}.{scope.children[1].value}.__call__"
+        class_name = self._resolver.qualify(scope.children[1].value, file)
+        return None if class_name is None else f"{class_name}.__call__"
 
     def _scan_module(self, tree: BaseNode, file: Path) -> None:
         arguments: set[int] = set()
@@ -97,7 +99,7 @@ class DependencyProviders:
             if isinstance(leaf, Name) and id(leaf) not in arguments:
                 self._add_reference(leaf, file)
 
-    def _dependency_targets(self, node: BaseNode, file: Path) -> list[BaseNode | Leaf]:
+    def _dependency_targets(self, node: BaseNode, file: Path) -> Iterable[BaseNode | Leaf]:
         """What a marker call or an override assignment at *node* registers."""
         if node.type in {"atom_expr", "power"}:
             target = self._marker_target(node, file)
@@ -108,11 +110,12 @@ class DependencyProviders:
 
     def _marker_target(self, node: BaseNode, file: Path) -> BaseNode | Leaf | None:
         """``f`` for ``Depends(f)``/``Depends(dependency=f)``, None for ``Depends()``."""
-        callee = self._scopes.callee(node)
+        call = node.children[-1]
+        if call.type != "trailer" or call.children[0].value != "(":
+            return None
+        callee = self._scopes.dotted_name(node.children[:-1])
         if callee is None or self._resolver.qualify(callee, file) not in self._markers:
             return None
-        call = node.children[-1]
-        assert isinstance(call, BaseNode)
         return self._dependency_argument(call)
 
     def _dependency_argument(self, call: BaseNode) -> BaseNode | Leaf | None:
@@ -120,7 +123,7 @@ class DependencyProviders:
         if len(call.children) == 2:
             return None
         arguments = call.children[1]
-        items: list[BaseNode | Leaf] = (
+        items: Iterable[BaseNode | Leaf] = (
             arguments.children[::2] if arguments.type == "arglist" else [arguments]
         )
         for item in items:
@@ -128,8 +131,8 @@ class DependencyProviders:
                 return item
             keyword, value = item.children[0], item.children[-1]
             if isinstance(keyword, Name) and keyword.value == "dependency":
-                argument: BaseNode | Leaf = value
-                return argument
+                assert isinstance(value, (BaseNode, Leaf))
+                return value
         return None
 
     def _override_targets(self, stmt: BaseNode, file: Path) -> list[BaseNode | Leaf]:
@@ -186,13 +189,13 @@ class DependencyProviders:
             return self._scopes.dotted_name(node.children)
         return None
 
-    def _walk(self, node: BaseNode) -> Iterator[BaseNode]:
+    def _walk(self, node: BaseNode) -> Iterable[BaseNode]:
         yield node
         for child in node.children:
             if isinstance(child, BaseNode):
                 yield from self._walk(child)
 
-    def _leaves(self, node: BaseNode | Leaf) -> Iterator[Leaf]:
+    def _leaves(self, node: BaseNode | Leaf) -> Iterable[Leaf]:
         if isinstance(node, Leaf):
             yield node
             return

@@ -26,7 +26,7 @@ Annotations inside function bodies are mutated as usual.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Container, Iterable
+from collections.abc import Container, Iterable
 from pathlib import Path
 
 from parso.python.tree import BaseNode, Function
@@ -102,11 +102,13 @@ class FastAPIPlugin(HandlerPlugin):
             self._scopes,
         )
 
-    def scan(self, files: Collection[Path]) -> None:
+    def scan(self, files: Iterable[Path]) -> None:
         """Find the dependency providers of the project."""
         self._providers.scan(files)
 
-    def _skipped(self, funcdef: Function, file: Path) -> Container[AnnotationContext]:
+    def _skipped(
+        self, funcdef: Function, file: Path
+    ) -> Container[AnnotationContext]:  # pragma: no mutate (membership-tested)
         """All of an endpoint's signature, the return annotation of a dependency provider."""
         if self._is_handler(funcdef, file):
             return SIGNATURE

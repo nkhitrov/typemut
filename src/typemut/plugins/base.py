@@ -37,7 +37,7 @@ class Plugin(NodeSource, ABC):
 
     name: str = ""
 
-    def scan(self, files: Collection[Path]) -> None:
+    def scan(self, files: Iterable[Path]) -> None:
         """Collect project-wide facts from all source *files* before any :meth:`find_mutations`.
 
         Called once per discovery. The default does nothing.
@@ -113,7 +113,9 @@ class HandlerPlugin(Plugin):
             return []
         return None
 
-    def _skipped(self, funcdef: Function, file: Path) -> Container[AnnotationContext]:
+    def _skipped(
+        self, funcdef: Function, file: Path
+    ) -> Container[AnnotationContext]:  # pragma: no mutate (membership-tested)
         """Which signature annotations of *funcdef* get no mutations: all of a handler's."""
         return SIGNATURE if self._is_handler(funcdef, file) else frozenset()
 

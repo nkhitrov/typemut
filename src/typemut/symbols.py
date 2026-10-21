@@ -86,7 +86,7 @@ class ScopeReader:
             return {target.value: self._expression_name(operator.children[1])}
         if not isinstance(operator, Leaf) or operator.value != "=":
             return {}
-        class_name = self.callee(stmt.children[-1])
+        class_name = self._called_class(stmt.children[-1])
         targets = stmt.children[:-1:2]
         return {name.value: class_name for name in targets if isinstance(name, Name)}
 
@@ -147,8 +147,8 @@ class ScopeReader:
             return None
         return self.dotted_name(node.children)
 
-    def callee(self, node: BaseNode | Leaf) -> str | None:
-        """``Class(...)`` / ``mod.func(...)`` -> the callee's dotted name, else None."""
+    def _called_class(self, node: BaseNode | Leaf) -> str | None:
+        """``Class(...)`` / ``mod.Class(...)`` -> the callee's dotted name, else None."""
         if not isinstance(node, BaseNode) or node.type not in {"atom_expr", "power"}:
             return None
         call = node.children[-1]
@@ -180,7 +180,7 @@ class ScopeReader:
             return str(name.value)
         return None
 
-    def references(self, leaf: Name) -> list[str]:
+    def references(self, leaf: Name) -> Iterable[str]:
         """Dotted names an expression starting at *leaf* refers to: ``deps``, ``deps.f``.
 
         Empty for a name that is not the head of an expression: one a ``def``,
@@ -198,7 +198,7 @@ class ScopeReader:
             parent.type == "argument" and parent.children[:2] == [leaf, "="]
         ):
             return []
-        nodes: list[BaseNode | Leaf] = [leaf]
+        nodes: Sequence[BaseNode | Leaf] = [leaf]
         if parent.type in {"atom_expr", "power"}:
             # ``await f(...)``: the expression starts after the keyword.
             nodes = parent.children[parent.children.index(leaf) :]
@@ -206,14 +206,14 @@ class ScopeReader:
         names = (self.dotted_name(nodes[:end]) for end in range(1, len(nodes) + 1))
         return [name for name in names if name is not None]
 
-    def _is_binding(self, leaf: Name) -> bool:
+    def _is_binding(self, leaf: Name) -> bool:  # pragma: no mutate (truth-tested)
         """Whether *leaf* is the name a ``def``, ``class``, parameter or assignment binds."""
         parent = leaf.parent
         if isinstance(parent, Param):
             return parent.name is leaf
         if parent is None or parent.type not in {"funcdef", "classdef", "expr_stmt"}:
             return False
-        children: list[BaseNode | Leaf] = parent.children
+        children: Sequence[BaseNode | Leaf] = parent.children
         if parent.type != "expr_stmt":
             return children[1] is leaf
         # ``a = b = value`` / ``a: T = value``: every child before the value is a target.
@@ -266,7 +266,7 @@ class SymbolResolver:
         """Qualified name of a module-level dotted name in *file*: ``fastapi.FastAPI``."""
         head, _, tail = dotted.partition(".")
         if head in self._module_bindings(file):
-            base: str | None = f"{self.module_name(file)}.{head}"
+            base: str | None = f"{self._module_name(file)}.{head}"
         else:
             base = self._imported_names(file).get(head)
         if base is None:
@@ -297,7 +297,7 @@ class SymbolResolver:
         is ``app.api.deps.get_db``. None for names outside the project.
         """
         found = self._binding(qualified, anchor.resolve(), set())
-        return None if found is None else f"{self.module_name(found[0])}.{found[1]}"
+        return None if found is None else f"{self._module_name(found[0])}.{found[1]}"
 
     def inherits_from(self, qualified: str, targets: Container[str], anchor: Path) -> bool:
         """Whether class *qualified* is one of *targets* or inherits from one of them.
@@ -395,7 +395,7 @@ class SymbolResolver:
             )
         return self._imports[file]
 
-    def module_name(self, file: Path) -> str:
+    def _module_name(self, file: Path) -> str:
         """Dotted module name of a project file: ``app/api/__init__.py`` -> ``app.api``."""
         package = self._module_imports.package_of(file)
         if file.stem == "__init__":
