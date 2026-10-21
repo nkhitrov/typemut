@@ -18,9 +18,13 @@ logger = logging.getLogger(__name__)
 
 # mypy error codes that indicate the mutated code is broken (missing import,
 # syntax error, invalid type) rather than a genuine type-system kill.
+# Mutants change annotations only and the baseline passes, so a module the
+# checker cannot find comes from the import injected for the mutant.
 FALSE_KILL_CODES: Final = frozenset(
     {
         "name-defined",  # Name "Sequence" is not defined
+        "import-not-found",  # Cannot find implementation or library stub for module
+        "import",  # the same before mypy 1.7
         "syntax",  # Syntax error in mutated code
         "valid-type",  # Not valid as a type
     }

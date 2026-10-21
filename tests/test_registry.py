@@ -321,3 +321,25 @@ def test_base_imported_under_an_alias_by_the_child(tmp_path: Path) -> None:
         qualified="pydantic.BaseModel",
         required_import="from pydantic import BaseModel",
     )
+
+
+def test_module_of_a_namespace_directory_inside_a_package(tmp_path: Path) -> None:
+    """docs/examples is a package, its subdirectories have no ``__init__.py``."""
+    sources = {
+        "docs/examples/__init__.py": "",
+        "docs/examples/core_concepts/glossary.py": (
+            "class UserCreateModel: ...\nclass UserModel(UserCreateModel): ...\n"
+        ),
+        "docs/examples/error_handling/described.py": (
+            "import msgspec\nclass UserModel(msgspec.Struct): ...\n"
+        ),
+        "docs/examples/auth/obtain.py": "from examples.core_concepts.glossary import UserModel\n",
+    }
+    assert widening(tmp_path, sources, "docs/examples/auth/obtain.py", "UserModel") == Widening(
+        name="UserCreateModel",
+        qualified="examples.core_concepts.glossary.UserCreateModel",
+        required_import="from examples.core_concepts.glossary import UserCreateModel",
+    )
+    assert widening(
+        tmp_path, sources, "docs/examples/error_handling/described.py", "UserModel"
+    ) == Widening(name="msgspec.Struct", qualified="msgspec.Struct")
