@@ -11,6 +11,7 @@ from typemut.config import EntrypointsConfig
 from typemut.plugins.base import Plugin
 from typemut.plugins.entrypoints import EntrypointsPlugin
 from typemut.plugins.fastapi import FastAPIPlugin
+from typemut.plugins.faststream import FastStreamPlugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ NO_ENTRYPOINTS: Final = EntrypointsConfig()
 
 BUILTIN_PLUGINS: Mapping[str, type[Plugin]] = {
     FastAPIPlugin.name: FastAPIPlugin,
+    FastStreamPlugin.name: FastStreamPlugin,
     SQLAlchemyPlugin.name: SQLAlchemyPlugin,
 }
 
