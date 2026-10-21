@@ -80,6 +80,14 @@ def write_project(root: Path, files: dict[str, str]) -> None:
             id="annotated-binding",
         ),
         pytest.param(
+            f'import fastapi\napp: typing.Final = fastapi.FastAPI()  # pragma: no mutate\n@app.get("/")\n{ENDPOINT}',
+            id="final-binding",
+        ),
+        pytest.param(
+            f'from fastapi import FastAPI\napp: Final[FastAPI] = FastAPI()  # pragma: no mutate\n@app.get("/")\n{ENDPOINT}',
+            id="subscripted-final-binding",
+        ),
+        pytest.param(
             "from fastapi import FastAPI\n"
             "def create_app() -> None:\n"
             "    app = FastAPI()\n"
@@ -167,6 +175,14 @@ def test_endpoint_signature_is_skipped(tmp_path: Path, source: str) -> None:
         pytest.param(
             f'from fastapi import FastAPI\n@undefined.get("/")\n{ENDPOINT}',
             id="unknown-receiver",
+        ),
+        pytest.param(
+            f'from fastapi import FastAPI\napp: Final = make()\n@app.get("/")\n{ENDPOINT}',
+            id="final-binding-of-call",
+        ),
+        pytest.param(
+            f'from fastapi import FastAPI\napp: Final\n@app.get("/")\n{ENDPOINT}',
+            id="final-without-value",
         ),
         pytest.param(
             "from fastapi import FastAPI\n"

@@ -6,7 +6,7 @@ means. Plugins teach typemut these rules. They are opt-in:
 
 ```toml
 [typemut]
-plugins = ["sqlalchemy", "fastapi"]
+plugins = ["sqlalchemy", "fastapi", "dmr"]
 ```
 
 An unknown plugin name is logged as a warning and skipped. A plugin can claim an annotation and decide
@@ -109,6 +109,67 @@ Unresolvable receivers (a factory call without annotation, `self.router`, a star
 import) are not treated as endpoints. The same goes for functions registered
 without a decorator (`app.add_api_route(...)`) or used only through `Depends(...)`.
 Mark those with `# pragma: no mutate`.
+
+## dmr
+
+For [django-modern-rest](https://github.com/wemake-services/django-modern-rest)
+(`dmr`). dmr calls controller endpoints itself and reads their return
+annotations when the controller class is created, to build response schemas
+and validation. No Python code calls an endpoint, so `-> UserModel` →
+`-> UserModel | None` always survives; on a streaming endpoint
+(`-> AsyncIterator[X] | None`) or next to explicit `responses=` such a mutant
+even breaks the controller at import time. The plugin skips the return
+annotations of endpoints:
+
+```python
+from dmr import Body, Controller, ResponseSpec, modify, validate
+from dmr.plugins.pydantic import PydanticSerializer
+
+
+class UserController(Controller[PydanticSerializer]):
+    request: AuthenticatedHttpRequest[User]  # still mutated
+
+    @modify(status_code=HTTPStatus.OK)
+    def post(self, parsed_body: Body[UserModel]) -> UserModel:  # return not mutated
+        return parsed_body
+
+    @validate(ResponseSpec(UserModel, status_code=HTTPStatus.OK))
+    def put(self, parsed_body: Body[UserModel]) -> HttpResponse:  # still mutated
+        ...
+
+    def to_error(self, raw_data: Any, **kwargs: Any) -> HttpResponse:  # still mutated
+        ...
+```
+
+An endpoint is:
+
+- a method named after an HTTP method (`get`, `post`, `put`, `patch`, `delete`,
+  `head`, `trace`, `connect`, and `meta` for OPTIONS) of a class inheriting
+  from `dmr.Controller` or a dmr streaming controller (`SSEController`,
+  `JsonLinesController`), directly or through project classes in any module;
+  generic bases (`Controller[PydanticSerializer]`) count;
+- any function decorated with `@modify` / `@modify.lazy` (`dmr.modify`,
+  `dmr.streaming.modify`, or a project instance like
+  `modify: Final = ModifyEndpoint(MyExtras)`).
+
+Mutated as usual:
+
+- the return annotation of an endpoint decorated with `@validate` /
+  `@validate.lazy` (the same forms as `@modify`): `validate` binds the return type to `HttpResponse`, so
+  mypy kills these mutants;
+- endpoint parameters (`parsed_body: Body[UserModel]`): the endpoint body uses
+  them, and mypy kills most of their mutants there;
+- other methods and attributes of controllers (`to_error`, `handle_*_error`,
+  `request: ...`): they override `Controller` API and are checked against it;
+- methods of dmr's ready-made controllers (JWT, token and session views)
+  overridden in a subclass: they are checked against the method they override.
+
+Fields of the models dmr serializes (`Body[...]`, `Query[...]`, `Headers[...]`,
+endpoint returns) are not touched: mypy kills field mutants wherever Python code
+constructs or reads the model. To skip them anyway, list the model base classes
+in [`[typemut.ignore-classes]`](filtering.md) (`msgspec.Struct`,
+`pydantic.BaseModel`, `typing.TypedDict`); models defined with a decorator
+(`@dataclass`, `@attrs.define`) need `# pragma: no mutate`.
 
 ## Other frameworks: `[typemut.entrypoints]`
 
