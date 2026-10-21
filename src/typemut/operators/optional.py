@@ -5,8 +5,15 @@ from __future__ import annotations
 from parso.python.tree import BaseNode, Leaf
 
 from typemut.model import AnnotationContext, Mutation
-from typemut.operators.base import TypeMutationOperator
+from typemut.operators.base import ForwardRefs, TypeMutationOperator
 from typemut.registry import Registry
+
+# Type qualifiers: ``ClassVar[int] | None`` is not a type (mypy valid-type,
+# TypeError at runtime), the optional value goes inside: ``ClassVar[int | None]``.
+# That is a meaningful mutant for each of them: an optional class variable,
+# final value, TypedDict value (the key stays (not) required / read-only) or
+# dataclass init-only argument. A bare ``Final``/``ClassVar`` gets nothing.
+QUALIFIERS = frozenset(("ClassVar", "Final", "Required", "NotRequired", "ReadOnly", "InitVar"))
 
 
 class RemoveOptional(TypeMutationOperator):
@@ -55,6 +62,9 @@ class AddOptional(TypeMutationOperator):
     name = "AddOptional"
     config_key = "add-optional"
 
+    def __init__(self, forward_refs: ForwardRefs | None = None) -> None:
+        self._forward_refs = forward_refs or ForwardRefs()
+
     def find_mutations(
         self,
         node: BaseNode | Leaf,
@@ -69,23 +79,35 @@ class AddOptional(TypeMutationOperator):
         type annotation, and the checker error it causes is not a real kill.
         ``TypeAlias`` annotations are skipped for the same reason:
         ``TypeAlias | None`` is not a valid type.
+        Quoted annotations and type qualifiers get None inside:
+        ``'Foo'`` -> ``'Foo | None'``, ``ClassVar[int]`` -> ``ClassVar[int | None]``.
         """
         if context in {AnnotationContext.PARAMETER, AnnotationContext.TYPEVAR}:
             return []
 
+        if self._forward_refs.is_quoted(node):
+            return self._forward_refs.mutations(
+                node, lambda inner: self.find_mutations(inner, context, registry)
+            )
+
         code = self._node_code(node).strip()
+        if code.partition("[")[0].rpartition(".")[2] in QUALIFIERS:
+            return self._qualified_mutations(node, context, registry)
+        return self._add_none(node, code)
 
-        if code.rpartition(".")[2] == "TypeAlias":
+    def _qualified_mutations(
+        self, node: BaseNode | Leaf, context: AnnotationContext, registry: Registry
+    ) -> list[Mutation]:
+        """Add None to the type inside ``ClassVar[...]``; nothing for a bare ``ClassVar``."""
+        trailer = node.children[-1] if isinstance(node, BaseNode) else None
+        if trailer is None or trailer.type != "trailer" or trailer.children[0].value != "[":
             return []
+        return self.find_mutations(trailer.children[1], context, registry)
 
-        # Skip if already contains None
-        if self._contains_none(node):
+    def _add_none(self, node: BaseNode | Leaf, code: str) -> list[Mutation]:
+        """``code | None``, unless *code* is ``TypeAlias`` or already has None."""
+        if code.rpartition(".")[2] == "TypeAlias" or self._contains_none(node):
             return []
-
-        # Skip None itself
-        if code == "None":
-            return []
-
         mutated = f"{code} | None"
         return [
             Mutation(
