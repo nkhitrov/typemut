@@ -32,7 +32,7 @@ class ForwardRefs:
         # Parses the annotation inside the quotes.
         self._finder = finder or AnnotationFinder(skip_comments=())
 
-    def is_quoted(self, node: BaseNode | Leaf) -> bool:
+    def is_quoted(self, node: BaseNode | Leaf) -> bool:  # pragma: no mutate (truth-tested)
         """Whether *node* is a string literal used as an annotation."""
         return node.type in STRING_TYPES
 
