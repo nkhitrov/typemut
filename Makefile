@@ -1,4 +1,4 @@
-.PHONY: install test lint lint-all fmt clean run mutate mutate-baseline
+.PHONY: install test lint lint-all fmt clean run mutate mutate-baseline docs docs-build
 
 PYTHON_VERSIONS ?= 3.11 3.12 3.13
 
@@ -43,8 +43,16 @@ mutate:
 mutate-baseline:
 	uv run typemut run --jobs $(JOBS) --baseline $(BASELINE) --update-baseline
 
+# Documentation site (zensical.toml, docs/), served at http://127.0.0.1:8000
+docs:
+	uv run zensical serve
+
+docs-build:
+	uv run zensical build --clean --strict
+
 clean:
 	rm -f typemut.sqlite
+	rm -rf site
 	rm -rf .pytest_cache __pycache__ src/typemut/__pycache__
 	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 	find . -name "*.pyc" -delete 2>/dev/null || true

@@ -15,6 +15,7 @@ typemut — mutation testing tool for Python type annotations. It mutates annota
 - `make lint-all` — run linters + tests on Python 3.11, 3.12, 3.13
 - `make fmt` — auto-format code (ruff)
 - `make mutate` — run typemut on its own sources (`typemut.toml`, `mypy src/typemut/`, `--jobs 4 --incremental`, extra options in `MUTATE_ARGS`) and fail on survivors missing from `typemut-baseline.json`; CI runs this too
+- `make docs` / `make docs-build` — serve / build the documentation site (Zensical, `zensical.toml`, `docs/`); deployed to GitHub Pages by `.github/workflows/docs.yml`
 - `make run PROJECT=/path/to/project` — run typemut against another project (also `init`/`exec`/`report`/`html` targets)
 
 Pre-commit hooks (lefthook) run ruff, flake8 and mypy on staged files. Coverage has per-module minimums in `pyproject.toml` (`[tool.coverage-threshold]`), e.g. `config.py` must stay at 100%.
@@ -47,4 +48,4 @@ Pipeline (`app.App`, driven by click commands in `cli.py`): `init` = discover �
 - Do not use `if`, `match/case`, or other conditional logic in test bodies. Tests must have deterministic, straight-line assertions.
 - Do not use `parso` directly in tests. Test only through the library's public interface (source strings as input, mutation results as output).
 - New survivors from `make mutate`: fix the annotation or the operator; don't grow `typemut-baseline.json` to hide them. Use `# pragma: no mutate` only for genuinely equivalent mutants.
-- When adding a CLI option, operator or config key, update the README (Commands / Config Reference sections).
+- When adding a CLI option, operator or config key, update the docs (`docs/commands.md`, `docs/configuration.md`, `docs/operators.md` or the guide page it belongs to); add a new feature to the feature lists in `README.md` and `docs/index.md`. README stays a quickstart + feature overview, details go to `docs/`; README links are absolute (it is also the PyPI page).

@@ -33,6 +33,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/nkhitrov/typemut"
+Documentation = "https://nkhitrov.github.io/typemut/"
 Repository = "https://github.com/nkhitrov/typemut"
 Issues = "https://github.com/nkhitrov/typemut/issues"
 
@@ -182,3 +183,8 @@ module = [
 ]
 disallow_untyped_calls = false
 warn_return_any = false
+
+[dependency-groups]
+docs = [
+    "zensical>=0.0.71",
+]
