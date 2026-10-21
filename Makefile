@@ -45,10 +45,10 @@ mutate-baseline:
 
 # Documentation site (zensical.toml, docs/), served at http://127.0.0.1:8000
 docs:
-	uv run zensical serve
+	uv run --group docs zensical serve
 
 docs-build:
-	uv run zensical build --clean --strict
+	uv run --group docs zensical build --clean --strict
 
 clean:
 	rm -f typemut.sqlite
