@@ -7,7 +7,7 @@ from collections.abc import Collection, Container, Iterable
 from pathlib import Path
 from typing import NamedTuple
 
-from parso.python.tree import BaseNode, Function, Leaf, Name
+from parso.python.tree import BaseNode, ClassOrFunc, Function, Leaf, Name
 
 from typemut.model import AnnotationContext, AnnotationNode, Mutation
 from typemut.nodes import NodeSource
@@ -40,6 +40,22 @@ class Plugin(NodeSource, ABC):
     def operators(self) -> list[TypeMutationOperator]:
         """Return extra, library-specific operators run on every annotation."""
         return []
+
+    def scan(self, files: Iterable[Path]) -> None:
+        """Read the project's *files* before any annotation is mutated; nothing by default.
+
+        For rules that depend on code elsewhere in the project.
+        """
+
+    def drops(
+        self, mutation: Mutation, annotation: AnnotationNode
+    ) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether a core mutation of an annotation no plugin claimed is invalid for the library.
+
+        Unlike claiming an annotation, dropping single mutations keeps the
+        ``ignore-types`` / ``ignore-classes`` rules in force. None by default.
+        """
+        return False
 
     @abstractmethod
     def find_mutations(
@@ -114,8 +130,8 @@ class HandlerPlugin(Plugin):
         """Whether the framework calls *funcdef*, defined in *file*."""
         ...
 
-    def _decorators(self, funcdef: Function) -> Iterable[BaseNode]:
-        """Decorators of a function."""
+    def _decorators(self, funcdef: ClassOrFunc) -> Iterable[BaseNode]:
+        """Decorators of a function or class."""
         decorated = funcdef.parent
         if decorated is not None and decorated.type == "async_funcdef":
             decorated = decorated.parent

@@ -60,7 +60,7 @@ typemut run --jobs 8
 - **[Incremental runs](https://nkhitrov.github.io/typemut/incremental/)** — `--incremental` reuses kills whose
   files are unchanged, with recipes to [keep the database between CI runs](https://nkhitrov.github.io/typemut/ci-database/)
   on GitHub Actions and GitLab CI.
-- **[Plugins](https://nkhitrov.github.io/typemut/plugins/)** — SQLAlchemy, FastAPI, framework entrypoints and
+- **[Plugins](https://nkhitrov.github.io/typemut/plugins/)** — SQLAlchemy, FastAPI, pydantic, framework entrypoints and
   third-party plugins.
 - **[Filtering](https://nkhitrov.github.io/typemut/filtering/)** — skip comments, excluded modules, ignored types
   and class hierarchies per operator.
