@@ -7,6 +7,7 @@ import pytest
 
 from typemut.discovery import AnnotationFinder
 from typemut.model import AnnotationContext
+from typemut.operators import BUILTIN_OPERATORS
 from typemut.operators.optional import AddOptional, RemoveOptional
 from typemut.registry import Registry
 
@@ -148,8 +149,6 @@ def test_add_optional_forward_ref_replaces_whole_string() -> None:
         pytest.param("x: ClassVar['Foo']\n", ["'Foo | None'"], id="quoted-inside"),
         pytest.param("x: 'ClassVar[Foo]'\n", ["'ClassVar[Foo | None]'"], id="quoted-around"),
         pytest.param("x: ClassVar[int | None]\n", [], id="already-optional"),
-        pytest.param("x: Final = 1\n", [], id="bare-final"),
-        pytest.param("x: typing.ClassVar\n", [], id="bare-classvar"),
         pytest.param("x: Annotated[int, 1]\n", ["Annotated[int, 1] | None"], id="annotated"),
     ],
 )
@@ -167,3 +166,20 @@ def test_add_optional_inside_qualifier_replaces_inner_type() -> None:
     assert [(m.line, m.col, m.original, m.mutated) for m in mutations] == [
         (1, 12, "int", "int | None"),
     ]
+
+
+@pytest.mark.parametrize("operator", BUILTIN_OPERATORS, ids=lambda op: op.name)
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("x: Final = 1\n", id="final"),
+        pytest.param("x: typing.Final = 1\n", id="typing-final"),
+        pytest.param("x: typing_extensions.Final = 1\n", id="typing-extensions-final"),
+        pytest.param("x: ClassVar = 1\n", id="classvar"),
+        pytest.param("x: typing.ClassVar\n", id="typing-classvar"),
+    ],
+)
+def test_bare_qualifier_not_mutated(source: str, operator: type) -> None:
+    # Nothing to put None inside, and Final | None is not a type ("Final can be
+    # only used as an outermost qualifier").
+    assert_mutations(source, operator, expected=[])
