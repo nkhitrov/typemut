@@ -135,7 +135,7 @@ class DependencyProviders:
                 return value
         return None
 
-    def _override_targets(self, stmt: BaseNode, file: Path) -> list[BaseNode | Leaf]:
+    def _override_targets(self, stmt: BaseNode, file: Path) -> Iterable[BaseNode | Leaf]:
         """Key and value of ``<app>.dependency_overrides[key] = value``."""
         target, operator = stmt.children[0], stmt.children[1]
         if len(stmt.children) != 3 or operator.type != "operator" or operator.value != "=":
