@@ -13,7 +13,10 @@ import re
 from collections.abc import Container, Iterable, Iterator, Mapping
 from pathlib import Path
 
-from parso.python.tree import BaseNode, ImportFrom, ImportName, Leaf, Module
+import parso
+from parso.python.tree import BaseNode, Class, Function, ImportFrom, ImportName, Leaf, Module
+from parso.tree import NodeOrLeaf
+from parso.utils import split_lines
 
 # ---------------------------------------------------------------------------
 # Type origin classification
@@ -60,23 +63,102 @@ IMPORT_SOURCES: Mapping[str, str] = {
     "AsyncIterable": "collections.abc",
 }
 
-_IMPORT_LINE_RE = re.compile(r"^(?:from\s+[\w.]+\s+import\s|import\s+[\w.])")
+
+class ImportStatements:
+    """Reads import statements and module-level bindings from parso trees."""
+
+    def single_from_import(self, import_line: str) -> tuple[str, str] | None:
+        """``(module, name)`` of a plain absolute ``from {module} import {name}`` line."""
+        imports = list(self.module_imports(parso.parse(import_line)))
+        if len(imports) != 1 or not isinstance(imports[0], ImportFrom):
+            return None
+        imp = imports[0]
+        paths = imp.get_paths()
+        names = imp.get_defined_names()
+        if imp.level or len(names) != 1 or names[0] is not paths[0][-1]:
+            return None  # relative, star, several names or an alias
+        return self.dotted(imp.get_from_names()), names[0].value
+
+    def find_from_import(self, tree: Module, module: str) -> ImportFrom | None:
+        """The first module-level ``from {module} import <names>`` a name can join."""
+        for imp in self.module_imports(tree):
+            if (
+                isinstance(imp, ImportFrom)
+                and not imp.level
+                and not imp.is_star_import()
+                and self.dotted(imp.get_from_names()) == module
+            ):
+                return imp
+        return None
+
+    def module_imports(self, tree: Module) -> Iterable[ImportFrom | ImportName]:
+        """Import statements at the top level of *tree*, in source order.
+
+        parso drops the ``simple_stmt`` wrapper of a lone statement without a
+        newline (``import os`` at the end of a file), so both shapes count.
+        """
+        for stmt in tree.children:
+            children = stmt.children if stmt.type == "simple_stmt" else [stmt]
+            yield from (child for child in children if isinstance(child, ImportFrom | ImportName))
+
+    def last_imported(self, imp: ImportFrom) -> NodeOrLeaf:
+        """The last ``name`` / ``name as alias`` node a from-import lists."""
+        names = imp.children[-1]
+        if names.type == "operator":  # closing parenthesis
+            names = imp.children[-2]
+        if names.type == "import_as_names":
+            items = [child for child in names.children if child.type != "operator"]
+            return items[-1]
+        return names
+
+    def bound_names(self, node: NodeOrLeaf) -> set[str]:
+        """Names bound at module level by imports and class definitions.
+
+        Descends into ``if``/``try``/``with`` blocks (e.g. ``if TYPE_CHECKING:``)
+        but not into function or class bodies. ``import a.b`` binds ``a`` and
+        is recorded as ``a.b`` too, so it doesn't count as ``import a.c``.
+        """
+        if isinstance(node, Class):
+            return {node.name.value}
+        if isinstance(node, ImportName):
+            return {name.value for name in node.get_defined_names()} | {
+                self.dotted(path) for path in node.get_paths()
+            }
+        if isinstance(node, ImportFrom):
+            return {name.value for name in node.get_defined_names()}
+        if isinstance(node, Function) or not isinstance(node, BaseNode):
+            return set()
+        return {name for child in node.children for name in self.bound_names(child)}
+
+    def dotted(self, names: Iterable[Leaf]) -> str:
+        """``a.b.c`` for the name leaves ``a``, ``b``, ``c``."""
+        return ".".join(name.value for name in names)
 
 
 class ImportInjector:
     """Adds the import a mutated annotation needs to a module's source.
 
     *sources* maps a type name to the module it is imported from by default,
-    *builtins* are names that never need an import.
+    *builtins* are names that never need an import, *statements* reads the
+    imports of a source.
+
+    Sources are read with parso, so comments, docstrings, aliases, parentheses
+    and line continuations in existing imports are handled by the grammar.
+    A name is merged only into a module-level ``from {module} import ...``
+    statement; otherwise a new import line is added after the last
+    module-level import. A name counts as imported when any module-level
+    statement binds it, including imports under ``if TYPE_CHECKING:``.
     """
 
     def __init__(
         self,
         sources: Mapping[str, str] = IMPORT_SOURCES,
         builtins: Container[str] = BUILTIN_TYPES,
+        statements: ImportStatements | None = None,
     ) -> None:
         self._sources = sources
         self._builtins = builtins
+        self._statements = statements or ImportStatements()
 
     def resolve(
         self,
@@ -92,19 +174,13 @@ class ImportInjector:
         Returns (new_source, inserted_line) where inserted_line is the 0-based
         line index of the new import, or None if no new line was added.
         """
-        type_name = self.type_name(mutated_annotation)
-
-        # If the mutation provides an explicit import line, use it
         if required_import is not None:
-            # Extract the name from the import line to check if already imported
-            m = re.match(r"from\s+\S+\s+import\s+(\w+)", required_import.strip())
-            if m:
-                name = m.group(1)
-                if self._is_imported(source, name):
-                    return source, None
+            names = self._statements.bound_names(parso.parse(required_import.strip()))
+            if names and names <= self._statements.bound_names(parso.parse(source)):
+                return source, None
             return self.add_line(source, required_import)
 
-        # Fallback to the default sources for known standard library types
+        type_name = self.type_name(mutated_annotation)
         if self.needs_import(source, type_name):
             module = self.preferred_module(source, type_name)
             return self.add(source, type_name, module)
@@ -114,47 +190,32 @@ class ImportInjector:
     def add_line(self, source: str, import_line: str) -> tuple[str, int | None]:
         """Add a raw import line (e.g. ``from pydantic import BaseModel``) to source.
 
-        Parses *import_line* to extract module and name, then delegates to
-        :meth:`add` for smart merging with existing imports.
+        A ``from {module} import {name}`` line is merged into an existing
+        import of *module* by :meth:`add`; any other line is inserted as-is
+        after the last import.
 
         Returns (new_source, inserted_line_number) — same semantics as :meth:`add`.
         """
-        m = re.match(r"from\s+(\S+)\s+import\s+(\w+)", import_line.strip())
-        if m:
-            module, name = m.group(1), m.group(2)
-            return self.add(source, name, module)
-
-        # Fallback: insert as-is after last import
-        lines = source.splitlines(keepends=True)
-        insert_at = self.last_import_line(lines) + 1
-        lines.insert(insert_at, import_line.rstrip() + self._line_ending(lines))
-        return "".join(lines), insert_at
+        imported = self._statements.single_from_import(import_line.strip())
+        if imported is not None:
+            return self.add(source, imported[1], imported[0])
+        return self._insert_line(source, import_line.strip())
 
     def add(self, source: str, type_name: str, module: str) -> tuple[str, int | None]:
         """Add ``from {module} import {type_name}`` to *source*.
 
         Returns (new_source, inserted_line_number) where inserted_line_number is
         the 0-based line index of the NEW line, or None if the name was appended
-        to an existing import line (no new line inserted, no line shift).
+        to an existing import (or already imported there): no line shift.
         """
-        lines = source.splitlines(keepends=True)
-
-        # Try to append to an existing `from {module} import ...` line
-        existing = self._find_existing_import_line(lines, module)
-        if existing is not None:
-            old_line = lines[existing]
-            # Append before the newline
-            stripped = old_line.rstrip("\n\r")
-            new_line = stripped + ", " + type_name
-            # Preserve original line ending
-            ending = old_line[len(stripped) :]
-            lines[existing] = new_line + ending
-            return "".join(lines), None
-
-        # Insert a new import line after the last import
-        insert_at = self.last_import_line(lines) + 1
-        lines.insert(insert_at, f"from {module} import {type_name}{self._line_ending(lines)}")
-        return "".join(lines), insert_at
+        tree = parso.parse(source)
+        existing = self._statements.find_from_import(tree, module)
+        if existing is None:
+            return self._insert_line(source, f"from {module} import {type_name}")
+        if type_name in {name.value for name in existing.get_defined_names()}:
+            return source, None
+        end = self._statements.last_imported(existing).end_pos
+        return self._insert_at(source, end, f", {type_name}"), None
 
     def needs_import(self, source: str, type_name: str) -> bool:
         """Return True if *type_name* needs an import added to *source*.
@@ -166,7 +227,7 @@ class ImportInjector:
             return False
         if type_name not in self._sources:
             return False
-        return not self._is_imported(source, type_name)
+        return type_name not in self._statements.bound_names(parso.parse(source))
 
     def source_module(self, type_name: str) -> str | None:
         """The module *type_name* is imported from by default, if it is a known type."""
@@ -191,107 +252,29 @@ class ImportInjector:
         return default
 
     def last_import_line(self, lines: Iterable[str]) -> int:
-        """Return the 0-based index of the last import statement line.
+        """Return the 0-based index of the last line of the last module-level import.
 
-        Only matches real import statements (not ``from`` in docstrings or
-        comments). Handles multi-line parenthesized imports. Returns -1 if
-        no imports found.
+        Imports in docstrings, comments, functions or ``if`` blocks don't count;
+        multi-line imports end at their last line. Returns -1 if there are none.
         """
-        last_import = -1
-        in_paren_import = False
-        in_docstring = False
-        docstring_quote = ""
+        imports = list(self._statements.module_imports(parso.parse("".join(lines))))
+        if not imports:
+            return -1
+        return imports[-1].end_pos[0] - 1
 
-        for i, line in enumerate(lines):
-            stripped = line.strip()
+    def _insert_line(self, source: str, import_line: str) -> tuple[str, int | None]:
+        """Insert *import_line* after the last module-level import of *source*."""
+        lines = source.splitlines(keepends=True)
+        insert_at = self.last_import_line(lines) + 1
+        lines.insert(insert_at, import_line + self._line_ending(lines))
+        return "".join(lines), insert_at
 
-            # Track triple-quoted strings (docstrings)
-            if not in_docstring:
-                for q in ('"""', "'''"):
-                    if q in stripped:
-                        count = stripped.count(q)
-                        if count == 1:
-                            in_docstring = True
-                            docstring_quote = q
-                            break
-                        # count >= 2 means open+close on same line — not in docstring
-            else:
-                if docstring_quote in stripped:
-                    in_docstring = False
-                continue
-
-            if in_docstring:
-                continue
-
-            if in_paren_import:
-                last_import = i
-                if ")" in stripped:
-                    in_paren_import = False
-                continue
-
-            # Only match lines at column 0 (module-level imports)
-            if line and not line[0].isspace() and _IMPORT_LINE_RE.match(stripped):
-                last_import = i
-                if "(" in stripped and ")" not in stripped:
-                    in_paren_import = True
-
-        return last_import
-
-    def _find_existing_import_line(self, lines: Iterable[str], module: str) -> int | None:
-        """Find a single-line ``from {module} import ...`` that can be extended.
-
-        Returns the 0-based line index, or None if not found or if the import
-        is multi-line (parenthesized).
-        """
-        pattern = re.compile(r"^from\s+" + re.escape(module) + r"\s+import\s+(?!\()")
-        for i, line in enumerate(lines):
-            if pattern.match(line.rstrip()):
-                return i
-        return None
-
-    def _is_imported(self, source: str, type_name: str) -> bool:
-        """Check whether *type_name* is already imported in *source*.
-
-        Handles:
-        - ``from X import type_name``
-        - ``from X import (..., type_name, ...)``
-        - ``import X`` where X == module containing type_name (qualified usage)
-        - ``class type_name`` defined at module level, so no import is needed
-        """
-        if re.search(r"^class\s+" + re.escape(type_name) + r"\b", source, re.MULTILINE):
-            return True
-
-        # Pattern: from <module> import <...type_name...>
-        # Handles both single-line and multi-line (parenthesized) imports.
-        pattern = re.compile(
-            r"^from\s+\S+\s+import\s+"
-            r"(?:"
-            r"[^)]*\b" + re.escape(type_name) + r"\b"  # single-line
-            r"|"
-            r"\([^)]*\b" + re.escape(type_name) + r"\b[^)]*\)"  # parenthesized
-            r")",
-            re.MULTILINE | re.DOTALL,
-        )
-        if pattern.search(source):
-            return True
-
-        # Also check multi-line parenthesized imports that span lines:
-        # from module import (
-        #     Foo,
-        #     type_name,
-        # )
-        paren_pattern = re.compile(
-            r"^from\s+\S+\s+import\s+\(([^)]*)\)",
-            re.MULTILINE | re.DOTALL,
-        )
-        for m in paren_pattern.finditer(source):
-            names_block = m.group(1)
-            names = [n.strip().rstrip(",") for n in names_block.split(",")]
-            names = [n.strip() for n in names if n.strip()]
-            if type_name in names:
-                return True
-
-        return False
+    def _insert_at(self, source: str, position: tuple[int, int], text: str) -> str:
+        """*source* with *text* inserted at a parso ``(line, column)`` position."""
+        lines = split_lines(source, keepends=True)
+        line, column = position
+        lines[line - 1] = lines[line - 1][:column] + text + lines[line - 1][column:]
+        return "".join(lines)
 
     @staticmethod
     def type_name(annotation: str) -> str:
