@@ -11,7 +11,7 @@ timeout = 30                            # seconds per mutation
 excluded-modules = ["src/vendor/*.py"]  # glob patterns to skip
 skip-comments = ["type: ignore", "pragma: no mutate"]
 db = "typemut.sqlite"                   # database file
-plugins = ["sqlalchemy"]                # library plugins: sqlalchemy, fastapi, faststream; none by default
+plugins = ["sqlalchemy"]                # library plugins: sqlalchemy, fastapi, faststream, dmr; none by default
 checker = "mypy"                        # mypy, pyright, basedpyright, generic; default "auto" detects it
                                         # from test-command (set it when test-command is a wrapper like make)
 # checker-version-command = "mypy --version"  # optional; for incremental runs;

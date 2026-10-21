@@ -78,12 +78,18 @@ class ScopeReader:
         return bindings
 
     def _statement_bindings(self, stmt: BaseNode) -> Bindings:
-        """Bindings of ``x = Class()``, ``a = b = Class()`` and ``x: Class [= ...]``."""
+        """Bindings of ``x = Class()``, ``a = b = Class()``, ``x: Class [= ...]``, ``x: Final = Class()``."""
         target, operator = stmt.children[0], stmt.children[1]
         if operator.type == "annassign":
             if not isinstance(target, Name):
                 return {}
-            return {target.value: self._expression_name(operator.children[1])}
+            annotation = operator.children[1]
+            class_name = self._expression_name(annotation)
+            if class_name is not None and class_name.rpartition(".")[2] == "Final":
+                # `x: Final = Class()`, `x: typing.Final[T] = Class()`: the class of the value.
+                value = operator.children[-1]
+                class_name = None if value is annotation else self._called_class(value)
+            return {target.value: class_name}
         if not isinstance(operator, Leaf) or operator.value != "=":
             return {}
         class_name = self._called_class(stmt.children[-1])
