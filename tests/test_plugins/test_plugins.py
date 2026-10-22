@@ -35,7 +35,9 @@ def test_get_plugins_empty() -> None:
 def test_get_plugins_unknown_name_is_skipped(caplog: pytest.LogCaptureFixture) -> None:
     plugins = PluginRegistry().get(iter(["sqlalchemy", "django"]))
     assert [plugin.name for plugin in plugins] == ["sqlalchemy"]
-    assert "Skipping unknown plugin(s): django. Available plugins: fastapi, sqlalchemy" in caplog.text
+    assert (
+        "Skipping unknown plugin(s): django. Available plugins: fastapi, sqlalchemy" in caplog.text
+    )
 
 
 def _entry_point(name: str, value: str) -> EntryPoint:

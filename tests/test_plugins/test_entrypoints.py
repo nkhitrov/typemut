@@ -109,6 +109,23 @@ def write_project(root: Path, files: dict[str, str]) -> None:
             id="decorated-method",
         ),
         pytest.param(
+            BASE_CLASSES,
+            f"from mylib.rpc import Endpoint\nclass Items(Endpoint[Serializer]):\n{METHOD}",
+            id="generic-base",
+        ),
+        pytest.param(
+            BASE_CLASSES,
+            f"from mylib import rpc\nclass Items(rpc.Endpoint[S, T]):\n{METHOD}",
+            id="module-qualified-generic-base",
+        ),
+        pytest.param(
+            BASE_CLASSES,
+            "from mylib.rpc import Endpoint\n"
+            "class Base(Endpoint[S], Generic[S]): ...\n"
+            f"class Items(Base[Serializer]):\n{METHOD}",
+            id="transitive-generic-base",
+        ),
+        pytest.param(
             PARAMETER_TYPES,
             f"from mylib.rpc import Dependency\ndef handler(s: Dependency[Service]) -> Schema: ...\n",
             id="generic-marker",
@@ -176,6 +193,16 @@ def test_handler_signature_is_skipped(
         pytest.param(BASE_CLASSES, f"class Items(Unknown):\n{METHOD}", id="unresolved-base"),
         pytest.param(
             BASE_CLASSES,
+            f"from mylib.rpc import Endpoint\nclass Items(Other[Endpoint]):\n{METHOD}",
+            id="other-generic-base",
+        ),
+        pytest.param(
+            BASE_CLASSES,
+            f"from mylib.rpc import Endpoint\nclass Items(make(Endpoint)[S]):\n{METHOD}",
+            id="subscripted-call-base",
+        ),
+        pytest.param(
+            BASE_CLASSES,
             "from mylib.rpc import Endpoint\n"
             "class Items(Endpoint):\n"
             "    def method(self) -> None:\n"
@@ -239,6 +266,14 @@ def test_body_annotations_are_mutated(tmp_path: Path) -> None:
                 "app/views.py": f"from app.base import Base\nclass Items(Base):\n{METHOD}",
             },
             id="base-from-other-module",
+        ),
+        pytest.param(
+            BASE_CLASSES,
+            {
+                "app/base.py": "from mylib import rpc\nclass Base(rpc.Endpoint[S]): ...\n",
+                "app/views.py": f"from app.base import Base\nclass Items(Base[Schema]):\n{METHOD}",
+            },
+            id="generic-base-from-other-module",
         ),
         pytest.param(
             PARAMETER_TYPES,

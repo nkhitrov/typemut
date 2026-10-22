@@ -157,7 +157,9 @@ imports, re-exports and objects imported from other project modules):
   `mylib.rpc.Router`), not where they are defined.
 - **base-classes**: methods (not nested functions) of a class whose bases
   inherit from a matching class, directly or through project classes in other
-  modules. Methods of the matching class itself are mutated.
+  modules. Generic bases count without their type arguments
+  (`class Items(Endpoint[ItemSchema])` matches `mylib.rpc.Endpoint`). Methods of
+  the matching class itself are mutated.
 - **parameter-types**: every name the annotation references counts
   (`Dependency[Service]`, `Annotated[Service, Inject]`), resolved like decorators:
   `rpc.Dependency` with `rpc = Router()` is `mylib.rpc.Router.Dependency`.
