@@ -3,13 +3,77 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
+from pathlib import Path
 
 from parso.python.tree import BaseNode, Leaf
 
+from typemut.discovery import AnnotationFinder
 from typemut.model import AnnotationContext, Mutation
 from typemut.nodes import NodeSource
 from typemut.registry import Registry
+
+# A single string literal, and implicitly concatenated string literals.
+STRING_TYPES = frozenset(("string", "strings"))
+QUOTES = frozenset(("'", '"'))
+
+# Prefix put in front of a forward reference to parse it as an annotation.
+FORWARD_REF_PREFIX = "_: "
+
+
+class ForwardRefs:
+    """Mutates the annotation inside a quoted forward reference like ``'Foo | None'``.
+
+    A mutation must stay inside the quotes: ``'Foo' | None`` passes the type
+    checker but is ``str | None`` at runtime, which raises TypeError.
+    """
+
+    def __init__(self, finder: AnnotationFinder | None = None) -> None:
+        # Parses the annotation inside the quotes.
+        self._finder = finder or AnnotationFinder(skip_comments=())
+
+    def is_quoted(self, node: BaseNode | Leaf) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether *node* is a string literal used as an annotation."""
+        return node.type in STRING_TYPES
+
+    def mutations(
+        self,
+        string: BaseNode | Leaf,
+        mutate: Callable[[BaseNode | Leaf], Iterable[Mutation]],
+    ) -> list[Mutation]:
+        """Apply *mutate* to the annotation inside *string*, re-quoting the results.
+
+        Strings the checker would not read as one plain forward reference
+        (triple-quoted, prefixed, implicitly concatenated, empty) get none.
+        """
+        if not isinstance(string, Leaf):
+            return []
+        quote = string.value[0]
+        if quote not in QUOTES or string.value.startswith(quote * 3):
+            return []
+        content = string.value[1:-1]
+        parsed = self._finder.find(Path("<forward-ref>"), source=f"{FORWARD_REF_PREFIX}{content}\n")
+        if len(parsed) != 1:
+            return []
+
+        mutations: list[Mutation] = []
+        for mutation in mutate(parsed[0].node):
+            start = mutation.col - len(FORWARD_REF_PREFIX)
+            end = start + len(mutation.original)
+            mutated = content[:start] + mutation.mutated + content[end:]
+            mutations.append(
+                Mutation(
+                    file=mutation.file,
+                    operator=mutation.operator,
+                    line=string.start_pos[0],
+                    col=string.start_pos[1],
+                    original=string.value,
+                    mutated=f"{quote}{mutated}{quote}",
+                    description=mutation.description,
+                    required_import=mutation.required_import,
+                )
+            )
+        return mutations
 
 
 class TypeMutationOperator(NodeSource, ABC):

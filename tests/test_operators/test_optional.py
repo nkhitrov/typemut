@@ -7,6 +7,7 @@ import pytest
 
 from typemut.discovery import AnnotationFinder
 from typemut.model import AnnotationContext
+from typemut.operators import BUILTIN_OPERATORS
 from typemut.operators.optional import AddOptional, RemoveOptional
 from typemut.registry import Registry
 
@@ -100,3 +101,85 @@ def test_add_optional_skips_typevar() -> None:
 )
 def test_add_optional_skips_type_alias(source: str) -> None:
     assert_mutations(source, AddOptional, expected=[])
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param("y: 'Baz'\n", ["'Baz | None'"], id="single-quoted"),
+        pytest.param('y: "Baz"\n', ['"Baz | None"'], id="double-quoted"),
+        pytest.param("y: 'list[Baz]'\n", ["'list[Baz] | None'"], id="quoted-generic"),
+        pytest.param("y: 'Foo | None' = None\n", [], id="quoted-optional"),
+        pytest.param("y: 'Any'\n", [], id="quoted-any"),
+        pytest.param("y: ''\n", [], id="empty"),
+        pytest.param('y: """Baz"""\n', [], id="triple-quoted"),
+        pytest.param("y: r'Baz'\n", [], id="prefixed"),
+        pytest.param("y: 'Baz' ''\n", [], id="concatenated"),
+    ],
+)
+def test_add_optional_inside_forward_ref(source: str, expected: list[str]) -> None:
+    # 'Baz' | None passes mypy but raises TypeError at runtime (str | None).
+    assert_mutations(source, AddOptional, expected=expected)
+
+
+def test_add_optional_forward_ref_replaces_whole_string() -> None:
+    annotations = AnnotationFinder().find(Path("test.py"), source="y: 'Baz'\n")
+    mutations = AddOptional().find_mutations(
+        annotations[0].node, AnnotationContext.VARIABLE, Registry()
+    )
+    assert [(m.line, m.col, m.original, m.mutated) for m in mutations] == [
+        (1, 3, "'Baz'", "'Baz | None'"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param("x: ClassVar[int]\n", ["int | None"], id="classvar"),
+        pytest.param("x: typing.ClassVar[int]\n", ["int | None"], id="typing-classvar"),
+        pytest.param("x: t.ClassVar[int]\n", ["int | None"], id="aliased-module"),
+        pytest.param("x: Final[int] = 1\n", ["int | None"], id="final"),
+        pytest.param("x: Required[str]\n", ["str | None"], id="required"),
+        pytest.param("x: NotRequired[str]\n", ["str | None"], id="not-required"),
+        pytest.param("x: ReadOnly[str]\n", ["str | None"], id="read-only"),
+        pytest.param("x: dataclasses.InitVar[int]\n", ["int | None"], id="init-var"),
+        pytest.param(
+            "x: ReadOnly[NotRequired[str]]\n", ["str | None"], id="nested-qualifiers"
+        ),
+        pytest.param("x: ClassVar['Foo']\n", ["'Foo | None'"], id="quoted-inside"),
+        pytest.param("x: 'ClassVar[Foo]'\n", ["'ClassVar[Foo | None]'"], id="quoted-around"),
+        pytest.param("x: ClassVar[int | None]\n", [], id="already-optional"),
+        pytest.param("x: Annotated[int, 1]\n", ["Annotated[int, 1] | None"], id="annotated"),
+    ],
+)
+def test_add_optional_inside_type_qualifier(source: str, expected: list[str]) -> None:
+    # ClassVar[int] | None is not a type: mypy reports valid-type and the
+    # runtime raises TypeError. The optional value goes inside the qualifier.
+    assert_mutations(source, AddOptional, expected=expected)
+
+
+def test_add_optional_inside_qualifier_replaces_inner_type() -> None:
+    annotations = AnnotationFinder().find(Path("test.py"), source="x: ClassVar[int]\n")
+    mutations = AddOptional().find_mutations(
+        annotations[0].node, AnnotationContext.VARIABLE, Registry()
+    )
+    assert [(m.line, m.col, m.original, m.mutated) for m in mutations] == [
+        (1, 12, "int", "int | None"),
+    ]
+
+
+@pytest.mark.parametrize("operator", BUILTIN_OPERATORS, ids=lambda op: op.name)
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("x: Final = 1\n", id="final"),
+        pytest.param("x: typing.Final = 1\n", id="typing-final"),
+        pytest.param("x: typing_extensions.Final = 1\n", id="typing-extensions-final"),
+        pytest.param("x: ClassVar = 1\n", id="classvar"),
+        pytest.param("x: typing.ClassVar\n", id="typing-classvar"),
+    ],
+)
+def test_bare_qualifier_not_mutated(source: str, operator: type) -> None:
+    # Nothing to put None inside, and Final | None is not a type ("Final can be
+    # only used as an outermost qualifier").
+    assert_mutations(source, operator, expected=[])

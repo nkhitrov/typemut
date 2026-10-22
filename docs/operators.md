@@ -44,6 +44,12 @@ class Config:
     name: str | None
 ```
 
+`None` goes inside quoted forward references (`'Node'` → `'Node | None'`; `'Node' | None`
+passes the checker but raises `TypeError` at runtime) and inside type qualifiers
+`ClassVar`, `Final`, `Required`, `NotRequired`, `ReadOnly` and `InitVar`, also when
+spelled `typing.ClassVar` (`ClassVar[int]` → `ClassVar[int | None]`; `ClassVar[int] | None`
+is not a type). A bare `ClassVar`/`Final` (`x: Final = 1`) is not mutated.
+
 **Survived = consumers don't rely on non-None guarantee.** The field claims to always have a value, but no typed code would break if it could be `None`. This often reveals missing type coverage in code that reads the field.
 
 ## WidenType
