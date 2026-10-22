@@ -506,42 +506,81 @@ jobs:
 
 #### GitLab CI: artifact
 
-Three jobs share the script: `typemut` runs on the default branch and keeps the
+Three jobs share the setup: `typemut` runs on the default branch and keeps the
 database as an artifact even when it fails (`when: always`); `typemut-mr` runs
 for merge requests and keeps nothing; `typemut-refresh` is the weekly
 `--refresh` from a pipeline schedule, with a longer time limit so that it
 rechecks the whole project (raise the project's and the runner's maximum job
-timeout to match). All download the artifact of the `typemut` or
-`typemut-refresh` job of the newest default-branch pipeline in which that job
-succeeded or failed: GitLab's "latest artifact of a branch" endpoint only knows
-successful pipelines, so the job is looked up through the API, in the 50 newest
-pipelines of the default branch (listed by the server, so merge request
-pipelines do not push them out). A pipeline still running other jobs (a later
-stage, a deploy waiting on a manual job) counts once its typemut job is done;
-pipelines are ordered by id, so a retried job of an older pipeline does not
-win. With none among them, the run is a full one.
+timeout to match).
+
+Before typemut starts, `ci/typemut-db.sh` downloads the database of the newest
+`typemut` or `typemut-refresh` job on the default branch that succeeded or
+failed. GitLab's "latest artifact of a branch" endpoint only knows successful
+pipelines, so the script looks the job up with [glab](https://gitlab.com/gitlab-org/cli)
+and [jq](https://jqlang.org): `glab ci list` gives the 50 newest pipelines of
+the default branch (merge request pipelines have other refs and do not push
+them out), `glab ci get` the jobs of each, newest first, until one has such a
+job. A pipeline still running other jobs (a later stage, a deploy waiting on a
+manual job) counts once its typemut job is done; pipelines are ordered by id,
+so a retried job of an older pipeline does not win. `glab api` then fetches the
+single `typemut.sqlite` (no zip involved), and the script keeps it only if it
+is an SQLite database. No such job, an expired artifact, or any API error means
+no database and a full run, never a broken file; the script never fails the
+job. The first run scans all 50 pipelines, a few minutes.
+
+Listing pipelines needs a token with the `read_api` scope: a project access
+token with the Reporter role and a short expiry, saved as the masked CI/CD
+variable `TYPEMUT_API_TOKEN`. Use a token of its own, not an existing
+`GITLAB_TOKEN`, which often has the `api` scope. Without it, glab uses the job
+token, and the script takes the `typemut` job of the latest successful
+pipeline instead. Either:
+
+- leave the variable unprotected, so merge request pipelines use it too. Any
+  code in a merge request of this project can then read it, so don't run
+  pipelines of fork merge requests in the parent project; or
+- protect it (safer): only the default branch's jobs list pipelines, merge
+  requests get the database of the latest successful pipeline, which may be
+  older.
+
+Either way the default branch must be protected: only its pipelines' jobs are
+picked, and only trusted users should be able to run them.
+
 `resource_group: typemut-db` is GitLab's counterpart to the GitHub concurrency
 group: the `typemut` and `typemut-refresh` jobs run one at a time, and a job
 waiting for the group downloads the database when its script starts, after
 the job ahead of it has uploaded. A push pipeline that starts during the
 weekly refresh therefore waits for it (up to its 6h timeout). The group's
 default process mode lets waiting jobs start in any order; set it to
-`oldest_first` (`curl --request PUT --header "PRIVATE-TOKEN: ..." --data
-"process_mode=oldest_first" "$CI_API_V4_URL/projects/<id>/resource_groups/typemut-db"`)
-so they run in pipeline order and the newest pipeline's database is also the
-last one written. Listing pipelines and jobs needs a token with the
-`read_api` scope (a project access token with the Reporter role, saved as the
-masked CI/CD variable `TYPEMUT_API_TOKEN`; leave it unprotected so merge
-request pipelines see it). Without it the script falls back to the job token
-and the `typemut` job of the latest successful pipeline. `curl --fail` fetches the single file, so
-no zip is involved; a missing artifact (or a failed download, whose partial
-file is removed) just means a full run.
+`oldest_first` (`glab api --method PUT "projects/<id>/resource_groups/typemut-db"
+--field process_mode=oldest_first`) so they run in pipeline order and the
+newest pipeline's database is also the last one written.
 `RUNNER_SCRIPT_TIMEOUT` below `timeout` leaves the runner time to upload the
 artifact after a script timeout; it needs GitLab Runner 16.4 or later (older
 runners ignore it, and a job that hits `timeout` uploads nothing).
 
+The `.glab` preset installs jq and a pinned glab release (checked against its
+SHA-256, amd64 runners) and turns on glab's CI auto-login (glab 1.90 or later).
+Its `before_script` replaces a `default: before_script`. In production, pin the
+image by digest, or bake glab and jq into your own image and drop `.glab`.
+
 ```yaml
+# glab and jq; glab logs in with the job token (CI auto-login).
+.glab:
+  variables:
+    GLAB_VERSION: "1.92.1"
+    GLAB_SHA256: "18048e5cb2cbc92eb31d4190852c6da32f6713633cfefc7b3fe00c18806c4f53"  # linux_amd64.deb
+    GLAB_ENABLE_CI_AUTOLOGIN: "true"
+    GLAB_CHECK_UPDATE: "false"
+    GLAB_SEND_TELEMETRY: "false"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends jq
+    - curl -fsSL -o /tmp/glab.deb
+        "https://gitlab.com/gitlab-org/cli/-/releases/v$GLAB_VERSION/downloads/glab_${GLAB_VERSION}_linux_amd64.deb"
+    - echo "$GLAB_SHA256  /tmp/glab.deb" | sha256sum -c -
+    - dpkg -i /tmp/glab.deb
+
 .typemut:
+  extends: .glab
   image: ghcr.io/astral-sh/uv:python3.13-bookworm
   timeout: 45m
   variables:
@@ -549,41 +588,7 @@ runners ignore it, and a job that hits `timeout` uploads nothing).
     TYPEMUT_MAX_DURATION: "1500"
   script:
     - uv sync
-    - |
-      api="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
-      if [ -n "${TYPEMUT_API_TOKEN:-}" ]; then
-        # Newest `typemut`/`typemut-refresh` job on the default branch,
-        # successful or failed, in its 50 newest pipelines.
-        job_id="$(python3 - <<'PY'
-      import json, os, urllib.parse, urllib.request
-      api = os.environ["CI_API_V4_URL"] + "/projects/" + os.environ["CI_PROJECT_ID"]
-      def get(path):
-          headers = {"PRIVATE-TOKEN": os.environ["TYPEMUT_API_TOKEN"]}
-          with urllib.request.urlopen(urllib.request.Request(api + path, headers=headers)) as response:
-              return json.load(response)
-      ref = urllib.parse.quote(os.environ["CI_DEFAULT_BRANCH"], safe="")
-      for pipeline in get(f"/pipelines?ref={ref}&order_by=id&sort=desc&per_page=50"):
-          jobs = get(f"/pipelines/{pipeline['id']}/jobs?scope[]=success&scope[]=failed&per_page=100")
-          found = [job["id"] for job in jobs if job["name"] in ("typemut", "typemut-refresh")]
-          if found:
-              print(found[0])
-              break
-      PY
-      )" || job_id=""
-        if [ -n "$job_id" ]; then
-          curl --fail --location -sS --header "PRIVATE-TOKEN: $TYPEMUT_API_TOKEN" \
-            "$api/jobs/$job_id/artifacts/typemut.sqlite" -o typemut.sqlite \
-            && echo "typemut database from job $job_id" \
-            || { echo "no previous DB"; rm -f typemut.sqlite; }
-        else
-          echo "no previous DB"
-        fi
-      else
-        # Latest successful pipeline of the default branch only.
-        curl --fail --location -sS --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-          "$api/jobs/artifacts/$CI_DEFAULT_BRANCH/raw/typemut.sqlite?job=typemut" -o typemut.sqlite \
-          || { echo "no previous DB"; rm -f typemut.sqlite; }
-      fi
+    - bash ci/typemut-db.sh        # the previous database, or none
     - uv run typemut run --incremental --jobs 4 --max-duration $TYPEMUT_MAX_DURATION
         --baseline typemut-baseline.json $TYPEMUT_EXTRA_ARGS
 
@@ -616,6 +621,71 @@ typemut-mr:
   extends: .typemut
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+```
+
+`ci/typemut-db.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Downloads typemut.sqlite of the newest typemut run on the default branch.
+# Never fails the job: without a database typemut runs every mutant.
+# No `set -e` (bash ignores it left of `||`): every step is chained instead.
+set -uo pipefail
+
+repo=(--repo "$CI_PROJECT_PATH")
+api="projects/$CI_PROJECT_ID"
+
+# Ids of the 50 newest pipelines of the default branch, newest first.
+pipelines() {
+  glab ci list "${repo[@]}" --ref "$CI_DEFAULT_BRANCH" \
+    --order id --sort desc --per-page 50 --output json | jq '.[].id'
+}
+
+# Id of the pipeline's typemut job if it succeeded or failed, else nothing.
+typemut_job() {
+  glab ci get "${repo[@]}" --pipeline-id "$1" --output json | jq 'first(.jobs[]?
+    | select(.name == ("typemut", "typemut-refresh"))
+    | select(.status == ("success", "failed"))
+    | .id) // empty'
+}
+
+# Id of the typemut job of the newest pipeline that has one.
+latest_typemut_job() {
+  local ids id job
+  ids="$(pipelines)" || return
+  for id in $ids; do
+    job="$(typemut_job "$id")" || return   # an API error is not "no job"
+    if [ -n "$job" ]; then echo "$job"; return 0; fi
+  done
+  return 1
+}
+
+# Saves the artifact file at an API path as typemut.sqlite, if it is a database.
+download() {
+  glab api "$1" > typemut.sqlite.part &&
+    head -c 16 typemut.sqlite.part | grep -q '^SQLite format 3' &&
+    mv typemut.sqlite.part typemut.sqlite
+}
+
+fetch() {
+  if [ -z "${TYPEMUT_API_TOKEN:-}" ]; then
+    # The job token cannot list pipelines: latest successful pipeline only.
+    local ref
+    ref="$(jq -rn --arg ref "$CI_DEFAULT_BRANCH" '$ref | @uri')" &&
+      download "$api/jobs/artifacts/$ref/raw/typemut.sqlite?job=typemut" &&
+      echo "typemut database of the latest successful pipeline"
+    return
+  fi
+  unset GITLAB_ACCESS_TOKEN OAUTH_TOKEN    # glab uses typemut's own token only
+  export GITLAB_TOKEN="$TYPEMUT_API_TOKEN"
+  local job
+  job="$(latest_typemut_job)" &&
+    download "$api/jobs/$job/artifacts/typemut.sqlite" &&
+    echo "typemut database from job $job"
+}
+
+fetch || echo "No typemut database of $CI_DEFAULT_BRANCH: running every mutant"
+rm -f typemut.sqlite.part
 ```
 
 #### GitLab CI: cache
