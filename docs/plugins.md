@@ -6,7 +6,7 @@ means. Plugins teach typemut these rules. They are opt-in:
 
 ```toml
 [typemut]
-plugins = ["sqlalchemy", "fastapi"]
+plugins = ["sqlalchemy", "fastapi", "faststream"]
 ```
 
 An unknown plugin name is logged as a warning and skipped. A plugin can claim an annotation and decide
@@ -109,6 +109,72 @@ Unresolvable receivers (a factory call without annotation, `self.router`, a star
 import) are not treated as endpoints. The same goes for functions registered
 without a decorator (`app.add_api_route(...)`) or used only through `Depends(...)`.
 Mark those with `# pragma: no mutate`.
+
+## faststream
+
+FastStream calls message handlers itself: it decodes the message body into the
+handler's parameters and publishes its return value. Tests reach handlers by
+publishing messages, so no Python code calls them: `-> str` → `-> str | None`
+always survives. Mutating a handler's parameters breaks the application rather
+than its typing: `msg: User` → `msg: BaseModel` passes the type checker, but
+FastStream can no longer decode the message, and `logger: Logger` →
+`logger: Logger | None` turns an injected object into a body field. The plugin
+skips all parameter and return annotations of such functions:
+
+```python
+from faststream import FastStream
+from faststream.kafka import KafkaBroker
+
+broker = KafkaBroker("localhost:9092")
+app = FastStream(broker)
+
+
+@broker.subscriber("in-topic")
+@broker.publisher("out-topic")
+async def handle(data: User, logger: Logger) -> str:  # not mutated
+    reply: str | None = None  # still mutated
+    ...
+
+
+@app.on_startup
+async def setup(context: ContextRepo) -> None: ...  # not mutated
+
+
+async def custom_parser(msg: ConsumerRecord, original: ParserFn) -> KafkaMessage: ...  # not mutated
+
+
+rabbit = RabbitBroker(parser=custom_parser)
+```
+
+A function is skipped when it is:
+
+- decorated with `@<receiver>.subscriber(...)` or `@<receiver>.publisher(...)`, or
+  registered with `<receiver>.subscriber(...)(handler)`, where the receiver is a
+  broker or router (`KafkaBroker`, `RabbitBroker`, `RedisBroker`, `NatsBroker`,
+  `faststream.confluent.KafkaBroker`, `KafkaRouter`, ..., the FastAPI integration
+  routers `faststream.kafka.fastapi.KafkaRouter`, ... and `faststream_fastapi.*Router`);
+- a lifespan hook: `@app.on_startup`, `after_startup`, `on_shutdown`, `after_shutdown`
+  of a `FastStream` / `AsgiFastStream` instance, `@router.after_startup` /
+  `on_broker_shutdown` of a FastAPI integration router;
+- passed by name, in the same module, as `parser=`, `decoder=`, `middlewares=`
+  (also inside a tuple or list), `lifespan=`, `on_startup=`-style hooks or `call=`
+  to a broker, router, application, subscriber or publisher, as the handler of a
+  route (`KafkaRoute(handle, "topic")`), or as a dependency provider
+  (`Depends(get_user)`): the type checker does not relate
+  `Annotated[User, Depends(get_user)]` to the return type of `get_user`.
+
+Receivers and classes are resolved statically like in the `fastapi` plugin
+(imports, aliases, project subclasses, objects imported from other project
+modules). Methods of `BaseMiddleware` subclasses are mutated: the type checker
+checks them against the overridden methods. Functions passed by attribute
+(`parser=codec.parse`) or from another module are not recognised; mark those
+with `# pragma: no mutate`.
+
+Compared with `[typemut.entrypoints]` (`decorators = ["faststream.*.subscriber"]`),
+the plugin also covers lifespan hooks, parsers, decoders, middlewares, routes,
+`broker.subscriber(...)(handler)` and `Depends(...)` providers, and needs no
+patterns: the list of FastStream classes is built in.
+
 
 ## Other frameworks: `[typemut.entrypoints]`
 
