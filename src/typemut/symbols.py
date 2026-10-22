@@ -15,7 +15,8 @@ of ``self``, a star import) is unknown.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Container, Iterable, Iterator, Sequence
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 import parso
@@ -28,6 +29,32 @@ SCOPES = frozenset(("funcdef", "classdef", "lambdef"))
 
 # {bound name: dotted name of its class as written, None if not an instance / unknown}
 Bindings = dict[str, str | None]
+
+
+class NamePatterns(Container[str]):
+    """Qualified names matching any of the ``fnmatch`` *patterns* (``*`` also matches dots)."""
+
+    def __init__(self, patterns: Iterable[str]) -> None:
+        self._patterns = tuple(patterns)
+
+    def __contains__(self, name: object) -> bool:
+        return isinstance(name, str) and any(
+            fnmatchcase(name, pattern) for pattern in self._patterns
+        )
+
+    def __bool__(self) -> bool:  # pragma: no mutate (truth-tested)
+        return bool(self._patterns)
+
+
+class MemberOf(Container[str]):
+    """Classes whose attribute *member* (``Class.member``) is one of *names*."""
+
+    def __init__(self, names: Container[str], member: str) -> None:
+        self._names = names
+        self._member = member
+
+    def __contains__(self, class_name: object) -> bool:
+        return f"{class_name}.{self._member}" in self._names
 
 
 class ScopeReader:
@@ -70,6 +97,10 @@ class ScopeReader:
                 None if annotation is None else self._expression_name(annotation)
             )
         return bindings
+
+    def parameter_annotations(self, funcdef: Function) -> Iterable[BaseNode | Leaf]:
+        """Annotations of a function's parameters, in order; unannotated ones are left out."""
+        return [param.annotation for param in funcdef.get_params() if param.annotation is not None]
 
     def function_scopes(self, node: BaseNode | Leaf) -> Iterator[BaseNode]:
         """Enclosing functions of a node, innermost first (class bodies are not scopes for them)."""
@@ -195,7 +226,7 @@ class SymbolResolver:
             return None
         return f"{base}.{tail}" if tail else base
 
-    def inherits_from(self, qualified: str, targets: frozenset[str], anchor: Path) -> bool:
+    def inherits_from(self, qualified: str, targets: Container[str], anchor: Path) -> bool:
         """Whether class *qualified* is one of *targets* or inherits from one of them.
 
         *anchor* is any file of the project, used to locate project modules.
@@ -233,7 +264,7 @@ class SymbolResolver:
         return None if imported is None else self._object_class(imported, file, seen)
 
     def _inherits(
-        self, qualified: str, targets: frozenset[str], anchor: Path, seen: set[str]
+        self, qualified: str, targets: Container[str], anchor: Path, seen: set[str]
     ) -> bool:
         if qualified in targets:
             return True

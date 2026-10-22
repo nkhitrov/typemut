@@ -5,14 +5,19 @@ from __future__ import annotations
 import logging
 from collections.abc import Collection, Iterable, Mapping
 from importlib import metadata
+from typing import Final
 
+from typemut.config import EntrypointsConfig
 from typemut.plugins.base import Plugin
+from typemut.plugins.entrypoints import EntrypointsPlugin
 from typemut.plugins.fastapi import FastAPIPlugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
 
 logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "typemut.plugins"
+
+NO_ENTRYPOINTS: Final = EntrypointsConfig()
 
 BUILTIN_PLUGINS: Mapping[str, type[Plugin]] = {
     FastAPIPlugin.name: FastAPIPlugin,
@@ -46,13 +51,18 @@ class PluginRegistry:
                 plugins[entry_point.name] = plugin
         return cls(plugins)
 
-    def get(self, names: Iterable[str]) -> Collection[Plugin]:
+    def get(
+        self, names: Iterable[str], entrypoints: EntrypointsConfig = NO_ENTRYPOINTS
+    ) -> Collection[Plugin]:
         """Instantiate plugins by name, in config order.
 
         Unknown names are logged as a warning and skipped, so a typo in the
-        config does not abort the whole run.
+        config does not abort the whole run. Configured *entrypoints* add an
+        :class:`EntrypointsPlugin` in front: a handler's signature is skipped
+        whatever library types it uses.
         """
-        plugins: list[Plugin] = []
+        handlers = EntrypointsPlugin(entrypoints)
+        plugins: list[Plugin] = [handlers] if handlers.configured() else []
         unknown: list[str] = []
         for name in names:
             plugin = self._plugins.get(name)
