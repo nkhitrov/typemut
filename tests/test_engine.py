@@ -173,6 +173,14 @@ class TestApplyMutation:
             "from collections.abc import Sequence\nx: Sequence[int] = 5\n"
         )
 
+    def test_merges_required_import_before_trailing_comment(self) -> None:
+        source = "from dmr.parsers import _NoOpParser  # pyright: ignore\n\nx: _NoOpParser\n"
+        mutant = make_mutant(line=3, original="_NoOpParser", mutated="Parser")
+        mutant.required_import = "from dmr.parsers import Parser"
+        assert MutationApplier().apply(source, mutant) == (
+            "from dmr.parsers import _NoOpParser, Parser  # pyright: ignore\n\nx: Parser\n"
+        )
+
     def test_mismatch_raises(self) -> None:
         with pytest.raises(MutationApplyError, match="expected 'int' at col 3, found 'str'"):
             MutationApplier().apply("x: str = 5\n", make_mutant())
