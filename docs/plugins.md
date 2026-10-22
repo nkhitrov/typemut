@@ -12,7 +12,9 @@ plugins = ["sqlalchemy", "fastapi"]
 An unknown plugin name is logged as a warning and skipped. A plugin can claim an annotation and decide
 its mutations (usually by running the core operators on a wrapped type and
 dropping mutations that are invalid for the library), and can contribute its own
-operators. Annotations no plugin claims are mutated as usual.
+operators. Annotations no plugin claims are mutated as usual, minus the single
+mutations a plugin drops as invalid for its library (`[typemut.ignore-types]` and
+`[typemut.ignore-classes]` still apply to them).
 
 ## Third-party plugins
 
@@ -30,7 +32,9 @@ An entry point that fails to import or does not name a `Plugin` subclass is
 logged as a warning and skipped.
 
 A plugin's `find_mutations` receives the enabled operators and the class
-registry. The `Plugin` base class also provides parso helpers
+registry. Its `drops(mutation, annotation)` can reject single core mutations of
+annotations no plugin claimed, and `scan(files)` reads the project's files before
+any annotation is mutated (for rules that depend on code elsewhere in the project). The `Plugin` base class also provides parso helpers
 (`_node_code`, `_trailer_target`) that a plugin can use or override. Operators
 a plugin returns from `operators()` subclass `TypeMutationOperator`, which
 provides `_node_code`, `_is_qualified_name`, `_union_members` and `_type_params`.
@@ -109,6 +113,41 @@ Unresolvable receivers (a factory call without annotation, `self.router`, a star
 import) are not treated as endpoints. The same goes for functions registered
 without a decorator (`app.add_api_route(...)`) or used only through `Depends(...)`.
 Mark those with `# pragma: no mutate`.
+
+## pydantic
+
+For pydantic 2 models: classes inheriting from `pydantic.BaseModel`, `RootModel` or
+`pydantic_settings.BaseSettings` (directly or through project classes, also across
+modules) and `@pydantic.dataclasses.dataclass` classes. Pydantic reads field
+annotations when it creates the class, so some mutations that pass the type checker
+break the model at import time or make it unusable. The plugin drops them from
+model fields:
+
+| Field | Mutation | Why it is dropped |
+|-------|----------|-------------------|
+| `item: Item` | `Item` → `BaseModel` | a `BaseModel` field fails to validate input (`'BaseModel' object has no attribute '__private_attributes__'`) and dumps as `{}`; same for `RootModel` / `BaseSettings` |
+| `pet: Cat \| Dog = Field(discriminator="pet_type")` | `Cat` → `Pet` | the base has no discriminator field (`discriminator-no-field`) |
+| `pet_type: Literal["cat"]` (a discriminator) | `Literal["cat"] \| None` | `PydanticUserError: discriminator-needs-literal` |
+| `ids: Sequence[int]` | `Collection[int]` | no pydantic schema (`PydanticSchemaGenerationError`); same for `Iterator`, `Container`, `Sized`, `Reversible`, `KeysView`, `ValuesView`, `AsyncIterable`, `AsyncIterator`, `AsyncGenerator` |
+
+A `Literal` field counts as a discriminator when its name is used as
+`discriminator="..."` or `Discriminator("...")` anywhere in the project. Other
+mutations of fields stay: widening to a project base model, `X | None`,
+`list` → `Sequence` and removing `Literal` / union members are valid for pydantic
+and change behaviour that tests can catch. Outside model fields nothing is dropped.
+
+Like `fastapi`, the plugin also skips the parameter and return annotations of
+functions only pydantic calls:
+
+- methods decorated with `@field_validator`, `@model_validator`, `@field_serializer`,
+  `@model_serializer` (and the deprecated `@validator`, `@root_validator`);
+- module-level functions passed to `AfterValidator`, `BeforeValidator`,
+  `PlainValidator`, `WrapValidator`, `PlainSerializer` or `WrapSerializer` in the same
+  module (`Annotated[int, AfterValidator(is_even)]`);
+- `__get_pydantic_core_schema__`, `__get_pydantic_json_schema__` and `model_post_init`
+  methods.
+
+`@computed_field` properties are mutated as usual: Python code reads them.
 
 ## Other frameworks: `[typemut.entrypoints]`
 

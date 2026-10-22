@@ -120,6 +120,8 @@ class App:
         plugins = self.plugins.get(cfg.plugins, cfg.entrypoints)
         if plugins:
             self.console.print(f"Enabled plugins: {', '.join(plugin.name for plugin in plugins)}")
+        for plugin in plugins:
+            plugin.scan(files)
         plugin_operators = [op for plugin in plugins for op in plugin.operators()]
         operators = self.operators.enabled(cfg.operators, plugin_operators)
         self.console.print(f"Enabled operators: {', '.join(op.name for op in operators)}")

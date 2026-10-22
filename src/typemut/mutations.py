@@ -18,7 +18,8 @@ class MutationFinder:
     The first plugin that claims an annotation decides its mutations;
     otherwise every operator runs on the annotation as is, except operators
     that ignore a type the annotation references or the class it is a field
-    of (see ``typemut.ignore``).
+    of (see ``typemut.ignore``), and the mutations a plugin drops as invalid
+    for its library are left out.
     """
 
     def __init__(
@@ -52,6 +53,9 @@ class MutationFinder:
                 continue
             found = op.find_mutations(annotation.node, annotation.context, self._registry)
             mutations.extend(
-                m for m in found if not self._ignored.drops(m, annotation, op.config_key)
+                m
+                for m in found
+                if not self._ignored.drops(m, annotation, op.config_key)
+                and not any(plugin.drops(m, annotation) for plugin in self._plugins)
             )
         return mutations
