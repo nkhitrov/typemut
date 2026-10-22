@@ -9,6 +9,7 @@ from typing import Final
 
 from typemut.config import EntrypointsConfig
 from typemut.plugins.base import Plugin
+from typemut.plugins.dmr import DmrPlugin
 from typemut.plugins.entrypoints import EntrypointsPlugin
 from typemut.plugins.fastapi import FastAPIPlugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
@@ -20,6 +21,7 @@ ENTRY_POINT_GROUP = "typemut.plugins"
 NO_ENTRYPOINTS: Final = EntrypointsConfig()
 
 BUILTIN_PLUGINS: Mapping[str, type[Plugin]] = {
+    DmrPlugin.name: DmrPlugin,
     FastAPIPlugin.name: FastAPIPlugin,
     SQLAlchemyPlugin.name: SQLAlchemyPlugin,
 }

@@ -97,15 +97,21 @@ class HandlerPlugin(Plugin):
         operators: Collection[TypeMutationOperator],  # pragma: no mutate
         registry: Registry,
     ) -> list[Mutation] | None:
-        """No mutations for handler signatures; leave other annotations to the core."""
+        """No mutations for skipped signature annotations; leave the others to the core."""
         if annotation.context not in SIGNATURE:
             return None
         # Parameter and return annotations only occur in function signatures.
         funcdef = annotation.node.search_ancestor("funcdef")
         assert isinstance(funcdef, Function)
-        if self._is_handler(funcdef, annotation.file):
+        if annotation.context in self._skipped(funcdef, annotation.file):
             return []
         return None
+
+    def _skipped(
+        self, funcdef: Function, file: Path
+    ) -> Container[AnnotationContext]:  # pragma: no mutate (membership-tested)
+        """Which signature annotations of *funcdef* get no mutations: all of a handler's."""
+        return SIGNATURE if self._is_handler(funcdef, file) else frozenset()
 
     @abstractmethod
     def _is_handler(
@@ -113,6 +119,21 @@ class HandlerPlugin(Plugin):
     ) -> bool:  # pragma: no mutate (truth-tested)
         """Whether the framework calls *funcdef*, defined in *file*."""
         ...
+
+    def _is_method_of(
+        self, funcdef: Function, file: Path, classes: Container[str]
+    ) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether *funcdef* is a method of a class inheriting from one of *classes*.
+
+        Inheritance is resolved statically, through project classes in any module.
+        """
+        scope = funcdef.search_ancestor("classdef", "funcdef")
+        if scope is None or scope.type != "classdef":
+            return False
+        bases = (self._resolver.qualify(base, file) for base in self._scopes.bases(scope))
+        return any(
+            base is not None and self._resolver.inherits_from(base, classes, file) for base in bases
+        )
 
     def _decorators(self, funcdef: Function) -> Iterable[BaseNode]:
         """Decorators of a function."""

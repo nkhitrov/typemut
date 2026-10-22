@@ -30,7 +30,8 @@ def greet(name: str) -> str: ...
 - **[CI gating](ci.md)** — `--fail-under` and a baseline of accepted survivors.
 - **[Incremental runs](incremental.md)** — reuse kills whose files are unchanged; recipes to
   [keep the database between CI runs](ci-database.md) on GitHub Actions and GitLab CI.
-- **[Plugins](plugins.md)** — SQLAlchemy and FastAPI, framework entrypoints, third-party plugins.
+- **[Plugins](plugins.md)** — SQLAlchemy, FastAPI and django-modern-rest, framework entrypoints,
+  third-party plugins.
 - **[Filtering](filtering.md)** — skip comments, excluded modules, ignored types and class hierarchies.
 - **[HTML report](html-report.md)** with per-mutant diffs and checker output.
 
