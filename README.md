@@ -62,8 +62,8 @@ typemut run --jobs 8
   on GitHub Actions and GitLab CI.
 - **[Plugins](https://nkhitrov.github.io/typemut/plugins/)** — SQLAlchemy, FastAPI, framework entrypoints and
   third-party plugins.
-- **[Filtering](https://nkhitrov.github.io/typemut/filtering/)** — skip comments, excluded modules, ignored types
-  and class hierarchies per operator.
+- **[Filtering](https://nkhitrov.github.io/typemut/filtering/)** — skip comments, excluded modules, `@override`
+  signatures, ignored types and class hierarchies per operator.
 - **[HTML report](https://nkhitrov.github.io/typemut/html-report/)** with per-mutant diffs and checker output.
 - **[CLI reference](https://nkhitrov.github.io/typemut/commands/)** — `run`, `init`, `exec`, `report`, `html`.
 
