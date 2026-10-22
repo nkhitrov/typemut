@@ -37,20 +37,22 @@ class MutationFinder:
 
     def find(self, annotation: AnnotationNode) -> list[Mutation]:
         """Return all mutations for an annotation."""
+        # Operators and plugins resolve names through the annotated file's imports.
+        registry = self._registry.in_file(annotation.file)
         for plugin in self._plugins:
-            claimed = plugin.find_mutations(annotation, self._operators, self._registry)
+            claimed = plugin.find_mutations(annotation, self._operators, registry)
             if claimed is not None:
                 return claimed
-        return self._core_mutations(annotation)
+        return self._core_mutations(annotation, registry)
 
-    def _core_mutations(self, annotation: AnnotationNode) -> list[Mutation]:
+    def _core_mutations(self, annotation: AnnotationNode, registry: Registry) -> list[Mutation]:
         mutations: list[Mutation] = []
         for op in self._operators:
             if self._ignored.is_ignored(annotation, op.config_key):
                 continue
             if self._ignored_classes.is_ignored(annotation, op.config_key):
                 continue
-            found = op.find_mutations(annotation.node, annotation.context, self._registry)
+            found = op.find_mutations(annotation.node, annotation.context, registry)
             mutations.extend(
                 m for m in found if not self._ignored.drops(m, annotation, op.config_key)
             )
