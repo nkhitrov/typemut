@@ -1,0 +1,144 @@
+name: typemut
+description: >-
+  Mutation-test Python type annotations with typemut, keeping the results
+  database between runs as an artifact of the default branch.
+author: Nick Khitrov
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  version:
+    description: >-
+      typemut version to install with `python -m pip` (`latest` for the newest).
+      Empty: run the typemut of the project's environment through `command`.
+    default: ""
+  command:
+    description: >-
+      Command that starts typemut, split on whitespace, e.g. `uv run typemut`
+      or `poetry run typemut`.
+    default: typemut
+  working-directory:
+    description: The project root, where typemut.toml lives.
+    default: "."
+  db:
+    description: Database file (`--db`), relative to working-directory.
+    default: typemut.sqlite
+  jobs:
+    description: Parallel workers (`--jobs`); needs a clean git tree, so keep the database in .gitignore.
+    default: ""
+  max-duration:
+    description: Start no new mutant after this many seconds (`--max-duration`).
+    default: ""
+  timeout-minutes:
+    description: >-
+      Stop typemut with SIGTERM after this many minutes, so that its finished
+      results are saved and uploaded. Keep it above max-duration and below the
+      job's timeout-minutes.
+    default: ""
+  refresh:
+    description: Recheck every mutant without reusing cached kills (`--refresh`).
+    default: "false"
+  baseline:
+    description: JSON file of accepted survivors (`--baseline`), relative to working-directory.
+    default: ""
+  fail-under:
+    description: Fail if the mutation score is below this percentage (`--fail-under`).
+    default: ""
+  args:
+    description: More `typemut run` options, split on whitespace.
+    default: ""
+  artifact-name:
+    description: Name of the database artifact; give each job that stores a database its own.
+    default: typemut-db
+  retention-days:
+    description: Days to keep the uploaded database artifact.
+    default: "30"
+  upload:
+    description: >-
+      `false` never uploads the database. Otherwise only push, schedule and
+      workflow_dispatch runs on the default branch upload it.
+    default: "true"
+  default-branch:
+    description: >-
+      Branch whose database is used and stored. Empty: the repository's
+      default branch.
+    default: ""
+  token:
+    description: "Token that lists and downloads artifacts; needs `actions: read`."
+    default: ${{ github.token }}
+
+outputs:
+  db:
+    description: Absolute path of the database file.
+    value: ${{ steps.prepare.outputs.db }}
+  db-run-id:
+    description: Id of the run whose database was downloaded; empty for a full run.
+    value: ${{ steps.download.outputs.run-id }}
+  stored:
+    description: Whether this run uploads the database (`true` or `false`).
+    value: ${{ steps.prepare.outputs.store }}
+
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      shell: bash
+      env:
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_DB: ${{ inputs.db }}
+        INPUT_DEFAULT_BRANCH: ${{ inputs.default-branch }}
+        INPUT_UPLOAD: ${{ inputs.upload }}
+        EVENT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/action/prepare.sh"
+
+    - name: Install typemut
+      if: inputs.version != ''
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        if [ "$VERSION" = latest ]; then
+          spec=typemut
+        else
+          spec="typemut==$VERSION"
+        fi
+        python -m pip install --disable-pip-version-check "$spec"
+
+    - id: download
+      name: Download the typemut database of the default branch
+      shell: bash
+      env:
+        DB: ${{ steps.prepare.outputs.db }}
+        DEFAULT_BRANCH: ${{ steps.prepare.outputs.default-branch }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        REPO_ID: ${{ github.repository_id }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/action/download.sh"
+
+    - name: typemut run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TYPEMUT_COMMAND: ${{ inputs.command }}
+        DB: ${{ steps.prepare.outputs.db }}
+        JOBS: ${{ inputs.jobs }}
+        MAX_DURATION: ${{ inputs.max-duration }}
+        TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        REFRESH: ${{ inputs.refresh }}
+        BASELINE: ${{ inputs.baseline }}
+        FAIL_UNDER: ${{ inputs.fail-under }}
+        ARGS: ${{ inputs.args }}
+      run: bash "$GITHUB_ACTION_PATH/action/run.sh"
+
+    # Failed and stopped runs store their finished results too.
+    - name: Upload the typemut database
+      if: always() && steps.prepare.outputs.store == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.prepare.outputs.db }}
+        retention-days: ${{ inputs.retention-days }}
+        if-no-files-found: warn
+        overwrite: true  # a re-run of failed jobs reuses the run

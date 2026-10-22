@@ -14,7 +14,7 @@ typemut — mutation testing tool for Python type annotations. It mutates annota
 - `make lint` — run all linters (ruff, flake8/wps, mypy) on `src/typemut/`
 - `make lint-all` — run linters + tests on Python 3.11, 3.12, 3.13
 - `make fmt` — auto-format code (ruff)
-- `make mutate` — run typemut on its own sources (`typemut.toml`, `mypy src/typemut/`, `--jobs 4 --incremental`, extra options in `MUTATE_ARGS`) and fail on survivors missing from `typemut-baseline.json`; CI runs this too
+- `make mutate` — run typemut on its own sources (`typemut.toml`, `mypy src/typemut/`, `--jobs 4 --incremental`, extra options in `MUTATE_ARGS`) and fail on survivors missing from `typemut-baseline.json`; CI runs the same through the GitHub Action (`action.yml` + `action/*.sh`, `uses: ./`)
 - `make docs` / `make docs-build` — serve / build the documentation site (Zensical, `zensical.toml`, `docs/`); deployed to GitHub Pages by `.github/workflows/docs.yml`
 - `make run PROJECT=/path/to/project` — run typemut against another project (also `init`/`exec`/`report`/`html` targets)
 

@@ -24,5 +24,6 @@ baseline: a gate on incomplete results would pass by accident.
 Mutation testing is slow, so use `--jobs N` in CI (it needs a clean git working tree,
 see [Parallel runs](parallel.md)), and `--incremental` with the database kept
 between CI runs (see [Incremental runs](incremental.md) and
-[Keeping the database between CI runs](ci-database.md)). typemut runs this on itself — see `make mutate` and
+[Keeping the database between CI runs](ci-database.md), which also has a
+ready-made GitHub Action). typemut runs this on itself — see `make mutate` and
 [`.github/workflows/ci.yml`](https://github.com/nkhitrov/typemut/blob/main/.github/workflows/ci.yml).
