@@ -30,7 +30,8 @@ An entry point that fails to import or does not name a `Plugin` subclass is
 logged as a warning and skipped.
 
 A plugin's `find_mutations` receives the enabled operators and the class
-registry. The `Plugin` base class also provides parso helpers
+registry. A plugin that needs project-wide facts overrides `scan(files)`: it is
+called once with every source file before any `find_mutations`. The `Plugin` base class also provides parso helpers
 (`_node_code`, `_trailer_target`) that a plugin can use or override. Operators
 a plugin returns from `operators()` subclass `TypeMutationOperator`, which
 provides `_node_code`, `_is_qualified_name`, `_union_members` and `_type_params`.
@@ -96,19 +97,57 @@ A function counts as an endpoint when it is decorated with
 `@<receiver>.<method>(...)`, where `<method>` is a route method (`get`, `post`, `put`,
 `patch`, `delete`, `head`, `options`, `trace`, `api_route`, `websocket`) or
 `exception_handler`, `middleware`, `on_event`. The receiver has to be an instance
-of `fastapi.FastAPI` / `fastapi.APIRouter`, or of a project class inheriting from
-them (also across modules). The type is resolved statically from imports, not
-from variable names:
+of `fastapi.FastAPI` / `fastapi.APIRouter`, of a known third-party subclass
+(FastStream's FastAPI routers: `faststream.kafka.fastapi.KafkaRouter`, `RabbitRouter`,
+`NatsRouter`, `RedisRouter`, ..., also from `faststream_fastapi`), or of a project
+class inheriting from them (also across modules). Library sources are not parsed,
+so other third-party subclasses are not recognised. The type is resolved statically
+from imports, not from variable names:
 
 - `app = FastAPI()`, `router: APIRouter = make_router()`, `def register(app: FastAPI)`;
 - `app = FastAPI()` inside an app factory function;
 - a receiver imported from another project module, including re-exports
   (`from app.api import router`, `from app import api` + `@api.router.get`).
 
+Skipping endpoints also keeps out mutants FastAPI rejects at import:
+`-> HTMLResponse` → `-> HTMLResponse | None` on an endpoint raises
+`FastAPIError: Invalid args for response field`. The same mutation on a dependency
+or a helper function is valid.
+
+**Dependency providers.** `Annotated[User, Depends(get_user)]` does not relate
+`User` to the return type of `get_user`, so a mutated return type of a dependency
+survives whenever nothing but FastAPI calls it. The plugin skips the **return
+annotation** of such providers:
+
+```python
+async def get_user(token: Annotated[str, Depends(oauth2_scheme)]) -> User:  # return not mutated
+    ...
+
+@app.get("/me")
+async def me(user: Annotated[User, Depends(get_user)]) -> User: ...
+```
+
+A provider is what `Depends(...)` / `Security(...)` (from `fastapi`, `fastapi.params`
+or `fastapi.param_functions`) refers to anywhere in the module path: in a default
+value, inside `Annotated[...]`, in a type alias, in `dependencies=[...]` of a route,
+router or app. Keys and values of `app.dependency_overrides[f] = g` are providers as
+well. For a callable instance (`checker = Checker(...)`, `Depends(checker)`) it is
+`Checker.__call__`. Names are resolved like endpoint receivers (imports, re-exports,
+`deps.get_user`).
+
+- Parameters of providers are still mutated: the provider's body and parameter
+  defaults check them like in any function.
+- A provider that the project also uses directly (`get_user(token)`,
+  `get_settings.cache_clear()`, `checker("q")`) is mutated as usual: the type checker
+  has a caller to check it against. Only files in the module path (minus
+  `excluded-modules`) are searched for such uses; a direct call from tests outside
+  it is not seen.
+- `Depends()` without an argument (the annotated class is the dependency), lambdas,
+  methods and nested functions are not treated as providers.
+
 Unresolvable receivers (a factory call without annotation, `self.router`, a star
 import) are not treated as endpoints. The same goes for functions registered
-without a decorator (`app.add_api_route(...)`) or used only through `Depends(...)`.
-Mark those with `# pragma: no mutate`.
+without a decorator (`app.add_api_route(...)`). Mark those with `# pragma: no mutate`.
 
 ## Other frameworks: `[typemut.entrypoints]`
 

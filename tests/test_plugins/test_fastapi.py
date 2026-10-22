@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,8 @@ from typemut.discovery import AnnotationFinder
 from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
 from typemut.plugins import PluginRegistry
+from typemut.plugins.base import Plugin
+from typemut.plugins.fastapi import FastAPIPlugin
 from typemut.registry import Registry
 
 ENDPOINT = "def endpoint(q: int | None) -> RedirectResponse: ...\n"
@@ -21,9 +24,18 @@ CORE_ENDPOINT_MUTATIONS = {
 
 
 def mutations(file: Path, plugins: list[str]) -> set[tuple[str, str, str]]:
-    """Mutations of every annotation in *file* (read from disk)."""
+    """Mutations of every annotation in *file* (read from disk).
+
+    Plugins scan every module in the directory of *file* and below first.
+    """
+    return find_mutations(file, PluginRegistry().get(plugins))
+
+
+def find_mutations(file: Path, loaded: Collection[Plugin]) -> set[tuple[str, str, str]]:
     operators = OperatorRegistry().enabled({})
-    loaded = PluginRegistry().get(plugins)
+    files = sorted(file.parent.rglob("*.py"))
+    for plugin in loaded:
+        plugin.scan(files)
     return {
         (mutation.operator, mutation.original, mutation.mutated)
         for annotation in AnnotationFinder().find(file)
@@ -406,3 +418,296 @@ def test_undecodable_module_is_mutated(tmp_path: Path) -> None:
     )
     (tmp_path / "app" / "broken.py").write_bytes(b"\xff\xfe\x00")
     assert mutations(tmp_path / "app" / "views.py", ["fastapi"]) == CORE_ENDPOINT_MUTATIONS
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            'from faststream.kafka.fastapi import KafkaRouter\nrouter = KafkaRouter("localhost")\n'
+            f'@router.get("/")\n{ENDPOINT}',
+            id="faststream-kafka-router",
+        ),
+        pytest.param(
+            "from faststream.rabbit.fastapi import RabbitRouter\nrouter = RabbitRouter()\n"
+            f'@router.post("/")\n{ENDPOINT}',
+            id="faststream-rabbit-router",
+        ),
+        pytest.param(
+            "from faststream._internal.fastapi.router import StreamRouter\n"
+            "class Router(StreamRouter): ...\n"
+            f'router = Router()\n@router.get("/")\n{ENDPOINT}',
+            id="project-subclass-of-faststream-router",
+        ),
+        pytest.param(
+            "from faststream_fastapi import KafkaRouter\nrouter = KafkaRouter()\n"
+            f'@router.get("/")\n{ENDPOINT}',
+            id="faststream-fastapi-package",
+        ),
+    ],
+)
+def test_third_party_router_endpoint_is_skipped(tmp_path: Path, source: str) -> None:
+    write_project(tmp_path, {"main.py": source})
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == set()
+
+
+def test_faststream_broker_router_is_not_an_app(tmp_path: Path) -> None:
+    source = f'from faststream.kafka import KafkaRouter\nrouter = KafkaRouter()\n@router.get("/")\n{ENDPOINT}'
+    write_project(tmp_path, {"main.py": source})
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == CORE_ENDPOINT_MUTATIONS
+
+
+def test_app_classes_are_injectable(tmp_path: Path) -> None:
+    source = f'from mylib import Api\napi = Api()\n@api.get("/")\n{ENDPOINT}'
+    write_project(tmp_path, {"main.py": source})
+    plugin = FastAPIPlugin(app_classes=["mylib.Api"])
+    assert find_mutations(tmp_path / "main.py", [plugin]) == set()
+    assert find_mutations(tmp_path / "main.py", [FastAPIPlugin()]) == CORE_ENDPOINT_MUTATIONS
+
+
+PROVIDER = "def get_user(token: int | None) -> User: ...\n"
+
+# The return annotation of a provider is skipped, its parameters are mutated.
+PROVIDER_PARAMETER_MUTATIONS = {("RemoveOptional", "int | None", "int")}
+CORE_PROVIDER_MUTATIONS = PROVIDER_PARAMETER_MUTATIONS | {("AddOptional", "User", "User | None")}
+
+FASTAPI_IMPORTS = "from typing import Annotated\nfrom fastapi import Depends, FastAPI, Security\n"
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        pytest.param("def view(user: Annotated[User, Depends(get_user)]): ...\n", id="annotated"),
+        pytest.param("def view(user=Depends(get_user)): ...\n", id="default-value"),
+        pytest.param(
+            'def view(user: Annotated[User, Security(get_user, scopes=["me"])]): ...\n',
+            id="security",
+        ),
+        pytest.param("def view(user=Depends(dependency=get_user)): ...\n", id="keyword-argument"),
+        pytest.param(
+            "def view(user=Depends(use_cache=False, dependency=get_user)): ...\n",
+            id="keyword-after-keyword",
+        ),
+        pytest.param("UserDep = Annotated[User, Depends(get_user)]\n", id="type-alias"),
+        pytest.param(
+            'app = FastAPI()\n@app.get("/", dependencies=[Depends(get_user)])\ndef view(): ...\n',
+            id="route-dependencies",
+        ),
+        pytest.param("app = FastAPI(dependencies=[Depends(get_user)])\n", id="app-dependencies"),
+        pytest.param(
+            "import fastapi\ndef view(user=fastapi.Depends(get_user)): ...\n",
+            id="module-qualified-marker",
+        ),
+        pytest.param(
+            "from fastapi.params import Depends as D\ndef view(user=D(get_user)): ...\n",
+            id="params-module-marker",
+        ),
+        pytest.param(
+            "app = FastAPI()\ndef test() -> None:\n    app.dependency_overrides[other] = get_user\n",
+            id="override-value",
+        ),
+        pytest.param(
+            "app = FastAPI()\napp.dependency_overrides[get_user] = override\n", id="override-key"
+        ),
+        pytest.param(
+            "def view(user=Depends(get_user)): ...\ncall(get_user=1)\n",
+            id="keyword-name-is-not-a-reference",
+        ),
+    ],
+)
+def test_provider_return_is_skipped(tmp_path: Path, usage: str) -> None:
+    write_project(tmp_path, {"main.py": f"{FASTAPI_IMPORTS}{PROVIDER}{usage}"})
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == PROVIDER_PARAMETER_MUTATIONS
+
+
+def test_async_provider_return_is_skipped(tmp_path: Path) -> None:
+    usage = "def view(user=Depends(get_user)): ...\n"
+    write_project(tmp_path, {"main.py": f"{FASTAPI_IMPORTS}async {PROVIDER}{usage}"})
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == PROVIDER_PARAMETER_MUTATIONS
+
+
+CHECKER = "class Checker:\n    def __call__(self, token: int | None) -> User: ...\n"
+
+
+def test_callable_instance_provider_return_is_skipped(tmp_path: Path) -> None:
+    usage = "checker = Checker()\ndef view(user=Depends(checker)): ...\n"
+    write_project(tmp_path, {"main.py": f"{FASTAPI_IMPORTS}{CHECKER}{usage}"})
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == PROVIDER_PARAMETER_MUTATIONS
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        pytest.param(
+            "checker = Checker()\ndef view(user=Depends(checker)): ...\nchecker(1)\n",
+            id="instance-called-directly",
+        ),
+        pytest.param("def view(user=Depends(Checker)): ...\n", id="class-as-provider"),
+        pytest.param(
+            "from mylib import Other\nchecker = Other()\ndef view(user=Depends(checker)): ...\n",
+            id="instance-of-library-class",
+        ),
+    ],
+)
+def test_callable_instance_provider_used_otherwise_is_mutated(tmp_path: Path, usage: str) -> None:
+    write_project(tmp_path, {"main.py": f"{FASTAPI_IMPORTS}{CHECKER}{usage}"})
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == CORE_PROVIDER_MUTATIONS
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        pytest.param("def view(user=Depends(get_user)): ...\nget_user(1)\n", id="called-directly"),
+        pytest.param(
+            "def view(user=Depends(get_user)): ...\nasync def test():\n    await get_user(1)\n",
+            id="awaited-directly",
+        ),
+        pytest.param(
+            "def view(user=Depends(get_user)): ...\nget_user.cache_clear()\n",
+            id="attribute-reference",
+        ),
+        pytest.param(
+            "def view(user=Depends(get_user)): ...\nalias = get_user\n", id="assigned-value"
+        ),
+        pytest.param(
+            "def view(user=Depends(get_user)): ...\nprint(user=get_user)\n",
+            id="keyword-argument-value",
+        ),
+        pytest.param("from mylib import Depends as Other\ndef view(user=Other(get_user)): ...\n", id="other-marker"),
+        pytest.param("def view(user: Annotated[User, Depends()]): ...\n", id="marker-without-argument"),
+        pytest.param("def view(user=Depends(use_cache=False)): ...\n", id="marker-keywords-only"),
+        pytest.param("def view(user=Depends(make(get_user))): ...\n", id="argument-not-a-name"),
+        pytest.param("def view(user=Depends(missing)): ...\n", id="unknown-name"),
+        pytest.param("def view(user=Depends(lambda: 1)): ...\n", id="lambda-argument"),
+        pytest.param("def view(user=Depends(typing.cast)): ...\n", id="library-function"),
+        pytest.param(
+            "holder.dependency_overrides[other] = get_user\n", id="override-of-unknown-receiver"
+        ),
+        pytest.param("cache = {}\ncache[other] = get_user\n", id="plain-subscript-assignment"),
+        pytest.param(
+            "app = FastAPI()\napp.dependency_overrides[a] = app.dependency_overrides[b] = get_user\n",
+            id="chained-assignment",
+        ),
+        pytest.param(
+            "app = FastAPI()\napp.dependency_overrides[other]: Any = get_user\n",
+            id="annotated-assignment",
+        ),
+        pytest.param(
+            "app = FastAPI()\napp.dependency_overrides = get_user\n", id="override-mapping-replaced"
+        ),
+        pytest.param("view(Depends(get_user)())\n", id="marker-called-again"),
+    ],
+)
+def test_provider_used_otherwise_is_mutated(tmp_path: Path, usage: str) -> None:
+    write_project(tmp_path, {"main.py": f"{FASTAPI_IMPORTS}{PROVIDER}{usage}"})
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == CORE_PROVIDER_MUTATIONS
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            f"{FASTAPI_IMPORTS}def outer() -> None:\n    {PROVIDER}"
+            "    def view(user=Depends(get_user)): ...\n",
+            id="nested-function",
+        ),
+        pytest.param(
+            f"{FASTAPI_IMPORTS}class Service:\n    @staticmethod\n    {PROVIDER}"
+            "def view(user=Depends(Service.get_user)): ...\n",
+            id="method",
+        ),
+        pytest.param(
+            f"{FASTAPI_IMPORTS}class Outer:\n    {CHECKER.replace(chr(10) + '    ', chr(10) + '        ')}"
+            "def view(user=Depends(Outer.Checker())): ...\n",
+            id="nested-class-call",
+        ),
+        pytest.param(f"{FASTAPI_IMPORTS}{PROVIDER}", id="unused"),
+    ],
+)
+def test_other_functions_are_not_providers(tmp_path: Path, source: str) -> None:
+    write_project(tmp_path, {"main.py": source})
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == CORE_PROVIDER_MUTATIONS
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        pytest.param(
+            {
+                "app/deps.py": PROVIDER,
+                "app/views.py": f"{FASTAPI_IMPORTS}from app.deps import get_user\n"
+                "def view(user=Depends(get_user)): ...\n",
+            },
+            id="imported",
+        ),
+        pytest.param(
+            {
+                "app/deps.py": PROVIDER,
+                "app/views.py": f"{FASTAPI_IMPORTS}from app import deps\n"
+                "def view(user=Depends(deps.get_user)): ...\n",
+            },
+            id="module-attribute",
+        ),
+        pytest.param(
+            {
+                "app/api/__init__.py": "from app.deps import get_user\n",
+                "app/deps.py": PROVIDER,
+                "app/views.py": f"{FASTAPI_IMPORTS}from app.api import get_user\n"
+                "def view(user=Depends(get_user)): ...\n",
+            },
+            id="re-export",
+        ),
+        pytest.param(
+            {
+                "app/deps.py": PROVIDER,
+                "app/main.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+                "app/tests.py": "from app.main import app\nfrom app.deps import get_user\n"
+                "app.dependency_overrides[other] = get_user\n",
+            },
+            id="override-of-imported-app",
+        ),
+    ],
+)
+def test_provider_across_modules_return_is_skipped(tmp_path: Path, files: dict[str, str]) -> None:
+    write_project(tmp_path, PACKAGE | files)
+    assert mutations(tmp_path / "app" / "deps.py", ["fastapi"]) == PROVIDER_PARAMETER_MUTATIONS
+    assert mutations(tmp_path / "app" / "deps.py", []) == CORE_PROVIDER_MUTATIONS
+
+
+@pytest.mark.parametrize(
+    "caller",
+    [
+        pytest.param("from app.deps import get_user\nget_user(1)\n", id="imported-call"),
+        pytest.param("from app import deps\ndeps.get_user(1)\n", id="module-attribute-call"),
+        pytest.param("import app.deps\napp.deps.get_user(1)\n", id="dotted-module-call"),
+    ],
+)
+def test_provider_called_from_other_module_is_mutated(tmp_path: Path, caller: str) -> None:
+    files = {
+        "app/deps.py": PROVIDER,
+        "app/views.py": f"{FASTAPI_IMPORTS}from app.deps import get_user\n"
+        "def view(user=Depends(get_user)): ...\n",
+        "app/checks.py": caller,
+    }
+    write_project(tmp_path, PACKAGE | files)
+    assert mutations(tmp_path / "app" / "deps.py", ["fastapi"]) == CORE_PROVIDER_MUTATIONS
+
+
+def test_unreadable_module_is_not_scanned(tmp_path: Path) -> None:
+    usage = "def view(user=Depends(get_user)): ...\n"
+    write_project(tmp_path, {"main.py": f"{FASTAPI_IMPORTS}{PROVIDER}{usage}"})
+    (tmp_path / "broken.py").write_bytes(b"\xff\xfe\x00")
+    assert mutations(tmp_path / "main.py", ["fastapi"]) == PROVIDER_PARAMETER_MUTATIONS
+
+
+def test_providers_are_unknown_before_scan(tmp_path: Path) -> None:
+    usage = "def view(user=Depends(get_user)): ...\n"
+    write_project(tmp_path, {"main.py": f"{FASTAPI_IMPORTS}{PROVIDER}{usage}"})
+    operators = OperatorRegistry().enabled({})
+    finder = MutationFinder(operators, Registry(), [FastAPIPlugin()])
+    found = {
+        (mutation.operator, mutation.original, mutation.mutated)
+        for annotation in AnnotationFinder().find(tmp_path / "main.py")
+        for mutation in finder.find(annotation)
+    }
+    assert found == CORE_PROVIDER_MUTATIONS
