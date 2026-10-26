@@ -40,10 +40,104 @@ these rules:
   job time: the GitHub examples use 5.5 hours, the GitLab one 5h40m, instead
   of 25 minutes.
 
-typemut's own CI does this with a GitHub artifact: see
+On GitHub Actions the ready-made action (the first tab below) does all of
+this but the triggers, the time limits and the concurrency group, which belong
+to the workflow; the manual workflows after it spell the same steps out. typemut's
+own CI uses the action: see
 [`.github/workflows/ci.yml`](https://github.com/nkhitrov/typemut/blob/main/.github/workflows/ci.yml). (There, any change to typemut's own sources resets
 the cache, since an unreleased typemut is keyed by its sources: pull requests
 that touch `src/typemut/` run every mutant.)
+
+=== "GitHub Actions: ready-made action"
+
+    The [`typemut` action](https://github.com/nkhitrov/typemut/blob/main/action.yml)
+    runs the steps of the artifact workflow (next tab): it downloads the
+    database of the newest run on the default branch of this repository (any
+    failure is a warning and a full run; a file that is not an intact SQLite
+    database is discarded), runs `typemut run --incremental`, and uploads the
+    database, even when typemut failed, but only from `push`, `schedule` and
+    `workflow_dispatch` runs on the default branch (`pull_request_target` and
+    every other event only read it). The workflow still has to give it:
+
+    - `permissions: actions: read`, to list and download artifacts;
+    - the `concurrency` group, so that runs on the default branch upload one
+      after another (an action cannot set it);
+    - the job's `timeout-minutes`, above the action's `timeout-minutes`, which
+      is above `max-duration`; the weekly `refresh` gets longer limits;
+    - typemut and the type checker: install the project (`uv sync`) and pass
+      `command: uv run typemut`, or set `version` to install typemut with
+      `python -m pip`;
+    - `*.sqlite` in `.gitignore`, since `jobs` needs a clean git tree.
+
+    It runs on GitHub-hosted runners as is; a self-hosted one needs `gh`,
+    `unzip`, `python3` and `timeout` (or `gtimeout`). Pin the action to a
+    release tag (`0.5.0` or later) or a commit SHA.
+
+    ```yaml
+    name: typemut
+
+    on:
+      push:
+        branches: [main]
+      pull_request:
+      schedule:
+        - cron: "0 3 * * 1"   # weekly --refresh
+      workflow_dispatch:
+        inputs:
+          refresh:            # re-trigger a refresh replaced in the queue
+            type: boolean
+            default: false
+
+    permissions:
+      contents: read
+
+    jobs:
+      typemut:
+        runs-on: ubuntu-latest
+        # > timeout-minutes > max-duration; the weekly --refresh gets longer.
+        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 350 || 45 }}
+        concurrency:                   # runs on main upload one after another
+          group: typemut-db-${{ github.ref }}
+          cancel-in-progress: false
+        permissions:
+          contents: read
+          actions: read                # list and download artifacts
+        steps:
+          - uses: actions/checkout@v4
+          - uses: astral-sh/setup-uv@v4
+          - run: uv sync
+          - uses: nkhitrov/typemut@0.5.0
+            with:
+              command: uv run typemut
+              jobs: 4
+              baseline: typemut-baseline.json
+              refresh: ${{ (github.event_name == 'schedule' || inputs.refresh) && 'true' || 'false' }}
+              max-duration: ${{ (github.event_name == 'schedule' || inputs.refresh) && 19800 || 1500 }}
+              timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 340 || 35 }}
+    ```
+
+    | Input | Default | Description |
+    |-------|---------|-------------|
+    | `command` | `typemut` | Command that starts typemut, split on whitespace (`uv run typemut`, `poetry run typemut`) |
+    | `version` | — | Install this typemut version (`latest` for the newest) with `python -m pip` into the Python on `PATH` (set it up with `actions/setup-python`); empty: use `command` as is |
+    | `working-directory` | `.` | Project root, where `typemut.toml` lives |
+    | `db` | `typemut.sqlite` | Database file (`--db`), relative to `working-directory` |
+    | `jobs` | — | `--jobs` |
+    | `max-duration` | — | `--max-duration`, in seconds |
+    | `timeout-minutes` | — | Stop typemut with SIGTERM after this many minutes; it saves its finished results like on Ctrl+C, and the upload still runs. Use it instead of a step timeout, which would also stop the upload |
+    | `refresh` | `false` | `--refresh`: recheck every mutant |
+    | `baseline` | — | `--baseline`, relative to `working-directory` |
+    | `fail-under` | — | `--fail-under` |
+    | `args` | — | More `typemut run` options, split on whitespace |
+    | `artifact-name` | `typemut-db` | Database artifact name; give each job that stores a database (a matrix) its own, or set `upload: false` in all but one |
+    | `retention-days` | `30` | Days to keep the uploaded database |
+    | `upload` | `true` | `false`: never upload the database |
+    | `default-branch` | the repository's | Branch whose database is used and stored |
+    | `token` | `github.token` | Token that lists and downloads artifacts (`actions: read`) |
+
+    Outputs: `db` (absolute path of the database, e.g. for `typemut html --db`),
+    `db-run-id` (the run the database came from; empty for a full run) and
+    `stored` (`true` when this run uploads it).
 
 === "GitHub Actions: artifact"
 
