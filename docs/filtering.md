@@ -5,6 +5,33 @@ Annotations are automatically skipped when:
 - The line contains `# type: ignore` or `# pragma: no mutate`
 - The annotation is `Any` (mutations are meaningless — Any absorbs all types)
 - `AddOptional` targets a function parameter (low signal — callers won't pass None)
+- The annotation is a parameter or return type of an `@override` method (see below)
+
+## `@override` methods
+
+A method decorated with `@override` must keep its parent's interface, so its
+parameter and return annotations are never mutated:
+
+```python
+class RedisBackend(BaseBackend):
+    @override
+    def get(self, key: str) -> CachedRateLimit | None:  # not mutated
+        cached: bytes | None = self._client.get(key)    # mutated as usual
+        ...
+```
+
+Narrowing an override's return type (`-> CachedRateLimit | None` →
+`-> CachedRateLimit`) or widening a parameter is still a legal override, so
+those mutants always survive; the opposite ones only show that the type checker
+checks overrides. The meaningful check is the parent's signature
+(`BaseBackend.get`), which is mutated as usual, like the override's body.
+
+- `typing.override` and `typing_extensions.override` are recognised under any
+  spelling the file's imports give them: `@override`, `@typing.override`,
+  `@te.override` (`import typing_extensions as te`), `from typing import override as ov`.
+- Overrides without the decorator are mutated: add `@override` (mypy's
+  `explicit-override` error code and pyright's `reportImplicitOverride` enforce it).
+- Always on, and applied before plugins.
 
 ## Ignoring library types per operator
 
