@@ -22,13 +22,11 @@ the mutations above.
 from __future__ import annotations
 
 from collections.abc import Collection
-from pathlib import Path
 
 from parso.python.tree import BaseNode, Leaf
 
-from typemut.discovery import AnnotationFinder
 from typemut.model import AnnotationContext, AnnotationNode, Mutation
-from typemut.operators.base import TypeMutationOperator
+from typemut.operators.base import ForwardRefs, TypeMutationOperator
 from typemut.plugins.base import Plugin
 from typemut.registry import Registry
 
@@ -43,20 +41,12 @@ WRAPPERS = COLLECTION_WRAPPERS | {MAPPED}
 
 RELATIONSHIP_FACTORIES = frozenset(("relationship", "dynamic_loader"))
 
-# A single string literal, and implicitly concatenated string literals.
-STRING_TYPES = frozenset(("string", "strings"))
-QUOTES = frozenset(("'", '"'))
-
-# Prefix put in front of a forward reference to parse it as an annotation.
-FORWARD_REF_PREFIX = "_: "
-
 
 class SQLAlchemyPlugin(Plugin):
     name = "sqlalchemy"
 
-    def __init__(self, forward_refs: AnnotationFinder | None = None) -> None:
-        # Parses the annotation inside a quoted forward reference.
-        self._forward_refs = forward_refs or AnnotationFinder(skip_comments=())
+    def __init__(self, forward_refs: ForwardRefs | None = None) -> None:
+        self._forward_refs = forward_refs or ForwardRefs()
 
     def find_mutations(
         self,
@@ -83,42 +73,9 @@ class SQLAlchemyPlugin(Plugin):
             relationship=self._is_relationship(annotation.node),
             plugin=self,
         )
-        if inner.type in STRING_TYPES:
-            return self._forward_ref_mutations(inner, rules)
+        if self._forward_refs.is_quoted(inner):
+            return self._forward_refs.mutations(inner, rules.mutations)
         return rules.mutations(inner)
-
-    def _forward_ref_mutations(self, string: BaseNode | Leaf, rules: _Rules) -> list[Mutation]:
-        """Mutate the annotation inside a quoted forward reference like ``"UserDB | None"``."""
-        if not isinstance(string, Leaf):
-            return []
-        quote = string.value[0]
-        if quote not in QUOTES or string.value.startswith(quote * 3):
-            return []
-        content = string.value[1:-1]
-        parsed = self._forward_refs.find(
-            Path("<forward-ref>"), source=f"{FORWARD_REF_PREFIX}{content}\n"
-        )
-        if len(parsed) != 1:
-            return []
-
-        mutations: list[Mutation] = []
-        for mutation in rules.mutations(parsed[0].node):
-            start = mutation.col - len(FORWARD_REF_PREFIX)
-            end = start + len(mutation.original)
-            mutated = content[:start] + mutation.mutated + content[end:]
-            mutations.append(
-                Mutation(
-                    file=mutation.file,
-                    operator=mutation.operator,
-                    line=string.start_pos[0],
-                    col=string.start_pos[1],
-                    original=string.value,
-                    mutated=f"{quote}{mutated}{quote}",
-                    description=mutation.description,
-                    required_import=mutation.required_import,
-                )
-            )
-        return mutations
 
     def subscript(self, node: BaseNode | Leaf) -> tuple[str, BaseNode | Leaf | None] | None:
         """Split ``Name[arg]`` / ``module.Name[arg]`` into (Name, arg).
