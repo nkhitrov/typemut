@@ -441,11 +441,13 @@ def test_run_parallel_shares_absolute_checker_cache(tmp_path: Path) -> None:
     project.mkdir()
     (project / ".gitignore").write_text(".mypy_cache/\n")
     _commit_project(project)
+    (project / "src" / "app.py.orig").write_text("class A:\n    x: int\n")
     (project / "typemut.toml").write_text(
         '[typemut]\nmodule-path = "src"\nchecker = "mypy"\n'
-        'test-command = "test -f .mypy_cache/marker"\n'
+        'test-command = "cmp -s src/app.py src/app.py.orig || test -f .mypy_cache/marker"\n'
     )
-    subprocess.run(["git", "commit", "-am", "mypy"], cwd=project, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=project, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "mypy"], cwd=project, capture_output=True, check=True)
     (project / ".mypy_cache").mkdir()
     (project / ".mypy_cache" / "marker").write_text("")
     checkers = CheckerRegistry.discover([], environ={"MYPY_CACHE_DIR": str(project / ".mypy_cache")})
@@ -485,6 +487,65 @@ def test_run_parallel_warns_once_about_checker_cache_outside_project(
 
     assert result.exit_code == 0
     assert caplog.text.count("is outside the project") == 1
+
+
+def test_run_parallel_stops_when_baseline_fails_only_in_worktrees(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".gitignore").write_text("marker\n")
+    _commit_project(project)
+    (project / "typemut.toml").write_text(
+        '[typemut]\nmodule-path = "src"\n'
+        "test-command = \"test -f marker || { echo 'docs/a.py:1: error: Boom'; false; }\"\n"
+    )
+    subprocess.run(["git", "commit", "-am", "marker"], cwd=project, capture_output=True, check=True)
+    (project / "marker").write_text("")
+    make_app = partial(App, worker_pool=InlinePool(), progress=RecordingProgressBar())
+    db_path = tmp_path / "typemut.sqlite"
+
+    result = CliRunner().invoke(
+        main, ["-C", str(project), "run", "--jobs", "2", "--db", str(db_path)], obj=make_app
+    )
+
+    assert result.exit_code == 1
+    assert "Baseline clean." in result.output
+    assert "fails in a git worktree" in result.output
+    assert "docs/a.py:1: error: Boom" in result.output
+    with Database(db_path) as db:
+        assert db.count_pending() == 1
+
+
+def test_run_warns_about_errors_in_one_unmutated_file(tmp_path: Path) -> None:
+    source = "".join(f"x{index}: int\n" for index in range(10))
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text(source)
+    (tmp_path / "src" / "app.py.orig").write_text(source)
+    (tmp_path / "typemut.toml").write_text(
+        '[typemut]\nmodule-path = "src"\nchecker = "mypy"\n'
+        "test-command = \"cmp -s src/app.py src/app.py.orig "
+        "|| { echo 'docs/a.py:1: error: Boom  [misc]'; false; }\"\n"
+    )
+    make_app = partial(App, progress=RecordingProgressBar())
+
+    result = CliRunner().invoke(
+        main,
+        ["-C", str(tmp_path), "run", "--db", str(tmp_path / "typemut.sqlite")],
+        obj=make_app,
+    )
+
+    assert result.exit_code == 0
+    assert "10 of 10 kills (100%) report errors in docs/a.py" in " ".join(result.output.split())
+
+
+def test_run_without_recurring_errors_does_not_warn(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    result = CliRunner().invoke(
+        main,
+        ["-C", str(tmp_path), "run", "--db", str(tmp_path / "typemut.sqlite")],
+        obj=_app(Outcome.PASSED),
+    )
+    assert result.exit_code == 0
+    assert "kills report errors" not in result.output
 
 
 def test_run_parallel_requires_git(tmp_path: Path) -> None:
