@@ -128,7 +128,7 @@ def read_lines(path: str) -> Iterator[str]: ...
 
 ## TypeVarVariance
 
-Removes `covariant=True` / `contravariant=True` from a `TypeVar`, or adds either one to an invariant `TypeVar`.
+Removes `covariant=True` / `contravariant=True` from a `TypeVar`, or adds either one to an invariant `TypeVar`. A flag the call already spells out (`covariant=False`) is not added again, and a `TypeVar` with `infer_variance=True` gets no added flag.
 
 ```python
 # Original
