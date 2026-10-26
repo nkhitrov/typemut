@@ -227,6 +227,13 @@ def test_resolve_required_import_of_class_defined_in_source():
     assert inserted_at is None
 
 
+def test_resolve_required_import_of_name_used_after_an_import_line():
+    source = "import enum\nfrom typing import Any\n\nclass Label(enum.IntEnum):\n    pass\n"
+    new_source, inserted_at = ImportInjector().resolve(source, "IntEnum", "from enum import IntEnum")
+    assert new_source.splitlines()[2] == "from enum import IntEnum"
+    assert inserted_at == 2
+
+
 def test_resolve_falls_back_to_import_sources():
     source = "import os\n\nx: list\n"
     new_source, inserted_at = ImportInjector().resolve(source, "Sequence[int]", None)

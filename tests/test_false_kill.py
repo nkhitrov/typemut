@@ -28,6 +28,15 @@ def test_valid_type_is_false_kill():
     assert _status(output) == "error"
 
 
+def test_import_not_found_is_false_kill():
+    """An injected import of a module the checker cannot find breaks the mutant, not its type."""
+    output = (
+        'views.py:3: error: Cannot find implementation or library stub for module named "glossary"'
+        "  [import-not-found]\n"
+    )
+    assert _status(output) == "error"
+
+
 def test_attr_defined_is_real_kill():
     output = 'models.py:30: error: "Sequence[int]" has no attribute "append"  [attr-defined]\n'
     assert _status(output) == "killed"
