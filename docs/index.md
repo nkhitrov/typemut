@@ -28,10 +28,13 @@ def greet(name: str) -> str: ...
   mutants are reported as `error`.
 - **[Parallel runs](parallel.md)** — `--jobs N` runs mutants in N git worktrees.
 - **[CI gating](ci.md)** — `--fail-under` and a baseline of accepted survivors.
+- **[GitHub Action](ci-database.md)** — `uses: nkhitrov/typemut@<release>` runs typemut
+  incrementally and keeps the database of the default branch as an artifact.
 - **[Incremental runs](incremental.md)** — reuse kills whose files are unchanged; recipes to
   [keep the database between CI runs](ci-database.md) on GitHub Actions and GitLab CI.
 - **[Plugins](plugins.md)** — SQLAlchemy and FastAPI, framework entrypoints, third-party plugins.
-- **[Filtering](filtering.md)** — skip comments, excluded modules, ignored types and class hierarchies.
+- **[Filtering](filtering.md)** — skip comments, excluded modules, `@override` signatures, ignored types
+  and class hierarchies.
 - **[HTML report](html-report.md)** with per-mutant diffs and checker output.
 
 Start with [Getting started](getting-started.md).

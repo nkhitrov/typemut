@@ -351,6 +351,12 @@ def test_pyright_rule_on_last_line_of_message() -> None:
             id="type-form",
         ),
         pytest.param("  /proj/b.py:3:5 - error: Expected expression\n", True, id="syntax"),
+        pytest.param(
+            '  /proj/a.py:1:6 - error: Import "glossary" could not be resolved'
+            " (reportMissingImports)\n",
+            True,
+            id="missing-import",
+        ),
         pytest.param(pyright_output(), False, id="real-kill"),
         pytest.param(
             "  /proj/a.py:6:15 - warning: Unused (reportUnusedImport)\n0 errors, 1 warning\n",

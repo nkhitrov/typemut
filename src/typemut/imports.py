@@ -313,17 +313,19 @@ class ModuleImports:
     def package_of(self, file: Path) -> str:
         """Return the dotted package a file belongs to, e.g. ``app/x/models.py`` -> ``app.x``.
 
-        The package root is the topmost directory still containing ``__init__.py``
-        (or a ``__init__.pyi`` stub). Used to resolve relative imports.
+        The package root is the topmost directory containing ``__init__.py``
+        (or a ``__init__.pyi`` stub); directories below it without one are
+        namespace subpackages. Used to resolve relative imports.
         """
         parts: list[str] = []
+        package = ""
         directory = file.parent
-        while directory.name and any(
-            (directory / init).exists() for init in ("__init__.py", "__init__.pyi")
-        ):
+        while directory.name:
             parts.append(directory.name)
+            if any((directory / init).exists() for init in ("__init__.py", "__init__.pyi")):
+                package = ".".join(reversed(parts))
             directory = directory.parent
-        return ".".join(reversed(parts))
+        return package
 
     def names(self, tree: Module, package: str = "") -> dict[str, str]:
         """Map every name bound by an import in *tree* to its qualified name.
@@ -338,17 +340,24 @@ class ModuleImports:
         """
         names: dict[str, str] = {}
         for imp in self._iter_imports(tree):
-            defined_names = imp.get_defined_names()
-            if not defined_names:
-                continue  # star import
-            prefix = self._relative_prefix(imp, package)
-            for defined, path in zip(defined_names, imp.get_paths(), strict=True):
-                if isinstance(imp, ImportName) and defined is path[0]:
-                    # ``import a.b`` binds only ``a``
-                    names[defined.value] = defined.value
-                else:
-                    names[defined.value] = prefix + ".".join(leaf.value for leaf in path)
+            names.update(self.bindings(imp, package))
         return names
+
+    # A generator only ever iterated, so Iterable would pass mypy too.
+    def bindings(
+        self, imp: ImportFrom | ImportName, package: str = ""
+    ) -> Iterator[tuple[str, str]]:  # pragma: no mutate
+        """(name, qualified name) of each name one import statement binds, as for :meth:`names`."""
+        defined_names = imp.get_defined_names()
+        if not defined_names:
+            return  # star import
+        prefix = self._relative_prefix(imp, package)
+        for defined, path in zip(defined_names, imp.get_paths(), strict=True):
+            if isinstance(imp, ImportName) and defined is path[0]:
+                # ``import a.b`` binds only ``a``
+                yield defined.value, defined.value
+            else:
+                yield defined.value, prefix + ".".join(leaf.value for leaf in path)
 
     def imported_modules(self, tree: Module, package: str = "") -> set[str]:
         """Dotted names of the modules imports in *tree* may load.

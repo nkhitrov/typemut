@@ -25,6 +25,23 @@ logger = logging.getLogger(__name__)
 # Seconds to wait for a terminated worker to exit.
 _TERMINATE_TIMEOUT = 5
 
+# Lines of a failed worktree baseline shown to the user.
+_BASELINE_LINES = 20
+
+_WORKTREE_BASELINE_CAUSES = (
+    "With --jobs, mutants run in temporary git worktrees of the current commit, "
+    "and the type checker sees a different project there. Likely causes:\n"
+    "  - the project is installed in editable mode (a .pth file points at the "
+    "project root), so the checker treats files under the root as an installed "
+    "package, but checks them as project files in a worktree;\n"
+    "  - files the checker needs are ignored by git or untracked (generated code, "
+    "stubs, local config) and missing from the worktrees;\n"
+    "  - test-command or the checker config uses absolute paths into the project root.\n"
+    "Every mutant would be killed by these errors, so no mutant was run. Make the "
+    "checker pass in a fresh `git worktree add` checkout (e.g. exclude those files "
+    "in its config), or run with --jobs 1."
+)
+
 
 class WorkspaceError(TypemutError):
     """A git operation needed for parallel execution failed."""
@@ -36,6 +53,10 @@ class WorkerError(TypemutError):
 
 class DirtyWorkingTreeError(WorkspaceError):
     """Raised when the git working tree has uncommitted changes."""
+
+
+class WorktreeBaselineError(TypemutError):
+    """The type checker fails on unmodified code in a worktree, though not in the project."""
 
 
 @dataclass(frozen=True)
@@ -204,7 +225,15 @@ class GitWorkspace:
 
 
 class WorktreeExecutor:
-    """Runs mutants on up to *jobs* workers, each in its own git worktree."""
+    """Runs mutants on up to *jobs* workers, each in its own git worktree.
+
+    The baseline check, which passed in the project itself, runs again in
+    the first worktree before any mutant: a checker that fails there would
+    kill every mutant with errors the mutants did not cause. Worktrees are
+    checkouts of the same commit with the same carried caches, so one of
+    them stands for all, and the check costs one checker run whatever
+    *jobs* is (it also warms that worker's cache).
+    """
 
     def __init__(
         self,
@@ -227,6 +256,8 @@ class WorktreeExecutor:
         try:
             for index in range(n_workers):
                 worktrees.append(self._workspace.create_worktree(index))
+            for worktree in worktrees[:1]:
+                self._check_baseline(worktree)
             jobs = [
                 WorkerJob(chunk, root)
                 for chunk, root in zip(
@@ -236,6 +267,20 @@ class WorktreeExecutor:
             yield from self._pool.run(self._tester, jobs)
         finally:
             self._workspace.remove_worktrees(worktrees)
+
+    def _check_baseline(self, worktree: Path) -> None:
+        """Fail with the likely causes and the first errors if the baseline fails in *worktree*."""
+        ok, output = self._tester.check_baseline(worktree)
+        if ok:
+            return
+        lines = output.strip().splitlines()
+        shown = lines[:_BASELINE_LINES]
+        if len(lines) > len(shown):
+            shown.append(f"... ({len(lines) - len(shown)} more lines)")
+        raise WorktreeBaselineError(
+            "Baseline check passed in the project but fails in a git worktree of it.",
+            _WORKTREE_BASELINE_CAUSES + "\n\nFirst errors in the worktree:\n" + "\n".join(shown),
+        )
 
 
 class FileGroupPartitioner:

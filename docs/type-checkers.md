@@ -2,7 +2,8 @@
 
 typemut runs `test-command` as is, but it reads the output with a plugin for the
 type checker that command runs. The plugin tells a real kill from a mutant that
-merely broke the code: a failure whose only errors are a missing name, a syntax
+merely broke the code: a failure whose only errors are a missing name, a missing
+module (an import added for the mutant), a syntax
 error or an invalid type is recorded as `error`, not `killed`. It also finds the
 checker's config files and cache directory. The checker's version, the files
 with errors and which project files a file imports are known to the plugin
@@ -11,8 +12,8 @@ an earlier kill can be reused.
 
 | `checker` | Recognised executables | Errors counted as broken code |
 |-----------|------------------------|-------------------------------|
-| `mypy` | `mypy`, `dmypy` | `[name-defined]`, `[syntax]`, `[valid-type]` |
-| `pyright` | `pyright` | `reportUndefinedVariable`, `reportInvalidTypeForm`, errors without a rule (syntax errors) |
+| `mypy` | `mypy`, `dmypy` | `[name-defined]`, `[import-not-found]`, `[syntax]`, `[valid-type]` |
+| `pyright` | `pyright` | `reportUndefinedVariable`, `reportMissingImports`, `reportInvalidTypeForm`, errors without a rule (syntax errors) |
 | `basedpyright` | `basedpyright` | same as `pyright` (a subclass: the output format is the same) |
 | `generic` | — | mypy-style `[code]` at the end of any output line, as above |
 

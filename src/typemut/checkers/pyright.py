@@ -16,6 +16,7 @@ NO_RULE: Final = "<no-rule>"
 FALSE_KILL_RULES: Final[AbstractSet[str]] = frozenset(
     {
         "reportUndefinedVariable",  # "Sequence" is not defined
+        "reportMissingImports",  # Import "models" could not be resolved (injected import)
         "reportInvalidTypeForm",  # Variable not allowed in type expression
         NO_RULE,  # syntax error in mutated code
     }

@@ -24,6 +24,7 @@ from typemut.parallel import (
     WorkerError,
     WorkerJob,
     WorkspaceError,
+    WorktreeBaselineError,
     WorktreeExecutor,
 )
 from typemut.runner import CommandResult, Outcome, ShellRunner
@@ -291,7 +292,7 @@ class TestWorktreeExecutor:
     def test_runs_mutants_in_worktrees(self, tmp_path: Path) -> None:
         root = _git_project(tmp_path)
         workspace = GitWorkspace(root, ShellRunner())
-        executor = WorktreeExecutor(_tester("grep -q str test.py"), workspace, InlinePool(), 4)
+        executor = WorktreeExecutor(_tester("! grep -q float test.py"), workspace, InlinePool(), 4)
 
         results = list(executor.execute([make_mutant(1), make_mutant(2, mutated="float")]))
 
@@ -306,7 +307,8 @@ class TestWorktreeExecutor:
         _git(root, "commit", "-m", "other")
         tester = MutationTester(
             ShellRunner(),
-            "echo 'test.py:1: error: Incompatible types  [assignment]'; false",
+            "! grep -q str test.py other.py "
+            "|| { echo 'test.py:1: error: Incompatible types  [assignment]'; false; }",
             timeout=60,
             dependencies=KillDependencies(MypyChecker()),
             deadline=Deadline(3600.0),
@@ -329,3 +331,71 @@ class TestWorktreeExecutor:
         executor = WorktreeExecutor(_tester(), GitWorkspace(root, ShellRunner()), InlinePool(), 2)
         with pytest.raises(DirtyWorkingTreeError):
             list(executor.execute([make_mutant(1)]))
+
+    def test_runs_baseline_in_one_worktree_first(self, tmp_path: Path) -> None:
+        runner = StubRunner(CommandResult(Outcome.PASSED))
+        tester = MutationTester(runner, "check", timeout=60)
+        workspace = GitWorkspace(_git_project(tmp_path), ShellRunner())
+        executor = WorktreeExecutor(tester, workspace, InlinePool(), 2)
+
+        list(executor.execute([make_mutant(1), make_mutant(2)]))
+
+        assert [(command, cwd is not None and cwd.name) for command, _, cwd in runner.calls] == [
+            ("check", "worktree"),
+            ("check", "worktree"),
+            ("check", "worktree"),
+        ]
+        assert len({cwd for _, _, cwd in runner.calls}) == 1
+
+    def test_no_mutants_need_no_worktree(self, tmp_path: Path) -> None:
+        runner = StubRunner(CommandResult(Outcome.PASSED))
+        tester = MutationTester(runner, "check", timeout=60)
+        executor = WorktreeExecutor(tester, GitWorkspace(tmp_path, StubRunner(runner.result)), InlinePool(), 2)
+
+        assert list(executor.execute([])) == []
+        assert runner.calls == []
+
+    def test_fails_when_baseline_fails_only_in_worktree(self, tmp_path: Path) -> None:
+        root = _git_project(tmp_path)
+        (root / ".gitignore").write_text(".gitignore\nmarker\n")
+        (root / "marker").write_text("")
+        command = "test -f marker || { echo 'docs/a.py:1: error: Boom  [misc]'; false; }"
+        executor = WorktreeExecutor(_tester(command), GitWorkspace(root, ShellRunner()), InlinePool(), 2)
+
+        with pytest.raises(WorktreeBaselineError, match="fails in a git worktree") as exc_info:
+            list(executor.execute([make_mutant(1)]))
+
+        assert exc_info.value.details.endswith(
+            "First errors in the worktree:\ndocs/a.py:1: error: Boom  [misc]"
+        )
+        assert "editable" in exc_info.value.details
+        assert _git(root, "worktree", "list").count("\n") == 1
+        assert (root / "test.py").read_text() == "x: int = 5\n"
+
+    def test_worktree_baseline_error_shows_first_lines(self, tmp_path: Path) -> None:
+        output = "".join(f"e{index}.py:1: error: Boom  [misc]\n" for index in range(25))
+        runner = StubRunner(CommandResult(Outcome.FAILED, output))
+        tester = MutationTester(runner, "check", timeout=60)
+        workspace = GitWorkspace(_git_project(tmp_path), ShellRunner())
+        executor = WorktreeExecutor(tester, workspace, InlinePool(), 2)
+
+        with pytest.raises(WorktreeBaselineError) as exc_info:
+            list(executor.execute([make_mutant(1)]))
+
+        assert exc_info.value.details.endswith(
+            "e18.py:1: error: Boom  [misc]\ne19.py:1: error: Boom  [misc]\n... (5 more lines)"
+        )
+        assert "e20.py" not in exc_info.value.details
+
+    def test_worktree_baseline_timeout(self, tmp_path: Path) -> None:
+        runner = StubRunner(CommandResult(Outcome.TIMED_OUT))
+        tester = MutationTester(runner, "check", timeout=60)
+        workspace = GitWorkspace(_git_project(tmp_path), ShellRunner())
+        executor = WorktreeExecutor(tester, workspace, InlinePool(), 2)
+
+        with pytest.raises(WorktreeBaselineError) as exc_info:
+            list(executor.execute([make_mutant(1)]))
+
+        assert exc_info.value.details.endswith(
+            "First errors in the worktree:\nBaseline check timed out"
+        )
