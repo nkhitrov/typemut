@@ -15,13 +15,13 @@ from typemut.imports import ModuleImports
 from typemut.mutations import MutationFinder
 from typemut.operators import OperatorRegistry
 from typemut.plugins import PluginRegistry
-from typemut.registry import Registry
+from typemut.registry import RegistryBuilder
 
-REGISTRY = Registry(
-    hierarchy={"Animal": ["Cat"], "DeclarativeBase": ["UserDB"]},
-    class_to_base={"Cat": "Animal", "UserDB": "DeclarativeBase"},
-    base_import_lines={"DeclarativeBase": "from sqlalchemy.orm import DeclarativeBase"},
-)
+from tests.conftest import FIXTURES_DIR
+
+# The annotations in the sources below are written in this module.
+MODELS = FIXTURES_DIR / "registry" / "ignore_models.py"
+REGISTRY = RegistryBuilder().build([MODELS, MODELS.with_name("ignore_db.py")])
 
 MAPPED = "sqlalchemy.orm.Mapped"
 
@@ -29,7 +29,7 @@ MAPPED = "sqlalchemy.orm.Mapped"
 def mutated(
     source: str,
     ignore: dict[str, list[str]],
-    file: Path = Path("models.py"),
+    file: Path = MODELS,
     plugins: list[str] | None = None,
 ) -> set[str]:
     """Mutated annotations of every annotation in *source* with the given ignore rules."""
@@ -179,6 +179,13 @@ def test_package_of_nested_package(tmp_path: Path) -> None:
 
 def test_package_of_outside_package(tmp_path: Path) -> None:
     assert ModuleImports().package_of(tmp_path / "module.py") == ""
+
+
+def test_package_of_namespace_subpackage(tmp_path: Path) -> None:
+    """A directory without ``__init__.py`` inside a package is a namespace subpackage."""
+    (tmp_path / "app" / "sub").mkdir(parents=True)
+    (tmp_path / "app" / "__init__.py").write_text("")
+    assert ModuleImports().package_of(tmp_path / "app" / "sub" / "module.py") == "app.sub"
 
 
 def test_plugin_still_mutates_ignored_types() -> None:

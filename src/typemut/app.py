@@ -45,6 +45,7 @@ from typemut.parallel import GitWorkspace, ProcessPool, WorkerPool, WorktreeExec
 from typemut.plugins import PluginRegistry
 from typemut.registry import RegistryBuilder
 from typemut.reporting.html import HtmlReport
+from typemut.reporting.recurring import RecurringErrorFinder
 from typemut.reporting.score import MutationScore
 from typemut.reporting.terminal import TerminalReport
 from typemut.runner import CommandRunner, ShellRunner
@@ -202,11 +203,7 @@ class App:
         ResultRecorder(db, progress, cache=cache).record(
             mutants, self._executor(tester, checker, jobs)
         )
-        not_run = db.count_pending()
-        if not_run > 0:
-            self.console.print(
-                f"[yellow]Stopped after max-duration: {not_run} mutants not run.[/yellow]"
-            )
+        self._warn_after_run(db, checker)
 
     def report(self, db: Database) -> None:
         """Print the results table."""
@@ -318,6 +315,24 @@ class App:
                 f"{found.untraceable} kills the checker output did not trace to files."
             )
         return found.remaining
+
+    def _warn_after_run(self, db: Database, checker: TypeChecker) -> None:
+        """Warn about mutants left pending and kills that all report errors in one other file."""
+        not_run = db.count_pending()
+        if not_run > 0:
+            self.console.print(
+                f"[yellow]Stopped after max-duration: {not_run} mutants not run.[/yellow]"
+            )
+        recurring = RecurringErrorFinder(checker).find(db.get_all(), self.root)
+        if recurring is None:
+            return
+        self.console.print(
+            f"[yellow]Warning: {recurring.kills} of {recurring.total} kills "
+            f"({round(recurring.percent)}%) report errors in "
+            f"{escape(recurring.path)}, which they did not mutate. These kills are likely "
+            "caused by errors unrelated to the mutants (a type checker environment that "
+            "differs from the baseline check's); see the outputs in the report.[/yellow]"
+        )
 
     def _describe(self, checker: TypeChecker) -> str:
         """The checker's name with the config files it found and the cache it would use."""

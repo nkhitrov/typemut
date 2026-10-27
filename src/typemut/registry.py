@@ -2,65 +2,142 @@
 
 from __future__ import annotations
 
+import builtins
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import parso
-from parso.python.tree import BaseNode, Leaf
+from parso.python.tree import BaseNode, Class, Leaf, Module
 
+from typemut.hierarchy import ClassNames
 from typemut.imports import ModuleImports
+from typemut.nodes import NodeSource
+
+
+@dataclass(frozen=True)
+class ClassBase:
+    """The first base of a project class."""
+
+    # Qualified name (``pydantic.BaseModel``), or the name as written when it
+    # is neither defined nor imported by the class's module (``str``, an alias).
+    name: str
+    # Written with type arguments: ``class Child(Base[T])``.
+    subscripted: bool = False
+
+
+@dataclass(frozen=True)
+class Widening:
+    """The base class to widen a class to, as it can be written in a given file."""
+
+    # The base's name in that file, e.g. ``BaseModel``.
+    name: str
+    # The base's qualified name, e.g. ``pydantic.BaseModel``.
+    qualified: str
+    # Import line bringing *name* into the file, None if it is already in scope.
+    required_import: str | None = None
+    # The base is written with type arguments in the class definition.
+    subscripted: bool = False  # pragma: no mutate (truth-tested)
 
 
 @dataclass
 class Registry:
-    """Stores class hierarchy across modules."""
+    """Stores the class hierarchy of a project's modules, by qualified name."""
 
-    # {base_class: [child1, child2, ...]}
-    hierarchy: dict[str, list[str]] = field(default_factory=dict)
+    # {qualified class name: its first base}
+    bases: dict[str, ClassBase] = field(default_factory=dict)
 
-    # {class_name: base_class}
-    class_to_base: dict[str, str] = field(default_factory=dict)
+    # {qualified class name: defined unconditionally at module level, so importable}
+    classes: dict[str, bool] = field(default_factory=dict)
 
-    # {type_name: "from module import type_name"} — import lines for base classes
-    # Populated by scanning imports in files that define child classes.
-    base_import_lines: dict[str, str] = field(default_factory=dict)
+    # Dotted names of the project's modules.
+    modules: set[str] = field(default_factory=set)
 
-    # {class_name: "from module import class_name"} — where each project class is defined.
-    # The fallback for bases that the child's module defines rather than imports.
-    class_import_lines: dict[str, str] = field(default_factory=dict)
+    # {name a project module binds by import: qualified name it imports},
+    # e.g. {"app.Cat": "app.models.Cat"} for a re-export.
+    reexports: dict[str, str] = field(default_factory=dict)
 
-    def get_siblings(self, class_name: str) -> list[str]:
-        """Get sibling classes (same base, excluding self)."""
-        base = self.class_to_base.get(class_name)
+    # {file: {top-level name: qualified name}} for the classes a file defines
+    # and the names it imports.
+    scopes: dict[Path, Mapping[str, str]] = field(default_factory=dict)
+
+    # The file whose names :meth:`widening` resolves, see :meth:`in_file`.
+    file: Path | None = None
+
+    def in_file(self, file: Path) -> Registry:
+        """This registry, resolving the names written in *file*."""
+        return replace(self, file=file)
+
+    def widening(self, name: str) -> Widening | None:
+        """The base to widen the class *name* (as written in the file) to.
+
+        None when *name* is not a project class with a base, or when the base
+        cannot be written in the file: it is not importable (an alias, a
+        conditional or nested definition) or its name is taken by something else.
+        """
+        scope = self._scope()
+        qualified = scope.get(name)
+        if qualified is None:
+            return None
+        base = self.bases.get(self._canonical(qualified))
         if base is None:
-            return []
-        return [c for c in self.hierarchy.get(base, []) if c != class_name]
+            return None
+        target = self._canonical(base.name)
+        local = self._written_name(target, scope)
+        if local is not None:
+            return Widening(name=local, qualified=target, subscripted=base.subscripted)
+        module, _, short = target.rpartition(".")
+        if short in scope or not self._importable(target, module):
+            return None
+        required_import = f"from {module} import {short}" if module else None
+        return Widening(short, target, required_import, base.subscripted)
 
-    def get_base(self, class_name: str) -> str | None:
-        """Get the base class for a given class."""
-        return self.class_to_base.get(class_name)
+    def _scope(self) -> Mapping[str, str]:
+        if self.file is None:
+            return {}
+        return self.scopes.get(self.file, {})
 
-    def get_base_import_line(self, base_name: str) -> str | None:
-        """Get the import line needed to bring *base_name* into scope."""
-        return self.base_import_lines.get(base_name) or self.class_import_lines.get(base_name)
+    def _written_name(self, qualified: str, scope: Mapping[str, str]) -> str | None:
+        """How *qualified* is written with the names in *scope*: ``Base``, ``models.Base``."""
+        for local, bound in scope.items():
+            if self._canonical(bound) == qualified:
+                return local
+        for local, bound in scope.items():
+            if qualified.startswith(f"{bound}."):
+                return local + qualified[len(bound) :]
+        return None
+
+    def _canonical(self, name: str) -> str:
+        """*name* with re-exports followed to the name of the definition."""
+        seen: set[str] = set()
+        while name in self.reexports and name not in seen:
+            seen.add(name)
+            name = self.reexports[name]
+        return name
+
+    def _importable(self, qualified: str, module: str) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether ``from module import name`` brings the *qualified* name in."""
+        if not module:
+            # Builtins need no import (unless the file binds them to something else).
+            return hasattr(builtins, qualified)
+        if qualified in self.classes:
+            return self.classes[qualified]
+        # A project module's other names are aliases or variables, not classes.
+        return module not in self.modules
 
 
-# Module-level compound statements whose bodies may hold imports, e.g.
-# ``try: ... except ImportError: ...`` or ``if TYPE_CHECKING: ...``.
-# ``suite`` is the indented body of any of their branches.
-_CONDITIONAL_BLOCK_TYPES = frozenset({"try_stmt", "if_stmt", "suite"})
-
-
-class RegistryBuilder:
+class RegistryBuilder(NodeSource):
     """Builds a :class:`Registry` from the class definitions in a set of files.
 
-    *modules* names the package of each file, so the registry knows the
-    module that defines each class.
+    *imports* resolves imported names (and the package of each file) to
+    qualified names, *names* gives the qualified names of classes.
     """
 
-    def __init__(self, modules: ModuleImports | None = None) -> None:
-        self._modules = modules or ModuleImports()
+    def __init__(
+        self, imports: ModuleImports | None = None, names: ClassNames | None = None
+    ) -> None:
+        self._imports = imports or ModuleImports()
+        self._names = names or ClassNames(self._imports)
 
     def build(self, files: Iterable[Path]) -> Registry:
         """Registry of the classes defined in *files*; unreadable files are skipped."""
@@ -70,147 +147,76 @@ class RegistryBuilder:
                 source = f.read_text()
             except (OSError, UnicodeDecodeError):
                 continue
-            tree = parso.parse(source)
-            file_imports = self._extract_imports(tree)
-            self._extract_hierarchy(tree, reg, file_imports)
-            self._extract_definitions(tree, reg, self._module_of(f))
+            self._add_module(reg, parso.parse(source), f)
         return reg
 
-    def _module_of(self, file: Path) -> str:
-        """Dotted module name of *file*, e.g. ``pkg/models.py`` -> ``pkg.models``."""
-        package = self._modules.package_of(file)
-        if file.stem == "__init__":
-            return package
-        return f"{package}.{file.stem}" if package else file.stem
+    def _add_module(self, reg: Registry, tree: Module, file: Path) -> None:
+        module = self._names.module_name(file)
+        reg.modules.add(module)
+        scope = self._module_scope(tree, file)
+        reg.scopes[file] = scope
+        reg.reexports.update((f"{module}.{local}", qualified) for local, qualified in scope.items())
+        for classdef in self._classdefs(tree):
+            name = self._names.qualified_name(classdef, file)
+            reg.classes[name] = self._is_unconditional(classdef, tree)
+            base = self._first_base(classdef, scope)
+            if base is not None:
+                reg.bases[name] = base
 
-    def _extract_definitions(self, tree: BaseNode, reg: Registry, module: str) -> None:
-        """Record the import line of each module-level class defined in *tree*."""
-        for child in tree.children:
-            if isinstance(child, BaseNode) and child.type == "decorated":
-                child = child.children[-1]
-            if isinstance(child, BaseNode) and child.type == "classdef":
-                name = child.children[1].value
-                reg.class_import_lines.setdefault(name, f"from {module} import {name}")
+    def _module_scope(self, tree: Module, file: Path) -> Mapping[str, str]:
+        """{name: qualified name} of the module-level classes and imports of *tree*.
 
-    def _extract_imports(self, tree: BaseNode) -> dict[str, str]:
-        """Extract all ``from X import Y`` mappings from the module-level AST.
-
-        Imports inside module-level ``try``/``if`` blocks are included; imports
-        inside function or class bodies are not. The first occurrence of a name
-        wins, so ``try:`` imports take precedence over ``except`` fallbacks.
-
-        Returns {name: "from module import name"} for each imported name.
+        Imports and classes inside module-level ``try``/``if`` blocks count;
+        those inside function or class bodies do not. The first binding of a
+        name wins, so ``try:`` imports take precedence over ``except`` fallbacks.
         """
-        imports: dict[str, str] = {}
-        for node in self._import_froms(tree):
-            self._add_import_from(node, imports)
-        return imports
+        package = self._imports.package_of(file)
+        scope: dict[str, str] = {}
+        for imp in tree.iter_imports():
+            for name, qualified in self._imports.bindings(imp, package):
+                scope.setdefault(name, qualified)
+        for classdef in tree.iter_classdefs():
+            scope.setdefault(classdef.name.value, self._names.qualified_name(classdef, file))
+        return scope
 
-    def _add_import_from(self, node: BaseNode, imports: dict[str, str]) -> None:
-        """Process ``from module import name1, name2, ...``."""
-        # Children: 'from' module 'import' names...
-        module_parts: list[str] = []
-        found_import = False
-        for child in node.children:
-            if isinstance(child, Leaf):
-                if child.value == "from":
-                    continue
-                elif child.value == "import":
-                    found_import = True
-                    continue
-                elif not found_import:
-                    # Part of the module path (including dots)
-                    module_parts.append(child.value)
-                else:
-                    # Imported name
-                    if child.type == "name":
-                        module = "".join(module_parts)
-                        imports.setdefault(child.value, f"from {module} import {child.value}")
-            elif isinstance(child, BaseNode):
-                if not found_import:
-                    # Dotted module name
-                    for sub in child.children:
-                        if isinstance(sub, Leaf):
-                            module_parts.append(sub.value)
-                else:
-                    # import_as_names or similar
-                    module = "".join(module_parts)
-                    for sub in child.children:
-                        if isinstance(sub, Leaf) and sub.type == "name":
-                            imports.setdefault(sub.value, f"from {module} import {sub.value}")
-                        elif isinstance(sub, BaseNode) and sub.type == "import_as_name":
-                            # from X import Y as Z — use the original name Y
-                            for s in sub.children:
-                                if isinstance(s, Leaf) and s.type == "name":
-                                    imports.setdefault(s.value, f"from {module} import {s.value}")
-                                    break
+    def _is_unconditional(self, classdef: Class, tree: Module) -> bool:
+        """Whether *classdef* is a statement of the module itself (decorated or not)."""
+        parent = classdef.parent
+        if parent is not None and parent.type == "decorated":
+            parent = parent.parent
+        return parent is tree
 
-    def _import_froms(self, node: BaseNode) -> Iterable[BaseNode]:
-        """Yield ``import_from`` nodes, descending into try/if blocks but not def/class."""
-        for child in node.children:
-            if not isinstance(child, BaseNode):
-                continue
-            if child.type == "import_from":
-                yield child
-            elif child.type == "simple_stmt":
-                for sub in child.children:
-                    if isinstance(sub, BaseNode) and sub.type == "import_from":
-                        yield sub
-            elif child.type in _CONDITIONAL_BLOCK_TYPES:
-                yield from self._import_froms(child)
+    def _first_base(self, classdef: Class, scope: Mapping[str, str]) -> ClassBase | None:
+        """The first base of a class written as a (dotted) name, maybe subscripted."""
+        arglist = classdef.get_super_arglist()
+        if arglist is None:
+            return None
+        items = arglist.children[::2] if arglist.type == "arglist" else [arglist]
+        first = items[0]
+        if isinstance(first, Leaf):
+            return ClassBase(self._qualify(first.value, scope)) if first.type == "name" else None
+        dotted = self._dotted_head(first)
+        trailers = first.children[1:]
+        names = trailers[: dotted.count(".")] if dotted is not None else trailers
+        subscript = trailers[len(names) :]
+        if dotted is None or len(subscript) > 1:
+            return None
+        if any(trailer.get_first_leaf().value != "[" for trailer in subscript):
+            return None
+        return ClassBase(self._qualify(dotted, scope), subscripted=bool(subscript))
 
-    def _extract_hierarchy(
-        self,
-        tree: BaseNode | Leaf,
-        reg: Registry,
-        file_imports: Mapping[str, str],
-    ) -> None:
-        """Walk the tree and extract class inheritance info."""
-        if isinstance(tree, BaseNode):
-            if tree.type == "classdef":
-                self._process_classdef(tree, reg, file_imports)
-            for child in tree.children:
-                self._extract_hierarchy(child, reg, file_imports)
+    def _qualify(self, dotted: str, scope: Mapping[str, str]) -> str:
+        """Resolve the head of *dotted* through *scope*; unknown names stay as written."""
+        head, _, tail = dotted.partition(".")
+        qualified = scope.get(head)
+        if qualified is None:
+            return dotted
+        return f"{qualified}.{tail}" if tail else qualified
 
-    def _process_classdef(
-        self,
-        node: BaseNode,
-        reg: Registry,
-        file_imports: Mapping[str, str],
-    ) -> None:
-        """Extract class Name(Base) pattern from a classdef node."""
-        children = node.children
-        # classdef: 'class' NAME ['(' arglist ')'] ':'
-        if len(children) < 3:
-            return
-
-        class_name = children[1].value if isinstance(children[1], Leaf) else None
-        if class_name is None:
-            return
-
-        # Find the arglist (base classes)
-        for child in children:
-            if isinstance(child, Leaf) and child.value == "(":
-                idx = children.index(child)
-                if idx + 1 < len(children):
-                    bases_node = children[idx + 1]
-                    if isinstance(bases_node, Leaf) and bases_node.value != ")":
-                        # Single base class
-                        self._register(reg, class_name, bases_node.value, file_imports)
-                    elif isinstance(bases_node, BaseNode) and bases_node.type == "arglist":
-                        # Multiple bases — use the first one
-                        for c in bases_node.children:
-                            if isinstance(c, Leaf) and c.type == "name":
-                                self._register(reg, class_name, c.value, file_imports)
-                                break
-                break
-
-    def _register(
-        self, reg: Registry, class_name: str, base_name: str, file_imports: Mapping[str, str]
-    ) -> None:
-        """Record *class_name* as a child of *base_name*, with the import of the base."""
-        reg.hierarchy.setdefault(base_name, []).append(class_name)
-        reg.class_to_base[class_name] = base_name
-        # A relative import only works in the child's own package.
-        if base_name in file_imports and not file_imports[base_name].startswith("from ."):
-            reg.base_import_lines.setdefault(base_name, file_imports[base_name])
+    # parso's children are untyped, so a narrower parameter type would pass mypy too.
+    def _classdefs(self, node: BaseNode | Leaf) -> Iterable[Class]:  # pragma: no mutate
+        if isinstance(node, Class):
+            yield node
+        if isinstance(node, BaseNode):
+            for child in node.children:
+                yield from self._classdefs(child)

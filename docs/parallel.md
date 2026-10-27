@@ -42,8 +42,28 @@ at the end. What this means for your project:
 - **Pick N by CPU cores and memory**: every worker runs its own type checker
   process (mypy on a large project can take gigabytes of RAM). The number of
   CPU cores is a good start.
-- The baseline check (type checker on unmodified code) runs once, in the
-  project itself, before the workers start.
+- The baseline check (type checker on unmodified code) runs in the project
+  itself, then once more in the first worktree before any mutant runs. If it
+  passes in the project but fails in the worktree, typemut stops with the
+  first errors: the type checker sees a different project there, and every
+  mutant would be "killed" by errors it did not cause. Common causes: the
+  project is installed in editable mode (a `.pth` file points at the project
+  root, so mypy skips e.g. `docs_src/` or `examples/` there as an installed
+  package but checks them in a worktree), files the checker needs are
+  git-ignored or untracked, or `test-command` / the checker config uses
+  absolute paths into the project. Make the checker pass in a fresh
+  `git worktree add` checkout (e.g. exclude those directories in its config)
+  or use `--jobs 1`. One worktree stands for all: they are checkouts of the
+  same commit with the same carried cache.
+
+After every `exec` (with or without `--jobs`), typemut also warns when at
+least 90% of the kills (of at least 10 with errors the checker reports) have
+errors in one and the same file that they did not mutate: such kills most
+likely come from errors unrelated to the mutants, e.g. an environment that
+differs from the baseline check's. The mutant outputs in the report show
+them. The warning only compares paths relative to the project, so it misses
+checkers that print absolute paths inside the worktrees (pyright) — there
+the worktree baseline check above is what catches it.
 
 `--jobs` is also available on `typemut exec`. Without it (or with `--jobs 1`)
 mutants run one by one directly in your project, which needs neither git nor a

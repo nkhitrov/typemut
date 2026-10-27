@@ -68,7 +68,7 @@ class TypeChecker:
     config_names: ClassVar[Iterable[str]] = ()
     # Whether :meth:`dependencies` can tell the files a kill depends on, so
     # incremental runs may reuse the checker's kills.
-    traces_dependencies: ClassVar[bool] = True
+    traces_dependencies: ClassVar[bool] = True  # pragma: no mutate (truth-tested)
 
     def __init__(
         self,

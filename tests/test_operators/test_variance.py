@@ -54,6 +54,123 @@ def test_typevar_with_bound_preserves_bound() -> None:
     assert "contravariant=True" in mutations[1].mutated
 
 
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        pytest.param(
+            'TypeVar("T", bound=int,)',
+            [
+                'TypeVar("T", bound=int, covariant=True,)',
+                'TypeVar("T", bound=int, contravariant=True,)',
+            ],
+            id="trailing-comma",
+        ),
+        pytest.param(
+            'TypeVar(\n    "T",\n    bound=int,\n)',
+            [
+                'TypeVar(\n    "T",\n    bound=int, covariant=True,\n)',
+                'TypeVar(\n    "T",\n    bound=int, contravariant=True,\n)',
+            ],
+            id="multi-line-trailing-comma",
+        ),
+        pytest.param(
+            'TypeVar(\n    "T"  # name\n)',
+            [
+                'TypeVar(\n    "T", covariant=True  # name\n)',
+                'TypeVar(\n    "T", contravariant=True  # name\n)',
+            ],
+            id="comment-before-paren",
+        ),
+        pytest.param(
+            'TypeVar("T", covariant=False)',
+            ['TypeVar("T", covariant=False, contravariant=True)'],
+            id="explicit-false-not-duplicated",
+        ),
+        pytest.param(
+            'TypeVar("T", infer_variance=True)',
+            [],
+            id="inferred-variance",
+        ),
+        pytest.param(
+            'TypeVar("T", infer_variance=False)',
+            [
+                'TypeVar("T", infer_variance=False, covariant=True)',
+                'TypeVar("T", infer_variance=False, contravariant=True)',
+            ],
+            id="variance-not-inferred",
+        ),
+        pytest.param(
+            "TypeVar()",
+            ["TypeVar(covariant=True)", "TypeVar(contravariant=True)"],
+            id="no-arguments",
+        ),
+        pytest.param(
+            'TypeVar("T", *rest)',
+            ['TypeVar("T", *rest, covariant=True)', 'TypeVar("T", *rest, contravariant=True)'],
+            id="star-argument",
+        ),
+    ],
+)
+def test_add_variance_keeps_call_valid(call: str, expected: list[str]) -> None:
+    mutations = _get_typevar_mutations(f"from typing import TypeVar\nT = {call}\n")
+    assert [m.mutated for m in mutations] == expected
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        pytest.param(
+            'TypeVar("T", covariant=True,)',
+            'TypeVar("T",)',
+            id="last-trailing-comma",
+        ),
+        pytest.param(
+            'TypeVar(\n    "T",\n    covariant=True,\n)',
+            'TypeVar(\n    "T",\n)',
+            id="multi-line-last-trailing-comma",
+        ),
+        pytest.param(
+            'TypeVar("T", covariant=True, bound=int)',
+            'TypeVar("T", bound=int)',
+            id="middle",
+        ),
+        pytest.param(
+            'TypeVar("T", contravariant=True, bound=int)',
+            'TypeVar("T", bound=int)',
+            id="middle-contravariant",
+        ),
+        pytest.param(
+            'TypeVar(\n    "T",\n    covariant=True,\n    bound=int,\n)',
+            'TypeVar(\n    "T",\n    bound=int,\n)',
+            id="multi-line-middle",
+        ),
+        pytest.param(
+            'TypeVar("T", covariant = True)',
+            'TypeVar("T")',
+            id="spaces-around-equals",
+        ),
+        pytest.param(
+            'TypeVar("T", bound=int, covariant=False, contravariant=True)',
+            'TypeVar("T", bound=int, covariant=False)',
+            id="only-true-flag-removed",
+        ),
+    ],
+)
+def test_remove_variance_keeps_call_valid(call: str, expected: str) -> None:
+    mutations = _get_typevar_mutations(f"from typing import TypeVar\nT = {call}\n")
+    assert [m.mutated for m in mutations] == [expected]
+
+
+def test_qualified_typevar_trailing_comma() -> None:
+    mutations = _get_typevar_mutations(
+        'import typing\nT = typing.TypeVar("T",)\n'
+    )
+    assert [m.mutated for m in mutations] == [
+        'typing.TypeVar("T", covariant=True,)',
+        'typing.TypeVar("T", contravariant=True,)',
+    ]
+
+
 def test_no_typing_import_no_typevar_discovery() -> None:
     source = 'T = TypeVar("T", covariant=True)\n'
     annotations = AnnotationFinder().find(Path("test.py"), source=source)

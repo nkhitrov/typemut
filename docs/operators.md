@@ -44,6 +44,12 @@ class Config:
     name: str | None
 ```
 
+`None` goes inside quoted forward references (`'Node'` → `'Node | None'`; `'Node' | None`
+passes the checker but raises `TypeError` at runtime) and inside type qualifiers
+`ClassVar`, `Final`, `Required`, `NotRequired`, `ReadOnly` and `InitVar`, also when
+spelled `typing.ClassVar` (`ClassVar[int]` → `ClassVar[int | None]`; `ClassVar[int] | None`
+is not a type). A bare `ClassVar`/`Final` (`x: Final = 1`) is not mutated.
+
 **Survived = consumers don't rely on non-None guarantee.** The field claims to always have a value, but no typed code would break if it could be `None`. This often reveals missing type coverage in code that reads the field.
 
 ## WidenType
@@ -63,6 +69,18 @@ def feed(pet: Animal) -> None: ...
 ```
 
 **Survived = the code doesn't rely on the concrete subclass.** The function could accept the broader base type, suggesting the annotation is more specific than necessary.
+
+- Only project classes are widened, to their first base. A name is resolved through the
+  imports of the annotated file, so same-named classes of different modules (or a library
+  class imported under a project class's name) are not mixed up.
+- The base is written as the file can name it (an alias, `enum.IntEnum` after `import enum`),
+  otherwise its import is added. Bases that cannot be imported are skipped: aliases
+  (`_Base = UserDict`), classes defined under `if`/`try` or nested in another class, and
+  bases whose name the file already uses for something else.
+- `Page[str]` becomes `BaseModel` for `class Page(BaseModel, Generic[T])`; when the class
+  passes type arguments to its base (`class Items(list[T])`), `Items[int]` is not widened.
+- Names inside `Literal[...]`, call arguments (`Depends(Service)`) and parts of dotted
+  names are not widened.
 
 ## RemoveLiteralMember
 
@@ -110,7 +128,7 @@ def read_lines(path: str) -> Iterator[str]: ...
 
 ## TypeVarVariance
 
-Removes `covariant=True` / `contravariant=True` from a `TypeVar`, or adds either one to an invariant `TypeVar`.
+Removes `covariant=True` / `contravariant=True` from a `TypeVar`, or adds either one to an invariant `TypeVar`. A flag the call already spells out (`covariant=False`) is not added again, and a `TypeVar` with `infer_variance=True` gets no added flag.
 
 ```python
 # Original

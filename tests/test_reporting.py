@@ -9,9 +9,11 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from tests.fakes import StubSourceReader
+from tests.fakes import StubSourceReader, make_mutant
+from typemut.checkers.mypy import MypyChecker
 from typemut.db import Database, MutantRow, MutantStatus
 from typemut.reporting.html import FileSourceReader, HtmlReport
+from typemut.reporting.recurring import RecurringErrorFile, RecurringErrorFinder
 from typemut.reporting.score import MutationScore
 from typemut.reporting.terminal import TerminalReport
 
@@ -121,3 +123,49 @@ def test_file_source_reader(tmp_path: Path) -> None:
 )
 def test_total_score(summary: dict[str, dict[str, int]], expected: float | None) -> None:
     assert MutationScore(summary).total() == expected
+
+
+def _kill(mutant_id: int, module_path: str, output: str) -> MutantRow:
+    return replace(
+        make_mutant(mutant_id, module_path), status=MutantStatus.KILLED, output=output
+    )
+
+
+_DOCS_ERROR = "docs/a.py:1: error: Boom  [misc]\n"
+
+
+class TestRecurringErrorFinder:
+    def test_finds_unmutated_file_in_nearly_every_kill(self, tmp_path: Path) -> None:
+        kills = [_kill(i, f"src/m{i}.py", f"src/m{i}.py:2: error: X  [misc]\n{_DOCS_ERROR}") for i in range(9)]
+        kills.append(_kill(9, "src/m9.py", "src/m9.py:2: error: X  [misc]\n"))
+        found = RecurringErrorFinder(MypyChecker()).find(kills, tmp_path)
+        assert found == RecurringErrorFile("docs/a.py", 9, 10)
+        assert found.percent == 90
+
+    def test_ignores_files_reported_in_few_kills(self, tmp_path: Path) -> None:
+        kills = [_kill(i, f"src/m{i}.py", _DOCS_ERROR) for i in range(8)]
+        kills += [_kill(i, f"src/m{i}.py", f"src/m{i}.py:2: error: X  [misc]\n") for i in range(2)]
+        assert RecurringErrorFinder(MypyChecker()).find(kills, tmp_path) is None
+
+    def test_needs_enough_kills(self, tmp_path: Path) -> None:
+        kills = [_kill(i, f"src/m{i}.py", _DOCS_ERROR) for i in range(9)]
+        assert RecurringErrorFinder(MypyChecker()).find(kills, tmp_path) is None
+
+    def test_errors_in_the_mutated_file_are_expected(self, tmp_path: Path) -> None:
+        kills = [_kill(i, "docs/a.py", _DOCS_ERROR) for i in range(10)]
+        assert RecurringErrorFinder(MypyChecker()).find(kills, tmp_path) is None
+
+    def test_counts_only_kills_with_errors(self, tmp_path: Path) -> None:
+        kills = [_kill(i, f"src/m{i}.py", _DOCS_ERROR) for i in range(10)]
+        others = [
+            _kill(10, "src/x.py", "timeout"),
+            replace(make_mutant(11, "src/y.py"), status=MutantStatus.SURVIVED, output=_DOCS_ERROR),
+        ]
+        found = RecurringErrorFinder(MypyChecker()).find([*kills, *others], tmp_path)
+        assert found == RecurringErrorFile("docs/a.py", 10, 10)
+
+    def test_absolute_paths_in_root(self, tmp_path: Path) -> None:
+        output = f"{tmp_path / 'docs' / 'a.py'}:1: error: Boom  [misc]\n"
+        kills = [_kill(i, f"src/m{i}.py", output) for i in range(10)]
+        found = RecurringErrorFinder(MypyChecker()).find(kills, tmp_path)
+        assert found == RecurringErrorFile("docs/a.py", 10, 10)

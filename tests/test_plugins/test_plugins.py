@@ -35,7 +35,7 @@ def test_get_plugins_empty() -> None:
 def test_get_plugins_unknown_name_is_skipped(caplog: pytest.LogCaptureFixture) -> None:
     plugins = PluginRegistry().get(iter(["sqlalchemy", "django"]))
     assert [plugin.name for plugin in plugins] == ["sqlalchemy"]
-    assert "Skipping unknown plugin(s): django. Available plugins: fastapi, sqlalchemy" in caplog.text
+    assert "Skipping unknown plugin(s): django. Available plugins: fastapi, faststream, sqlalchemy" in caplog.text
 
 
 def _entry_point(name: str, value: str) -> EntryPoint:
@@ -112,6 +112,21 @@ def test_init_uses_configured_plugins(tmp_path: Path, plugins: str, expected: se
     assert mutated == expected
 
 
+def test_init_scans_project_for_plugins(tmp_path: Path) -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        write_project(Path(td), '["fastapi"]')
+        (Path(td) / "src" / "deps.py").write_text("def get_user() -> User: ...\n")
+        (Path(td) / "src" / "views.py").write_text(
+            "from fastapi import Depends\nfrom deps import get_user\nuser = Depends(get_user)\n"
+        )
+        result = runner.invoke(main, ["init"])
+        with Database(Path(td) / "typemut.sqlite") as db:
+            mutated = {mutant.mutated_annotation for mutant in db.get_all()}
+    assert result.exit_code == 0
+    assert mutated == {"Mapped[int] | None"}
+
+
 def test_init_unknown_plugin_warns_and_continues(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -123,7 +138,7 @@ def test_init_unknown_plugin_warns_and_continues(
             mutated = {mutant.mutated_annotation for mutant in db.get_all()}
     assert result.exit_code == 0
     assert mutated == {"Mapped[int] | None"}
-    assert "Skipping unknown plugin(s): nope. Available plugins: fastapi, sqlalchemy" in caplog.text
+    assert "Skipping unknown plugin(s): nope. Available plugins: fastapi, faststream, sqlalchemy" in caplog.text
 
 
 def test_init_uses_injected_plugin_operators(tmp_path: Path) -> None:

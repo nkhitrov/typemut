@@ -6,7 +6,7 @@ means. Plugins teach typemut these rules. They are opt-in:
 
 ```toml
 [typemut]
-plugins = ["sqlalchemy", "fastapi", "taskiq"]
+plugins = ["sqlalchemy", "fastapi", "faststream", "taskiq"]
 ```
 
 An unknown plugin name is logged as a warning and skipped. A plugin can claim an annotation and decide
@@ -30,10 +30,9 @@ An entry point that fails to import or does not name a `Plugin` subclass is
 logged as a warning and skipped.
 
 A plugin's `find_mutations` receives the enabled operators and the class
-registry. Before any annotation, `scan(files)` receives the project's source
-files, for rules that depend on other modules (it does nothing by default).
-The `Plugin` base class also provides parso helpers (`_node_code`,
-`_trailer_target`) that a plugin can use or override. Operators
+registry. A plugin that needs project-wide facts overrides `scan(files)`: it is
+called once with every source file before any `find_mutations`. The `Plugin` base class also provides parso helpers
+(`_node_code`, `_trailer_target`) that a plugin can use or override. Operators
 a plugin returns from `operators()` subclass `TypeMutationOperator`, which
 provides `_node_code`, `_is_qualified_name`, `_union_members` and `_type_params`.
 The data types plugins and operators work with (`AnnotationNode`,
@@ -98,19 +97,123 @@ A function counts as an endpoint when it is decorated with
 `@<receiver>.<method>(...)`, where `<method>` is a route method (`get`, `post`, `put`,
 `patch`, `delete`, `head`, `options`, `trace`, `api_route`, `websocket`) or
 `exception_handler`, `middleware`, `on_event`. The receiver has to be an instance
-of `fastapi.FastAPI` / `fastapi.APIRouter`, or of a project class inheriting from
-them (also across modules). The type is resolved statically from imports, not
-from variable names:
+of `fastapi.FastAPI` / `fastapi.APIRouter`, of a known third-party subclass
+(FastStream's FastAPI routers: `faststream.kafka.fastapi.KafkaRouter`, `RabbitRouter`,
+`NatsRouter`, `RedisRouter`, ..., also from `faststream_fastapi`), or of a project
+class inheriting from them (also across modules). Library sources are not parsed,
+so other third-party subclasses are not recognised. The type is resolved statically
+from imports, not from variable names:
 
 - `app = FastAPI()`, `router: APIRouter = make_router()`, `def register(app: FastAPI)`;
 - `app = FastAPI()` inside an app factory function;
 - a receiver imported from another project module, including re-exports
   (`from app.api import router`, `from app import api` + `@api.router.get`).
 
+Skipping endpoints also keeps out mutants FastAPI rejects at import:
+`-> HTMLResponse` → `-> HTMLResponse | None` on an endpoint raises
+`FastAPIError: Invalid args for response field`. The same mutation on a dependency
+or a helper function is valid.
+
+**Dependency providers.** `Annotated[User, Depends(get_user)]` does not relate
+`User` to the return type of `get_user`, so a mutated return type of a dependency
+survives whenever nothing but FastAPI calls it. The plugin skips the **return
+annotation** of such providers:
+
+```python
+async def get_user(token: Annotated[str, Depends(oauth2_scheme)]) -> User:  # return not mutated
+    ...
+
+@app.get("/me")
+async def me(user: Annotated[User, Depends(get_user)]) -> User: ...
+```
+
+A provider is what `Depends(...)` / `Security(...)` (from `fastapi`, `fastapi.params`
+or `fastapi.param_functions`) refers to anywhere in the module path: in a default
+value, inside `Annotated[...]`, in a type alias, in `dependencies=[...]` of a route,
+router or app. Keys and values of `app.dependency_overrides[f] = g` are providers as
+well. For a callable instance (`checker = Checker(...)`, `Depends(checker)`) it is
+`Checker.__call__`. Names are resolved like endpoint receivers (imports, re-exports,
+`deps.get_user`).
+
+- Parameters of providers are still mutated: the provider's body and parameter
+  defaults check them like in any function.
+- A provider that the project also uses directly (`get_user(token)`,
+  `get_settings.cache_clear()`, `checker("q")`) is mutated as usual: the type checker
+  has a caller to check it against. Only files in the module path (minus
+  `excluded-modules`) are searched for such uses; a direct call from tests outside
+  it is not seen.
+- `Depends()` without an argument (the annotated class is the dependency), lambdas,
+  methods and nested functions are not treated as providers.
+
 Unresolvable receivers (a factory call without annotation, `self.router`, a star
 import) are not treated as endpoints. The same goes for functions registered
-without a decorator (`app.add_api_route(...)`) or used only through `Depends(...)`.
-Mark those with `# pragma: no mutate`.
+without a decorator (`app.add_api_route(...)`). Mark those with `# pragma: no mutate`.
+
+## faststream
+
+FastStream calls message handlers itself: it decodes the message body into the
+handler's parameters and publishes its return value. Tests reach handlers by
+publishing messages, so no Python code calls them: `-> str` → `-> str | None`
+always survives. Mutating a handler's parameters breaks the application rather
+than its typing: `msg: User` → `msg: BaseModel` passes the type checker, but
+FastStream can no longer decode the message, and `logger: Logger` →
+`logger: Logger | None` turns an injected object into a body field. The plugin
+skips all parameter and return annotations of such functions:
+
+```python
+from faststream import FastStream
+from faststream.kafka import KafkaBroker
+
+broker = KafkaBroker("localhost:9092")
+app = FastStream(broker)
+
+
+@broker.subscriber("in-topic")
+@broker.publisher("out-topic")
+async def handle(data: User, logger: Logger) -> str:  # not mutated
+    reply: str | None = None  # still mutated
+    ...
+
+
+@app.on_startup
+async def setup(context: ContextRepo) -> None: ...  # not mutated
+
+
+async def custom_parser(msg: ConsumerRecord, original: ParserFn) -> KafkaMessage: ...  # not mutated
+
+
+rabbit = RabbitBroker(parser=custom_parser)
+```
+
+A function is skipped when it is:
+
+- decorated with `@<receiver>.subscriber(...)` or `@<receiver>.publisher(...)`, or
+  registered with `<receiver>.subscriber(...)(handler)`, where the receiver is a
+  broker or router (`KafkaBroker`, `RabbitBroker`, `RedisBroker`, `NatsBroker`,
+  `faststream.confluent.KafkaBroker`, `KafkaRouter`, ..., the FastAPI integration
+  routers `faststream.kafka.fastapi.KafkaRouter`, ... and `faststream_fastapi.*Router`);
+- a lifespan hook: `@app.on_startup`, `after_startup`, `on_shutdown`, `after_shutdown`
+  of a `FastStream` / `AsgiFastStream` instance, `@router.after_startup` /
+  `on_broker_shutdown` of a FastAPI integration router;
+- passed by name, in the same module, as `parser=`, `decoder=`, `middlewares=`
+  (also inside a tuple or list), `lifespan=`, `on_startup=`-style hooks or `call=`
+  to a broker, router, application, subscriber or publisher, as the handler of a
+  route (`KafkaRoute(handle, "topic")`), or as a dependency provider
+  (`Depends(get_user)`): the type checker does not relate
+  `Annotated[User, Depends(get_user)]` to the return type of `get_user`.
+
+Receivers and classes are resolved statically like in the `fastapi` plugin
+(imports, aliases, project subclasses, objects imported from other project
+modules). Methods of `BaseMiddleware` subclasses are mutated: the type checker
+checks them against the overridden methods. Functions passed by attribute
+(`parser=codec.parse`) or from another module are not recognised; mark those
+with `# pragma: no mutate`.
+
+Compared with `[typemut.entrypoints]` (`decorators = ["faststream.*.subscriber"]`),
+the plugin also covers lifespan hooks, parsers, decoders, middlewares, routes,
+`broker.subscriber(...)(handler)` and `Depends(...)` providers, and needs no
+patterns: the list of FastStream classes is built in.
+
 
 ## taskiq
 
@@ -216,7 +319,9 @@ imports, re-exports and objects imported from other project modules):
   `mylib.rpc.Router`), not where they are defined.
 - **base-classes**: methods (not nested functions) of a class whose bases
   inherit from a matching class, directly or through project classes in other
-  modules. Methods of the matching class itself are mutated.
+  modules. Generic bases count without their type arguments
+  (`class Items(Endpoint[ItemSchema])` matches `mylib.rpc.Endpoint`). Methods of
+  the matching class itself are mutated.
 - **parameter-types**: every name the annotation references counts
   (`Dependency[Service]`, `Annotated[Service, Inject]`), resolved like decorators:
   `rpc.Dependency` with `rpc = Router()` is `mylib.rpc.Router.Dependency`.

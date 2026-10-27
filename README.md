@@ -57,13 +57,15 @@ typemut run --jobs 8
   reported as `error`, not as kills.
 - **[Parallel runs](https://nkhitrov.github.io/typemut/parallel/)** — `--jobs N` runs mutants in N git worktrees.
 - **[CI gating](https://nkhitrov.github.io/typemut/ci/)** — `--fail-under` and a baseline of accepted survivors.
+- **[GitHub Action](https://nkhitrov.github.io/typemut/ci-database/)** — `uses: nkhitrov/typemut@<release>` runs
+  typemut incrementally and keeps the database of the default branch as an artifact.
 - **[Incremental runs](https://nkhitrov.github.io/typemut/incremental/)** — `--incremental` reuses kills whose
   files are unchanged, with recipes to [keep the database between CI runs](https://nkhitrov.github.io/typemut/ci-database/)
   on GitHub Actions and GitLab CI.
-- **[Plugins](https://nkhitrov.github.io/typemut/plugins/)** — SQLAlchemy, FastAPI, taskiq, framework entrypoints
-  and third-party plugins.
-- **[Filtering](https://nkhitrov.github.io/typemut/filtering/)** — skip comments, excluded modules, ignored types
-  and class hierarchies per operator.
+- **[Plugins](https://nkhitrov.github.io/typemut/plugins/)** — SQLAlchemy, FastAPI, FastStream, taskiq, framework
+  entrypoints and third-party plugins.
+- **[Filtering](https://nkhitrov.github.io/typemut/filtering/)** — skip comments, excluded modules, `@override`
+  signatures, ignored types and class hierarchies per operator.
 - **[HTML report](https://nkhitrov.github.io/typemut/html-report/)** with per-mutant diffs and checker output.
 - **[CLI reference](https://nkhitrov.github.io/typemut/commands/)** — `run`, `init`, `exec`, `report`, `html`.
 

@@ -48,7 +48,7 @@ jobs:
 
   typemut:
     runs-on: ubuntu-latest
-    # max-duration (25 min) < step timeout (35 min) < job timeout (45 min):
+    # max-duration (25 min) < timeout-minutes (35 min) < job timeout (45 min):
     # typemut stops starting mutants, saves the finished ones, and the database
     # is still uploaded. The weekly --refresh gets 5.5 h < 340 min < 350 min,
     # since a refresh rechecks only the mutants that fit in its max-duration.
@@ -79,59 +79,20 @@ jobs:
       - name: Install
         run: make install
 
-      # Every run (main included) starts from the latest database of main,
-      # whatever that run's outcome: a run stopped by max-duration saved its
-      # results too. Only artifacts of runs on this repository's main count, so
-      # a fork's PR from a branch named `main` cannot plant a database. The
-      # newest run (highest run id) wins, not the newest upload: a re-run of an
-      # old run uploads later but keeps its old run id.
-      # No database means a full run: correct, only slower.
-      - name: Download the mutation database of main
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO_ID: ${{ github.repository_id }}
-        run: |
-          query='[.artifacts[]
-                  | select(.expired | not)
-                  | select(.workflow_run.head_branch == "main")
-                  | select(.workflow_run.head_repository_id == ($ENV.REPO_ID | tonumber))]
-                 | max_by(.workflow_run.id) // empty
-                 | "\(.id) \(.workflow_run.id)"'
-          if ! found="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=typemut-db&per_page=100" --jq "$query")"; then
-            echo "::warning::Could not list the typemut-db artifacts: running every mutant"
-            exit 0
-          fi
-          if [ -z "$found" ]; then
-            echo "::notice::No typemut database of main: running every mutant"
-            exit 0
-          fi
-          read -r artifact_id run_id <<< "$found"
-          if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > typemut-db.zip \
-              && unzip -o -q typemut-db.zip typemut.sqlite; then
-            echo "::notice::typemut database from run $run_id"
-          else
-            echo "::warning::Could not download the database of run $run_id: running every mutant"
-            rm -f typemut.sqlite
-          fi
-          rm -f typemut-db.zip
-
+      # The action (action.yml at the root, run from this checkout): every run,
+      # main included, starts from the database of the newest run on main of
+      # this repository, whatever its outcome (no database: a full run), and
+      # only push, schedule and workflow_dispatch runs on main store it, even
+      # when typemut failed. The same as `make mutate MUTATE_ARGS=...`.
       - name: Mutation-test own type annotations
-        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 340 || 35 }}
-        env:
-          ARGS: ${{ (github.event_name == 'schedule' || inputs.refresh) && '--refresh --max-duration 19800' || '--max-duration 1500' }}
-        run: make mutate MUTATE_ARGS="$ARGS"
-
-      # Only trusted events on main store the database (push, schedule,
-      # workflow_dispatch); pull requests and other branches only read it.
-      - name: Upload the mutation database
-        if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: ./
         with:
-          name: typemut-db
-          path: typemut.sqlite
-          retention-days: 30
-          if-no-files-found: ignore
-          overwrite: true  # a re-run of failed jobs reuses the run
+          command: uv run typemut
+          jobs: 4
+          baseline: typemut-baseline.json
+          refresh: ${{ (github.event_name == 'schedule' || inputs.refresh) && 'true' || 'false' }}
+          max-duration: ${{ (github.event_name == 'schedule' || inputs.refresh) && 19800 || 1500 }}
+          timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh) && 340 || 35 }}
 
       - name: Build HTML report
         if: always()
