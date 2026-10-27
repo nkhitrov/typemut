@@ -86,14 +86,7 @@ class EntrypointsPlugin(HandlerPlugin):
         """Whether *funcdef* is a method of a class inheriting from a configured base class."""
         if not self._base_classes:
             return False
-        scope = funcdef.search_ancestor("classdef", "funcdef")
-        if scope is None or scope.type != "classdef":
-            return False
-        bases = (self._resolver.qualify(base, file) for base in self._scopes.bases(scope))
-        return any(
-            base is not None and self._resolver.inherits_from(base, self._base_classes, file)
-            for base in bases
-        )
+        return self._is_method_of(funcdef, file, self._base_classes)
 
     def _has_parameter_type(self, funcdef: Function, file: Path) -> bool:
         if not self._parameter_types:
