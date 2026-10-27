@@ -32,8 +32,8 @@ def greet(name: str) -> str: ...
   incrementally and keeps the database of the default branch as an artifact.
 - **[Incremental runs](incremental.md)** — reuse kills whose files are unchanged; recipes to
   [keep the database between CI runs](ci-database.md) on GitHub Actions and GitLab CI.
-- **[Plugins](plugins.md)** — SQLAlchemy, FastAPI, FastStream and django-modern-rest, framework entrypoints,
-  third-party plugins.
+- **[Plugins](plugins.md)** — SQLAlchemy, FastAPI, FastStream, django-modern-rest, pydantic and taskiq, framework
+  entrypoints, third-party plugins.
 - **[Filtering](filtering.md)** — skip comments, excluded modules, `@override` signatures, ignored types
   and class hierarchies.
 - **[HTML report](html-report.md)** with per-mutant diffs and checker output.
