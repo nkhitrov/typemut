@@ -13,6 +13,7 @@ from typemut.plugins.dmr import DmrPlugin
 from typemut.plugins.entrypoints import EntrypointsPlugin
 from typemut.plugins.fastapi import FastAPIPlugin
 from typemut.plugins.faststream import FastStreamPlugin
+from typemut.plugins.pydantic import PydanticPlugin
 from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ BUILTIN_PLUGINS: Mapping[str, type[Plugin]] = {
     DmrPlugin.name: DmrPlugin,
     FastAPIPlugin.name: FastAPIPlugin,
     FastStreamPlugin.name: FastStreamPlugin,
+    PydanticPlugin.name: PydanticPlugin,
     SQLAlchemyPlugin.name: SQLAlchemyPlugin,
 }
 
