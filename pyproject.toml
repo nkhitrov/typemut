@@ -180,6 +180,7 @@ module = [
     "typemut.symbols",
     "typemut.checkers.graph",
     "typemut.operators.*",
+    "typemut.plugins.pydantic",
     "typemut.plugins.taskiq",
 ]
 disallow_untyped_calls = false

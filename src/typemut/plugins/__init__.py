@@ -8,7 +8,7 @@ from importlib import metadata
 from typing import Final
 
 from typemut.config import EntrypointsConfig
-from typemut.plugins import dmr, fastapi, faststream, sqlalchemy, taskiq
+from typemut.plugins import dmr, fastapi, faststream, pydantic, sqlalchemy, taskiq
 from typemut.plugins.base import Plugin
 from typemut.plugins.entrypoints import EntrypointsPlugin
 
@@ -24,6 +24,7 @@ BUILTIN_PLUGINS: Mapping[str, type[Plugin]] = {
         dmr.DmrPlugin,
         fastapi.FastAPIPlugin,
         faststream.FastStreamPlugin,
+        pydantic.PydanticPlugin,
         sqlalchemy.SQLAlchemyPlugin,
         taskiq.TaskiqPlugin,
     )
