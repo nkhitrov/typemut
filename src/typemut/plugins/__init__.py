@@ -8,13 +8,9 @@ from importlib import metadata
 from typing import Final
 
 from typemut.config import EntrypointsConfig
+from typemut.plugins import dmr, fastapi, faststream, sqlalchemy, taskiq
 from typemut.plugins.base import Plugin
-from typemut.plugins.dmr import DmrPlugin
 from typemut.plugins.entrypoints import EntrypointsPlugin
-from typemut.plugins.fastapi import FastAPIPlugin
-from typemut.plugins.faststream import FastStreamPlugin
-from typemut.plugins.sqlalchemy import SQLAlchemyPlugin
-from typemut.plugins.taskiq import TaskiqPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +19,14 @@ ENTRY_POINT_GROUP = "typemut.plugins"
 NO_ENTRYPOINTS: Final = EntrypointsConfig()
 
 BUILTIN_PLUGINS: Mapping[str, type[Plugin]] = {
-    DmrPlugin.name: DmrPlugin,
-    FastAPIPlugin.name: FastAPIPlugin,
-    FastStreamPlugin.name: FastStreamPlugin,
-    SQLAlchemyPlugin.name: SQLAlchemyPlugin,
-    TaskiqPlugin.name: TaskiqPlugin,
+    plugin.name: plugin
+    for plugin in (
+        dmr.DmrPlugin,
+        fastapi.FastAPIPlugin,
+        faststream.FastStreamPlugin,
+        sqlalchemy.SQLAlchemyPlugin,
+        taskiq.TaskiqPlugin,
+    )
 }
 
 
