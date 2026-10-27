@@ -5,7 +5,9 @@ Answers, with parso alone and without importing user code:
 - which class the object bound to a name is an instance of
   (``app = FastAPI()`` -> ``fastapi.FastAPI``);
 - whether a class inherits from given classes, also through project classes
-  defined in other modules (``class Api(FastAPI)``).
+  defined in other modules (``class Api(FastAPI)``);
+- which project module binding a name refers to, through re-exports
+  (``from app.api import get_db`` -> ``app.api.deps.get_db``).
 
 Names follow imports into project modules, re-exports included. Only
 ``name = Class(...)`` and ``name: Class`` bindings (and annotated function
@@ -20,7 +22,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 
 import parso
-from parso.python.tree import BaseNode, Function, Leaf, Module, Name
+from parso.python.tree import BaseNode, Function, Leaf, Module, Name, Param
 
 from typemut.imports import ModuleImports
 
@@ -189,6 +191,45 @@ class ScopeReader:
             return str(name.value)
         return None
 
+    def references(self, leaf: Name) -> Iterable[str]:
+        """Dotted names an expression starting at *leaf* refers to: ``deps``, ``deps.f``.
+
+        Empty for a name that is not the head of an expression: one a ``def``,
+        ``class``, parameter, assignment or import binds, an attribute
+        (``.f``) or a keyword argument name (``f(x=1)``).
+        """
+        parent = leaf.parent
+        if (
+            parent is None
+            or self._is_binding(leaf)
+            or leaf.search_ancestor("import_from", "import_name")
+        ):
+            return []
+        if parent.type == "trailer" or (
+            parent.type == "argument" and parent.children[:2] == [leaf, "="]
+        ):
+            return []
+        nodes: Sequence[BaseNode | Leaf] = [leaf]
+        if parent.type in {"atom_expr", "power"}:
+            # ``await f(...)``: the expression starts after the keyword.
+            nodes = parent.children[parent.children.index(leaf) :]
+        # Prefixes past a call or subscript (``f(...).x``) are not dotted names.
+        names = (self.dotted_name(nodes[:end]) for end in range(1, len(nodes) + 1))
+        return [name for name in names if name is not None]
+
+    def _is_binding(self, leaf: Name) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether *leaf* is the name a ``def``, ``class``, parameter or assignment binds."""
+        parent = leaf.parent
+        if isinstance(parent, Param):
+            return parent.name is leaf
+        if parent is None or parent.type not in {"funcdef", "classdef", "expr_stmt"}:
+            return False
+        children: Sequence[BaseNode | Leaf] = parent.children
+        if parent.type != "expr_stmt":
+            return children[1] is leaf
+        # ``a = b = value`` / ``a: T = value``: every child before the value is a target.
+        return children.index(leaf) < len(children) - 1
+
     def root(self, node: BaseNode | Leaf) -> Module:
         while node.parent is not None:
             node = node.parent
@@ -223,8 +264,14 @@ class SymbolResolver:
                 if tail or class_name is None:
                     return None
                 return self.qualify(class_name, file)
+        # A module-level object, possibly imported from another project module.
         qualified = self.qualify(dotted, file)
-        return None if qualified is None else self._object_class(qualified, file, set())
+        found = None if qualified is None else self._binding(qualified, file, set())
+        if found is None:
+            return None
+        module, name = found
+        class_name = self._module_bindings(module)[name]
+        return None if class_name is None else self.qualify(class_name, module)
 
     def qualify(self, dotted: str, file: Path) -> str | None:
         """Qualified name of a module-level dotted name in *file*: ``fastapi.FastAPI``."""
@@ -236,6 +283,32 @@ class SymbolResolver:
         if base is None:
             return None
         return f"{base}.{tail}" if tail else base
+
+    def instance_member(
+        self, dotted: str, node: BaseNode | Leaf, file: Path, names: Container[str]
+    ) -> bool:
+        """Whether *dotted* is ``<instance>.<member>`` and ``<its class>.<member>`` is in *names*.
+
+        ``rpc.method`` with ``rpc = Router()`` is ``mylib.Router.method``; a
+        class inherits the members of its bases, so with ``class Router(Base)``
+        it is ``mylib.Base.method`` as well.
+        """
+        receiver, _, member = dotted.rpartition(".")
+        if not receiver:
+            return False
+        class_name = self.instance_class(receiver, node, file)
+        return class_name is not None and self.inherits_from(
+            class_name, MemberOf(names, member), file
+        )
+
+    def definition(self, qualified: str, anchor: Path) -> str | None:
+        """Qualified name of the project binding *qualified* refers to, through re-exports.
+
+        ``app.api.get_db`` with ``from .deps import get_db`` in ``app/api/__init__.py``
+        is ``app.api.deps.get_db``. None for names outside the project.
+        """
+        found = self._binding(qualified, anchor.resolve(), set())
+        return None if found is None else f"{self._module_name(found[0])}.{found[1]}"
 
     def inherits_from(self, qualified: str, targets: Container[str], anchor: Path) -> bool:
         """Whether class *qualified* is one of *targets* or inherits from one of them.
@@ -258,8 +331,8 @@ class SymbolResolver:
                 return path
         return None
 
-    def _object_class(self, qualified: str, anchor: Path, seen: set[str]) -> str | None:
-        """Class of the module-level object *qualified* (``app.api.router``)."""
+    def _binding(self, qualified: str, anchor: Path, seen: set[str]) -> tuple[Path, str] | None:
+        """The project file and name that bind *qualified*, following imports."""
         if qualified in seen:
             return None
         seen.add(qualified)
@@ -267,12 +340,10 @@ class SymbolResolver:
         if found is None:
             return None
         file, name = found
-        bindings = self._module_bindings(file)
-        if name in bindings:
-            class_name = bindings[name]
-            return None if class_name is None else self.qualify(class_name, file)
+        if name in self._module_bindings(file):
+            return found
         imported = self._imported_names(file).get(name)
-        return None if imported is None else self._object_class(imported, file, seen)
+        return None if imported is None else self._binding(imported, file, seen)
 
     def _inherits(
         self, qualified: str, targets: Container[str], anchor: Path, seen: set[str]
@@ -286,7 +357,7 @@ class SymbolResolver:
         if found is None:
             return False
         file, name = found
-        tree = self._tree(file)
+        tree = self.tree(file)
         classdef = None if tree is None else self._scopes.module_class(tree, name)
         if classdef is None:
             imported = self._imported_names(file).get(name)
@@ -308,7 +379,8 @@ class SymbolResolver:
             self._bindings.pop(file, None)
             self._imports.pop(file, None)
 
-    def _tree(self, file: Path) -> Module | None:
+    def tree(self, file: Path) -> Module | None:
+        """Parsed module of a project file (resolved path), None if it cannot be read."""
         if file not in self._trees:
             try:
                 source = file.read_text()
@@ -320,13 +392,13 @@ class SymbolResolver:
 
     def _module_bindings(self, file: Path) -> Bindings:
         if file not in self._bindings:
-            tree = self._tree(file)
+            tree = self.tree(file)
             self._bindings[file] = {} if tree is None else self._scopes.bindings(tree)
         return self._bindings[file]
 
     def _imported_names(self, file: Path) -> dict[str, str]:
         if file not in self._imports:
-            tree = self._tree(file)
+            tree = self.tree(file)
             self._imports[file] = (
                 {}
                 if tree is None

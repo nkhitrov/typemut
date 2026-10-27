@@ -13,7 +13,7 @@ from typemut.model import AnnotationContext, AnnotationNode, Mutation
 from typemut.nodes import NodeSource
 from typemut.operators.base import TypeMutationOperator
 from typemut.registry import Registry
-from typemut.symbols import MemberOf, ScopeReader, SymbolResolver
+from typemut.symbols import ScopeReader, SymbolResolver
 
 SIGNATURE = frozenset((AnnotationContext.PARAMETER, AnnotationContext.RETURN))
 
@@ -36,6 +36,12 @@ class Plugin(NodeSource, ABC):
     """
 
     name: str = ""
+
+    def scan(self, files: Iterable[Path]) -> None:
+        """Collect project-wide facts from all source *files* before any :meth:`find_mutations`.
+
+        Called once per discovery. The default does nothing.
+        """
 
     def operators(self) -> list[TypeMutationOperator]:
         """Return extra, library-specific operators run on every annotation."""
@@ -97,15 +103,21 @@ class HandlerPlugin(Plugin):
         operators: Collection[TypeMutationOperator],  # pragma: no mutate
         registry: Registry,
     ) -> list[Mutation] | None:
-        """No mutations for handler signatures; leave other annotations to the core."""
+        """No mutations for skipped signature annotations; leave the others to the core."""
         if annotation.context not in SIGNATURE:
             return None
         # Parameter and return annotations only occur in function signatures.
         funcdef = annotation.node.search_ancestor("funcdef")
         assert isinstance(funcdef, Function)
-        if self._is_handler(funcdef, annotation.file):
+        if annotation.context in self._skipped(funcdef, annotation.file):
             return []
         return None
+
+    def _skipped(
+        self, funcdef: Function, file: Path
+    ) -> Container[AnnotationContext]:  # pragma: no mutate (membership-tested)
+        """Which signature annotations of *funcdef* get no mutations: all of a handler's."""
+        return SIGNATURE if self._is_handler(funcdef, file) else frozenset()
 
     @abstractmethod
     def _is_handler(
@@ -141,16 +153,5 @@ class HandlerPlugin(Plugin):
     def _is_instance_member(
         self, dotted: str, node: BaseNode | Leaf, file: Path, names: Container[str]
     ) -> bool:
-        """Whether *dotted* is ``<instance>.<member>`` and ``<its class>.<member>`` is in *names*.
-
-        ``rpc.method`` with ``rpc = Router()`` is ``mylib.Router.method``; a
-        class inherits the members of its bases, so with ``class Router(Base)``
-        it is ``mylib.Base.method`` as well.
-        """
-        receiver, _, member = dotted.rpartition(".")
-        if not receiver:
-            return False
-        class_name = self._resolver.instance_class(receiver, node, file)
-        return class_name is not None and self._resolver.inherits_from(
-            class_name, MemberOf(names, member), file
-        )
+        """Whether *dotted* is ``<instance>.<member>`` and ``<its class>.<member>`` is in *names*."""
+        return self._resolver.instance_member(dotted, node, file, names)
