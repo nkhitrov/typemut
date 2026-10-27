@@ -62,8 +62,8 @@ typemut run --jobs 8
 - **[Incremental runs](https://nkhitrov.github.io/typemut/incremental/)** — `--incremental` reuses kills whose
   files are unchanged, with recipes to [keep the database between CI runs](https://nkhitrov.github.io/typemut/ci-database/)
   on GitHub Actions and GitLab CI.
-- **[Plugins](https://nkhitrov.github.io/typemut/plugins/)** — SQLAlchemy, FastAPI, FastStream, framework entrypoints and
-  third-party plugins.
+- **[Plugins](https://nkhitrov.github.io/typemut/plugins/)** — SQLAlchemy, FastAPI, FastStream, django-modern-rest,
+  framework entrypoints and third-party plugins.
 - **[Filtering](https://nkhitrov.github.io/typemut/filtering/)** — skip comments, excluded modules, `@override`
   signatures, ignored types and class hierarchies per operator.
 - **[HTML report](https://nkhitrov.github.io/typemut/html-report/)** with per-mutant diffs and checker output.

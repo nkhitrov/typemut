@@ -126,6 +126,21 @@ class HandlerPlugin(Plugin):
         """Whether the framework calls *funcdef*, defined in *file*."""
         ...
 
+    def _is_method_of(
+        self, funcdef: Function, file: Path, classes: Container[str]
+    ) -> bool:  # pragma: no mutate (truth-tested)
+        """Whether *funcdef* is a method of a class inheriting from one of *classes*.
+
+        Inheritance is resolved statically, through project classes in any module.
+        """
+        scope = funcdef.search_ancestor("classdef", "funcdef")
+        if scope is None or scope.type != "classdef":
+            return False
+        bases = (self._resolver.qualify(base, file) for base in self._scopes.bases(scope))
+        return any(
+            base is not None and self._resolver.inherits_from(base, classes, file) for base in bases
+        )
+
     def _decorators(self, funcdef: Function) -> Iterable[BaseNode]:
         """Decorators of a function."""
         decorated = funcdef.parent
